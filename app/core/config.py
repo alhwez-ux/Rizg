@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     sahmk_rest_url: str = "https://api.sahmk.sa/api/v1"
     sahmk_data_mode: str = "delayed"
     sahmk_poll_seconds: float = Field(default=30, ge=5, le=600)
+    sahmk_watchlist_poll_seconds: float = Field(default=20, ge=5, le=600)
+    sahmk_market_scan_seconds: float = Field(default=90, ge=15, le=900)
+    sahmk_batch_size: int = Field(default=4, ge=1, le=20)
+    sahmk_request_gap_seconds: float = Field(default=0.4, ge=0.05, le=5)
+    sahmk_cache_ttl_seconds: float = Field(default=180, ge=15, le=3600)
+    sahmk_max_backoff_seconds: float = Field(default=120, ge=15, le=600)
     sahmk_symbols: list[str] = Field(default_factory=lambda: ["4030"])
     screener_leader_limit: int = Field(default=10, ge=3, le=25)
     signal_net_flow_threshold: Decimal = Field(default=Decimal("15000"))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from app.core.config import Settings
 from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot
 from app.models.trade import SessionFlow
 from app.services.liquidity_engine import LiquidityEngine
+from app.services.market_cache import MarketCache
 from app.services.signals import SignalEngine, SignalInputs, apply_levels
 from app.services.watchlist import WatchlistService
 
@@ -43,6 +45,7 @@ class ScreenerService:
         self._rest = (settings.sahmk_rest_url or "https://api.sahmk.sa/api/v1").rstrip("/")
         self._mode = (settings.sahmk_data_mode or "delayed").strip().lower()
         self._limit = settings.screener_leader_limit
+        self.cache = MarketCache(ttl_seconds=settings.sahmk_cache_ttl_seconds)
         self._guard = threading.RLock()
         self._rows: dict[str, ScreenerRow] = {}
         self._prev_volume: dict[str, Decimal] = {}
@@ -98,18 +101,38 @@ class ScreenerService:
         ]
         return list(dict.fromkeys([*explicit, *extras]))[:limit]
 
-    async def refresh_leaders(self, client: httpx.AsyncClient, api_key: str) -> None:
+    def radar_universe(self, limit: int = 40) -> list[str]:
+        """Untracked TASI names to rotate through in quote batches."""
+
+        return self.priority_symbols(limit)
+
+    async def refresh_leaders(self, client: httpx.AsyncClient, api_key: str) -> bool:
         headers = {"X-API-Key": api_key, "Accept": "application/json"}
         params = {"index": "TASI", "limit": self._limit, "data_mode": self._mode}
-        gainers = await _get_json(client, f"{self._rest}/market/gainers/", headers, params)
-        volume = await _get_json(client, f"{self._rest}/market/volume/", headers, params)
-        value = await _get_json(client, f"{self._rest}/market/value/", headers, params)
-        summary = await _get_json(
+        gainers, gainers_ok = await self._fetch_market(
+            client, "gainers", f"{self._rest}/market/gainers/", headers, params
+        )
+        await self._pace()
+        volume, volume_ok = await self._fetch_market(
+            client, "volume", f"{self._rest}/market/volume/", headers, params
+        )
+        await self._pace()
+        value, value_ok = await self._fetch_market(
+            client, "value", f"{self._rest}/market/value/", headers, params
+        )
+        await self._pace()
+        summary, summary_ok = await self._fetch_market(
             client,
+            "summary",
             f"{self._rest}/market/summary/",
             headers,
             {"index": "TASI", "data_mode": self._mode},
         )
+        live_hits = sum(1 for ok in (gainers_ok, volume_ok, value_ok, summary_ok) if ok)
+        if live_hits == 0:
+            logger.warning("market scan using cached TASI leaders after fetch failure")
+            if not any((gainers, volume, value)):
+                return False
 
         movers: dict[str, dict[str, Any]] = {}
         _merge_movers(movers, _list_from(gainers, "gainers"), "gainers")
@@ -208,6 +231,7 @@ class ScreenerService:
             self._pulse = pulse
             self._updated_at = now
             self._priority = list(dict.fromkeys(priority))
+        return True
 
     def observe_quote(
         self,
@@ -303,6 +327,40 @@ class ScreenerService:
             return self._liquidity_engine.session_snapshot(symbol)
         except Exception:
             return None
+
+    async def _pace(self) -> None:
+        if self.cache.cooling_down():
+            return
+        await asyncio.sleep(self._settings.sahmk_request_gap_seconds)
+
+    async def _fetch_market(
+        self,
+        client: httpx.AsyncClient,
+        key: str,
+        url: str,
+        headers: dict[str, str],
+        params: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, bool]:
+        if self.cache.cooling_down():
+            cached = self.cache.get_market(key)
+            return cached, False
+        try:
+            response = await client.get(url, headers=headers, params=params)
+        except httpx.HTTPError:
+            logger.warning("screener network error for %s; using cache", key)
+            return self.cache.get_market(key), False
+        if response.status_code == 429:
+            wait = self.cache.trip_rate_limit(_retry_after(response))
+            logger.warning("screener rate limited (HTTP 429) for %s; cooling %.0fs", key, wait)
+            return self.cache.get_market(key), False
+        if response.status_code >= 400:
+            logger.warning("screener HTTP %s for %s", response.status_code, key)
+            return self.cache.get_market(key), False
+        payload = _response_json(response)
+        if not isinstance(payload, dict):
+            return self.cache.get_market(key), False
+        self.cache.put_market(key, payload)
+        return payload, True
 
 
 def _build_row(
@@ -447,22 +505,22 @@ def _list_from(payload: dict[str, Any] | None, key: str) -> list[Any]:
     return rows if isinstance(rows, list) else []
 
 
-async def _get_json(
-    client: httpx.AsyncClient,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any],
-) -> dict[str, Any] | None:
+def _response_json(response: httpx.Response) -> dict[str, Any] | None:
     try:
-        response = await client.get(url, headers=headers, params=params)
-    except httpx.HTTPError:
-        logger.warning("screener request failed %s", url, exc_info=True)
+        payload = response.json()
+    except ValueError:
         return None
-    if response.status_code >= 400:
-        logger.warning("screener HTTP %s for %s", response.status_code, url.split("/api/")[-1])
-        return None
-    payload = response.json()
     return payload if isinstance(payload, dict) else None
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def _decimal(value: Any) -> Decimal:
