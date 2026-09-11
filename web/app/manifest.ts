@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "إشارات دخول وخروج من صافي تدفق الأموال مع أسعار مقترحة وهدف ووقف خسارة",
     start_url: "/",
     display: "standalone",
-    background_color: "#1A1F2C",
-    theme_color: "#1A1F2C",
+    background_color: "#0F1218",
+    theme_color: "#0F1218",
     lang: "ar",
     dir: "rtl",
     icons: [
