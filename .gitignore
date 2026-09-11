@@ -1,0 +1,13 @@
+# Environment variables & secrets
+.env
+web/.env.local
+
+# Python & Virtual Environment
+.venv/
+__pycache__/
+*.pyc
+
+# Node & Next.js build directories
+web/node_modules/
+web/.next/
+web/out/
