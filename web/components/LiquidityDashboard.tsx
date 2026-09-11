@@ -3,6 +3,7 @@
 import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { RizgLogo } from "@/components/RizgLogo";
 import { SignalBadge, SuggestedPrices } from "@/components/SignalBadge";
 import { SignalToasts, type SignalToastItem } from "@/components/SignalToasts";
 import { StockSignalCard } from "@/components/StockSignalCard";
@@ -99,6 +100,8 @@ export function LiquidityDashboard({
         new Notification(`${title} ${toast.row.symbol}`, {
           body: price != null ? `${priceLabel}: ${price}` : toast.row.reasons[0],
           tag: toast.id,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-32.png",
         });
       }
     }
@@ -138,8 +141,11 @@ export function LiquidityDashboard({
 
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[13px] font-medium tracking-wide text-emerald-400/80">{ar.brand}</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">{ar.title}</h1>
+          <div className="flex items-center gap-3">
+            <RizgLogo className="h-12 w-12 shrink-0 sm:h-14 sm:w-14" />
+            <p className="text-2xl font-semibold tracking-wide text-emerald-400 sm:text-3xl">{ar.brand}</p>
+          </div>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">{ar.title}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-500">{ar.subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

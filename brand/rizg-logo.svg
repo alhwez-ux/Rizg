@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Rizg">
+  <title>Rizg</title>
+  <rect width="1024" height="1024" fill="#1A1F2C"/>
+
+  <g transform="translate(512 352)" fill="none" stroke="#2D3446" stroke-linecap="round">
+    <line x1="0" y1="-198" x2="0" y2="186" stroke-width="2.5"/>
+    <line x1="-186" y1="0" x2="186" y2="0" stroke-width="2.5"/>
+    <circle r="78" stroke-width="5" stroke-dasharray="402 88" stroke-dashoffset="323"/>
+    <circle r="114" stroke-width="5.5" stroke-dasharray="587 129" stroke-dashoffset="473"/>
+    <circle r="150" stroke-width="6" stroke-dasharray="773 170" stroke-dashoffset="622"/>
+    <circle r="186" stroke-width="6" stroke-dasharray="958 211" stroke-dashoffset="771"/>
+  </g>
+
+  <g transform="translate(512 352)" fill="#00E676">
+    <path
+      fill="none"
+      stroke="#00E676"
+      stroke-width="34"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M-72-74 V80
+         M-72-74 C8-76 58-46 58-6
+         C58 28 28 52 -18 56
+         M8 40 L58 96
+         M58-6 L118-66"
+    />
+    <path d="M104-92 L168-70 L126-20 Z"/>
+  </g>
+
+  <text
+    x="512"
+    y="628"
+    text-anchor="middle"
+    fill="#F4F7FB"
+    font-family="Cairo, 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif"
+    font-size="92"
+    font-weight="600"
+    direction="rtl"
+  >&#x631;&#x650;&#x632;&#x642;</text>
+
+  <text
+    x="512"
+    y="722"
+    text-anchor="middle"
+    fill="#00E676"
+    font-family="Inter, 'Segoe UI', system-ui, sans-serif"
+    font-size="64"
+    font-weight="700"
+    letter-spacing="10"
+  >RIZG</text>
+</svg>

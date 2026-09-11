@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Rizg mark">
+  <title>Rizg mark</title>
+  <rect width="512" height="512" rx="96" fill="#1A1F2C"/>
+
+  <g transform="translate(256 256)" fill="none" stroke="#2D3446" stroke-linecap="round">
+    <line x1="0" y1="-196" x2="0" y2="184" stroke-width="3"/>
+    <line x1="-184" y1="0" x2="184" y2="0" stroke-width="3"/>
+    <circle r="72" stroke-width="6" stroke-dasharray="371 81" stroke-dashoffset="299"/>
+    <circle r="108" stroke-width="6.5" stroke-dasharray="556 122" stroke-dashoffset="448"/>
+    <circle r="144" stroke-width="7" stroke-dasharray="742 163" stroke-dashoffset="597"/>
+    <circle r="180" stroke-width="7" stroke-dasharray="927 204" stroke-dashoffset="746"/>
+  </g>
+
+  <g transform="translate(256 262)" fill="#00E676">
+    <path
+      fill="none"
+      stroke="#00E676"
+      stroke-width="36"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M-78-80 V88
+         M-78-80 C10-82 64-50 64-6
+         C64 32 30 58 -20 62
+         M8 44 L62 104
+         M64-6 L128-70"
+    />
+    <path d="M112-98 L180-74 L136-20 Z"/>
+  </g>
+</svg>
