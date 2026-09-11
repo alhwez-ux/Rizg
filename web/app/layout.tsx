@@ -23,13 +23,13 @@ export const metadata: Metadata = {
     telephone: false,
   },
   other: {
-    "msapplication-TileColor": "#0F1218",
+    "msapplication-TileColor": "#0B0F19",
     "msapplication-TileImage": "/icons/icon-256.png",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0F1218",
+  themeColor: "#0B0F19",
   colorScheme: "dark",
 };
 

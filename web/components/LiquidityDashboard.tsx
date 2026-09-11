@@ -141,10 +141,7 @@ export function LiquidityDashboard({
 
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <RizgLogo className="h-12 w-12 shrink-0 sm:h-14 sm:w-14" />
-            <p className="text-2xl font-semibold tracking-wide text-zinc-100 sm:text-3xl">{ar.brand}</p>
-          </div>
+          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" />
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">{ar.title}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-500">{ar.subtitle}</p>
         </div>

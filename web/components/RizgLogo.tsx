@@ -1,73 +1,56 @@
 import {
   RIZG_ACCENT,
   RIZG_BG,
+  RIZG_DOT,
   RIZG_INK,
-  RIZG_INK_SOFT,
   RIZG_MONOGRAM_PATH,
+  RIZG_SIZE,
+  RIZG_STROKE_WIDTH,
 } from "@/lib/rizg-mark";
 
 type RizgLogoProps = {
-  size?: number;
   className?: string;
-  framed?: boolean;
+  iconClassName?: string;
+  withWordmark?: boolean;
   title?: string;
 };
 
 export function RizgLogo({
-  size = 56,
   className = "",
-  framed = true,
-  title = "رزق",
+  iconClassName = "h-10 w-10",
+  withWordmark = true,
+  title = "رِزق",
 }: RizgLogoProps) {
-  const gradientId = "rizg-mark-silver";
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 128 128"
-      fill="none"
-      role="img"
-      aria-label={title}
-      className={className}
-    >
-      <title>{title}</title>
-      {framed ? (
-        <>
-          <rect width="128" height="128" rx="32" fill={RIZG_BG} />
-          <rect
-            x="1"
-            y="1"
-            width="126"
-            height="126"
-            rx="31"
-            stroke="#FFFFFF"
-            strokeOpacity="0.08"
-          />
-        </>
+    <div className={`flex items-center gap-3 ${className}`}>
+      <svg
+        viewBox={`0 0 ${RIZG_SIZE} ${RIZG_SIZE}`}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={`${iconClassName} shrink-0`}
+        role="img"
+        aria-label={title}
+      >
+        <title>{title}</title>
+        <rect width={RIZG_SIZE} height={RIZG_SIZE} rx="12" fill={RIZG_BG} />
+        <path
+          d={RIZG_MONOGRAM_PATH}
+          stroke={RIZG_INK}
+          strokeWidth={RIZG_STROKE_WIDTH}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx={RIZG_DOT.cx} cy={RIZG_DOT.cy} r={RIZG_DOT.r} fill={RIZG_ACCENT} />
+      </svg>
+
+      {withWordmark ? (
+        <div className="flex flex-col">
+          <span className="text-lg font-bold tracking-wide text-white">رِزق</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400">
+            RIZG RADAR
+          </span>
+        </div>
       ) : null}
-      <defs>
-        <linearGradient
-          id={gradientId}
-          x1="30"
-          y1="24"
-          x2="108"
-          y2="100"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="#F8FAFC" />
-          <stop offset="0.5" stopColor={RIZG_INK_SOFT} />
-          <stop offset="1" stopColor={RIZG_INK} />
-        </linearGradient>
-      </defs>
-      <path
-        d={RIZG_MONOGRAM_PATH}
-        stroke={`url(#${gradientId})`}
-        strokeWidth="12.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="110" cy="31" r="7" fill={RIZG_ACCENT} />
-    </svg>
+    </div>
   );
 }
