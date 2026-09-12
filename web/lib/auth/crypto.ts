@@ -2,9 +2,12 @@ import { authSecret } from "./config";
 
 const encoder = new TextEncoder();
 
-function toHex(buffer: ArrayBuffer | Uint8Array): string {
-  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+function toBytes(input: ArrayBuffer | Uint8Array): Uint8Array {
+  return input instanceof Uint8Array ? input : new Uint8Array(input);
+}
+
+function toHex(input: ArrayBuffer | Uint8Array): string {
+  return Array.from(toBytes(input), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function fromHex(hex: string): Uint8Array {
@@ -37,7 +40,7 @@ export async function verifySigned(token: string): Promise<string | null> {
     const ok = await crypto.subtle.verify(
       "HMAC",
       await hmacKey(),
-      fromHex(sig) as BufferSource,
+      Uint8Array.from(fromHex(sig)),
       encoder.encode(value),
     );
     return ok ? value : null;
@@ -47,10 +50,10 @@ export async function verifySigned(token: string): Promise<string | null> {
 }
 
 export async function hashSecret(secret: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
-  const salt = (saltHex ? fromHex(saltHex) : crypto.getRandomValues(new Uint8Array(16))) as BufferSource;
+  const salt = saltHex ? Uint8Array.from(fromHex(saltHex)) : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations: 120_000 },
+    { name: "PBKDF2", hash: "SHA-256", salt: Uint8Array.from(salt), iterations: 120_000 },
     key,
     256,
   );
