@@ -12,6 +12,7 @@ import { StockSignalCard } from "@/components/StockSignalCard";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { useScreener } from "@/hooks/useScreener";
 import { useStockRadar } from "@/hooks/useStockRadar";
+import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
 import { isAudioUnlocked, playSignalSound, unlockAudio } from "@/lib/audio";
 import { wsUrlFor } from "@/lib/api";
@@ -171,6 +172,7 @@ export function LiquidityDashboard({
   };
 
   const pulse = snapshot?.pulse;
+  const { tone } = useTasiTone(pulse?.index_change_percent);
   const screenerRows = useMemo(
     () =>
       [...watchlistRows, ...radarRows].filter(
@@ -185,7 +187,7 @@ export function LiquidityDashboard({
 
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" />
+          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" tone={tone} />
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">{ar.title}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-500">{ar.subtitle}</p>
         </div>
@@ -221,6 +223,7 @@ export function LiquidityDashboard({
           <PulseStat
             label={snapshot?.delayed ? ar.delayed : ar.liveData}
             value={formatPercent(pulse.index_change_percent)}
+            tone={tone}
           />
         </div>
       ) : null}
@@ -353,11 +356,21 @@ export function LiquidityDashboard({
   );
 }
 
-function PulseStat({ label, value }: { label: string; value: string }) {
+function PulseStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "up" | "down" | "flat";
+}) {
+  const valueClass =
+    tone === "up" ? "text-emerald-400" : tone === "down" ? "text-rose-400" : "text-zinc-200";
   return (
     <div>
       <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-1 font-mono text-sm text-zinc-200" dir="ltr">
+      <p className={`mt-1 font-mono text-sm ${valueClass}`} dir="ltr">
         {value}
       </p>
     </div>

@@ -4,6 +4,9 @@
   "env": {
     "DATABASE_URL": "file:./dev.db",
     "ACCESS_PIN": "123456",
-    "AUTH_SECRET": "rizg-personal-gate-v1"
+    "AUTH_SECRET": "rizg-personal-gate-v1",
+    "NEXT_PUBLIC_API_URL": "https://rizg-backend.onrender.com",
+    "NEXT_PUBLIC_WS_URL": "wss://rizg-backend.onrender.com",
+    "API_PROXY_URL": "https://rizg-backend.onrender.com"
   }
 }
