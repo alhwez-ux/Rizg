@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AUTH_VERSION, SESSION_COOKIE } from "@/lib/auth";
-import { readSessionToken } from "@/lib/auth/session";
+import { AUTH_VERSION, SESSION_COOKIE } from "@/lib/auth/config";
+import { readSessionToken, sessionCookieFromRequest } from "@/lib/auth/token";
 
 const PUBLIC_PATHS = ["/login", "/api/auth", "/sw.js", "/version.json"];
-const STALE_COOKIES = ["rizg_session", "rizg_session_v3", "rizg_pin_cfg", "rizg_pin_cfg_v3"];
+const STALE_COOKIES = [
+  "rizg_session",
+  "rizg_session_v3",
+  "rizg_session_v4",
+  "rizg_pin_cfg",
+  "rizg_pin_cfg_v3",
+  "rizg_pin_cfg_v4",
+];
+
+function withNoStore(response: NextResponse, auth: string): NextResponse {
+  response.headers.set("x-rizg-build", AUTH_VERSION);
+  response.headers.set("x-rizg-auth", auth);
+  response.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("CDN-Cache-Control", "no-store");
+  response.headers.set("Vercel-CDN-Cache-Control", "no-store");
+  return response;
+}
+
+function clearStale(request: NextRequest, response: NextResponse): void {
+  for (const name of STALE_COOKIES) {
+    if (name !== SESSION_COOKIE && request.cookies.has(name)) {
+      response.cookies.set(name, "", { path: "/", maxAge: 0 });
+    }
+  }
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,33 +42,27 @@ export async function middleware(request: NextRequest) {
     pathname === "/version.json" ||
     PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
   ) {
-    const pass = NextResponse.next();
-    pass.headers.set("x-rizg-build", AUTH_VERSION);
-    for (const name of STALE_COOKIES) {
-      if (request.cookies.has(name)) pass.cookies.set(name, "", { path: "/", maxAge: 0 });
-    }
+    const pass = withNoStore(NextResponse.next(), "public");
+    clearStale(request, pass);
     return pass;
   }
 
-  const ok = await readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  const token = sessionCookieFromRequest(request.cookies);
+  const ok = await readSessionToken(token);
   if (ok) {
-    const pass = NextResponse.next();
-    pass.headers.set("x-rizg-build", AUTH_VERSION);
-    return pass;
+    return withNoStore(NextResponse.next(), "ok");
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ message: "unauthorized" }, { status: 401 });
+    return withNoStore(NextResponse.json({ message: "unauthorized" }, { status: 401 }), token ? "invalid" : "missing");
   }
 
   const login = request.nextUrl.clone();
   login.pathname = "/login";
   login.searchParams.set("next", pathname);
-  const redirect = NextResponse.redirect(login);
-  redirect.headers.set("x-rizg-build", AUTH_VERSION);
-  for (const name of STALE_COOKIES) {
-    if (request.cookies.has(name)) redirect.cookies.set(name, "", { path: "/", maxAge: 0 });
-  }
+  login.searchParams.set("v", AUTH_VERSION);
+  const redirect = withNoStore(NextResponse.redirect(login), token ? "invalid" : "missing");
+  clearStale(request, redirect);
   return redirect;
 }
 

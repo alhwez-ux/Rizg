@@ -9,11 +9,6 @@ const STORAGE_KEY = "rizg-build";
 export function AppUpdateGuard() {
   useEffect(() => {
     const previous = window.localStorage.getItem(STORAGE_KEY);
-    if (previous === AUTH_VERSION) {
-      void navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
-      return;
-    }
-
     void (async () => {
       try {
         if ("serviceWorker" in navigator) {
@@ -28,11 +23,11 @@ export function AppUpdateGuard() {
         /* ignore */
       }
       window.localStorage.setItem(STORAGE_KEY, AUTH_VERSION);
-      if (previous) {
-        window.location.reload();
-        return;
+      if (previous && previous !== AUTH_VERSION) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("v", AUTH_VERSION);
+        window.location.replace(url.pathname + url.search);
       }
-      void navigator.serviceWorker?.register("/sw.js").catch(() => undefined);
     })();
   }, []);
 

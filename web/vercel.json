@@ -3,6 +3,7 @@
   "framework": "nextjs",
   "env": {
     "DATABASE_URL": "file:./dev.db",
-    "ACCESS_PIN": "123456"
+    "ACCESS_PIN": "123456",
+    "AUTH_SECRET": "rizg-personal-gate-v1"
   }
 }

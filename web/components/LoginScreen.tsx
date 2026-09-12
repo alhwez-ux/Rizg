@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 
 import { RizgLogo } from "@/components/RizgLogo";
 import { ar } from "@/lib/ar";
-import { PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
+import { AUTH_VERSION, PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
 
 type Mode = "login" | "recover" | "reset";
 
@@ -20,7 +20,10 @@ export function LoginScreen() {
 
   const goHome = () => {
     const next = new URLSearchParams(window.location.search).get("next") || "/";
-    window.location.assign(next.startsWith("/") ? next : "/");
+    const path = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set("v", AUTH_VERSION);
+    window.location.replace(url.pathname + url.search);
   };
 
   const onLogin = async (event: FormEvent) => {
@@ -30,6 +33,8 @@ export function LoginScreen() {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "include",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
       });
@@ -53,6 +58,8 @@ export function LoginScreen() {
     try {
       const response = await fetch("/api/auth/recover", {
         method: "POST",
+        credentials: "include",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
@@ -77,6 +84,8 @@ export function LoginScreen() {
     try {
       const response = await fetch("/api/auth/reset", {
         method: "POST",
+        credentials: "include",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, pin, confirm }),
       });

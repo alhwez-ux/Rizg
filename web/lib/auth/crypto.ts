@@ -22,7 +22,6 @@ function fromHex(hex: string): Uint8Array {
 async function hmacKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", encoder.encode(authSecret()), { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
-    "verify",
   ]);
 }
 
@@ -35,15 +34,18 @@ export async function verifySigned(token: string): Promise<string | null> {
   const split = token.lastIndexOf(".");
   if (split <= 0) return null;
   const value = token.slice(0, split);
-  const sig = token.slice(split + 1);
+  const sig = token.slice(split + 1).trim().toLowerCase();
+  if (!/^[0-9a-f]+$/.test(sig)) return null;
   try {
-    const ok = await crypto.subtle.verify(
-      "HMAC",
-      await hmacKey(),
-      Uint8Array.from(fromHex(sig)),
-      encoder.encode(value),
-    );
-    return ok ? value : null;
+    // Edge runtimes often reject HMAC verify(); sign + compare is portable.
+    const signature = await crypto.subtle.sign("HMAC", await hmacKey(), encoder.encode(value));
+    const expected = toHex(signature);
+    if (expected.length !== sig.length) return null;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i += 1) {
+      diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+    }
+    return diff === 0 ? value : null;
   } catch {
     return null;
   }

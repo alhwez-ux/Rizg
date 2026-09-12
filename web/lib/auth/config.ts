@@ -20,8 +20,11 @@ export const DEFAULT_PIN = "123456";
 export const SESSION_COOKIE = `rizg_session_v${AUTH_VERSION}`;
 export const PIN_SETUP_COOKIE = `rizg_pin_cfg_v${AUTH_VERSION}`;
 
+const FALLBACK_SECRET = "rizg-personal-gate-v1";
+
 export function authSecret(): string {
-  return process.env.AUTH_SECRET?.trim() || "rizg-personal-gate-v1";
+  const fromEnv = process.env.AUTH_SECRET?.trim();
+  return fromEnv || FALLBACK_SECRET;
 }
 
 export function defaultAccessPin(): string {
