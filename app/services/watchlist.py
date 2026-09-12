@@ -4,8 +4,9 @@ import json
 import threading
 from pathlib import Path
 
-from app.core.exceptions import InvalidSymbolError, WatchlistFullError
+from app.core.exceptions import InvalidSymbolError, ProhibitedSymbolError, WatchlistFullError
 from app.models.screener import normalize_tasi_symbol
+from app.services.shariah import is_prohibited
 
 _DEFAULT_PATH = Path("data/watchlist.json")
 _DEFAULT_SYMBOLS = ("4030",)
@@ -40,6 +41,8 @@ class WatchlistService:
             ticker = normalize_tasi_symbol(raw_symbol)
         except ValueError as exc:
             raise InvalidSymbolError(raw_symbol) from exc
+        if is_prohibited(ticker):
+            raise ProhibitedSymbolError(ticker)
         with self._guard:
             if ticker not in self._symbols:
                 if len(self._symbols) >= self._max:

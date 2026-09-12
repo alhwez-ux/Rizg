@@ -14,6 +14,7 @@ from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot
 from app.models.trade import SessionFlow
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
+from app.services.shariah import is_prohibited
 from app.services.signals import SignalEngine, SignalInputs, apply_levels
 from app.services.watchlist import WatchlistService
 
@@ -54,14 +55,15 @@ class ScreenerService:
         self._priority: list[str] = []
 
     def snapshot(self) -> ScreenerSnapshot:
-        tracked = set(self._watchlist.symbols())
+        tracked = [symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)]
+        tracked_set = set(tracked)
         with self._guard:
             rows_by_symbol = dict(self._rows)
             pulse = self._pulse
             updated = self._updated_at
 
         watchlist: list[ScreenerRow] = []
-        for symbol in self._watchlist.symbols():
+        for symbol in tracked:
             row = rows_by_symbol.get(symbol)
             if row is None:
                 watchlist.append(ScreenerRow(symbol=symbol, tracked=True))
@@ -71,7 +73,9 @@ class ScreenerService:
         radar = [
             row.model_copy(update={"tracked": False})
             for row in rows_by_symbol.values()
-            if row.symbol not in tracked and (row.entry_signal or row.exit_signal or row.unexpected)
+            if row.symbol not in tracked_set
+            and not is_prohibited(row.symbol)
+            and (row.entry_signal or row.exit_signal or row.unexpected)
         ]
         radar.sort(key=lambda row: (row.score, abs(row.net_flow)), reverse=True)
         return ScreenerSnapshot(
@@ -84,14 +88,15 @@ class ScreenerService:
         )
 
     def priority_symbols(self, limit: int = 8) -> list[str]:
-        tracked = set(self._watchlist.symbols())
+        tracked = {symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)}
         with self._guard:
-            explicit = list(self._priority)
+            explicit = [symbol for symbol in self._priority if not is_prohibited(symbol)]
             rows = list(self._rows.values())
         extras = [
             row.symbol
             for row in rows
             if row.symbol not in tracked
+            and not is_prohibited(row.symbol)
             and (
                 row.entry_signal
                 or row.exit_signal
@@ -150,6 +155,8 @@ class ScreenerService:
         priority: list[str] = []
 
         for symbol, raw in movers.items():
+            if is_prohibited(symbol):
+                continue
             volume_now = _decimal(raw.get("volume"))
             prev = previous_volumes.get(symbol)
             existing = existing_rows.get(symbol)
@@ -243,6 +250,8 @@ class ScreenerService:
         merged, liquidity = _flatten_quote(payload)
         symbol = str(merged.get("symbol") or "").strip().upper()
         if not symbol:
+            return None
+        if is_prohibited(symbol) and not tracked:
             return None
         volume_now = _decimal(merged.get("volume"))
         with self._guard:

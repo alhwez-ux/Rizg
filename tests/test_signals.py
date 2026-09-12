@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from app.core.config import Settings
+from app.core.exceptions import ProhibitedSymbolError
 from app.services.screener import ScreenerService
 from app.services.signals import SignalEngine, SignalInputs
 from app.services.watchlist import WatchlistService
@@ -157,6 +158,33 @@ def test_watchlist_add_and_remove_roundtrip(tmp_path) -> None:
     assert service.add("2222") == ["4030", "2222"]
     assert service.remove("2222") == ["4030"]
     assert service.remove("4030") == ["4030"]
+
+
+def test_prohibited_symbol_never_reaches_radar(tmp_path) -> None:
+    watchlist = WatchlistService(path=tmp_path / "watchlist.json", initial=["4030"])
+    screener = ScreenerService(Settings(signal_net_flow_threshold=Decimal("15000")), watchlist)
+    payload = {
+        "symbol": "1010",
+        "name": "بنك الرياض",
+        "price": "28.10",
+        "volume": "9000",
+        "change_percent": "1.2",
+        "liquidity": {
+            "inflow_value": "10000",
+            "outflow_value": "85000",
+            "net_value": "-75000",
+            "inflow_volume": "1100",
+            "outflow_volume": "7400",
+        },
+    }
+    assert screener.observe_quote(payload, tracked=False) is None
+    snapshot = screener.snapshot()
+    assert all(row.symbol != "1010" for row in snapshot.radar)
+    try:
+        watchlist.add("1010")
+    except ProhibitedSymbolError:
+        return
+    raise AssertionError("prohibited symbol was accepted")
 
 
 def test_entry_suggests_bid_or_vwap_with_atr_target_and_stop() -> None:

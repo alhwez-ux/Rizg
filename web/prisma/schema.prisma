@@ -1,0 +1,200 @@
+generator client {
+
+  provider = "prisma-client-js"
+
+}
+
+
+
+datasource db {
+
+  provider = "sqlite"
+
+  url      = env("DATABASE_URL")
+
+}
+
+
+
+enum ComplianceStatus {
+
+  PURE
+
+  MIXED
+
+  PROHIBITED
+
+}
+
+
+
+enum Quarter {
+
+  Q1
+
+  Q2
+
+  Q3
+
+  Q4
+
+}
+
+
+
+enum FinancialGrade {
+
+  A
+
+  B
+
+  C
+
+  D
+
+  E
+
+}
+
+
+
+/// Current Shariah screening snapshot for a Tadawul name.
+
+model StockCompliance {
+
+  id                String              @id @default(cuid())
+
+  symbol            String              @unique
+
+  companyNameAr     String
+
+  companyNameEn     String
+
+  currentStatus     ComplianceStatus
+
+  sector            String
+
+  financialGrade    FinancialGrade      @default(C)
+
+  gradeScore        Float               @default(50)
+
+  gradeSolvency     Float               @default(50)
+
+  gradeDividends    Float               @default(50)
+
+  gradeValuation    Float               @default(50)
+
+  gradeGrowth       Float               @default(50)
+
+  peRatio           Float?
+
+  pbRatio           Float?
+
+  dividendYield     Float?
+
+  revenueGrowth     Float?
+
+  operatingGrowth   Float?
+
+  netIncomeMargin   Float?
+
+  currentRatio      Float?
+
+  dividendYears     Int                 @default(0)
+
+  rsi               Float?
+
+  ema50             Float?
+
+  ema200            Float?
+
+  macd              Float?
+
+  avgVolume         Float?
+
+  isLosing          Boolean             @default(false)
+
+  lossReason        String?
+
+  createdAt         DateTime            @default(now())
+
+  updatedAt         DateTime            @updatedAt
+
+  history           ComplianceHistory[]
+
+  dividends         Dividend[]
+
+}
+
+
+
+/// Quarterly screening record, including the purification rate to apply when MIXED.
+
+model ComplianceHistory {
+
+  id                String           @id @default(cuid())
+
+  stockId           String
+
+  stock             StockCompliance  @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  year              Int
+
+  quarter           Quarter
+
+  status            ComplianceStatus
+
+  purificationRate  Float
+
+  debtRatio         Float            @default(0)
+
+  impureIncomeRatio Float            @default(0)
+
+  createdAt         DateTime         @default(now())
+
+
+
+  @@unique([stockId, year, quarter])
+
+  @@index([stockId, year, quarter])
+
+}
+
+
+
+/// Cash dividend events for a stock (`stocks/{symbol}/dividends` in the Firestore mirror).
+
+model Dividend {
+
+  id               String          @id @default(cuid())
+
+  stockId          String
+
+  stock            StockCompliance @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  announcementDate DateTime
+
+  eligibilityDate  DateTime
+
+  distributionDate DateTime
+
+  amountPerShare   Float
+
+
+
+  @@index([stockId, eligibilityDate])
+}
+
+/// Single-row gate for the dashboard PIN (chosen by the owner).
+model AppAuth {
+  id             String    @id @default("gate")
+  pinHash        String
+  pinSalt        String
+  recoveryEmail  String    @default("alhwez@gmail.com")
+  resetCodeHash  String?
+  resetSalt      String?
+  resetExpires   DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+

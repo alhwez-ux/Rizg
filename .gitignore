@@ -1,6 +1,12 @@
 # Environment variables & secrets
 .env
+web/.env
 web/.env.local
+
+# Prisma
+web/prisma/dev.db
+web/prisma/dev.db-journal
+web/prisma/*.db
 
 # Python & Virtual Environment
 .venv/

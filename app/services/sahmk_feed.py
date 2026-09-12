@@ -16,6 +16,7 @@ from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
 from app.services.screener import ScreenerService
+from app.services.shariah import is_prohibited
 from app.services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
@@ -114,8 +115,8 @@ class SahmkTradeFeed:
 
     def _watchlist_targets(self) -> list[str]:
         if self._watchlist:
-            return self._watchlist.symbols()
-        return list(self._symbols)
+            return [symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)]
+        return [symbol for symbol in self._symbols if not is_prohibited(symbol)]
 
     def _radar_targets(self) -> list[str]:
         watched = set(self._watchlist_targets())

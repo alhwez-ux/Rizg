@@ -67,3 +67,13 @@ class WatchlistFullError(AppError):
             error_code="watchlist_full",
             details={"max_symbols": max_symbols},
         )
+
+
+class ProhibitedSymbolError(AppError):
+    def __init__(self, symbol: str) -> None:
+        super().__init__(
+            "هذا السهم محرّم ولا يُعرض في رادار السيولة",
+            status_code=422,
+            error_code="prohibited_symbol",
+            details={"symbol": symbol},
+        )

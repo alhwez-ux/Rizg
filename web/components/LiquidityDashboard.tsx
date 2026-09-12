@@ -3,12 +3,15 @@
 import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { AuthControls } from "@/components/AuthControls";
 import { RizgLogo } from "@/components/RizgLogo";
 import { SignalBadge, SuggestedPrices } from "@/components/SignalBadge";
 import { SignalToasts, type SignalToastItem } from "@/components/SignalToasts";
+import { StockRadarTable } from "@/components/StockRadarTable";
 import { StockSignalCard } from "@/components/StockSignalCard";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { useScreener } from "@/hooks/useScreener";
+import { useStockRadar } from "@/hooks/useStockRadar";
 import { ar } from "@/lib/ar";
 import { isAudioUnlocked, playSignalSound, unlockAudio } from "@/lib/audio";
 import { wsUrlFor } from "@/lib/api";
@@ -47,11 +50,20 @@ export function LiquidityDashboard({
   symbol?: string;
 }) {
   const { snapshot, error, adding, addSymbol, removeSymbol } = useScreener();
+  const {
+    rows: tableRows,
+    prohibitedSymbols,
+    loading: radarTableLoading,
+    error: radarError,
+    configured,
+    refresh: refreshRadar,
+  } = useStockRadar();
   const [selected, setSelected] = useState(symbol);
   const [draft, setDraft] = useState("");
   const [muted, setMuted] = useState(false);
   const [soundArmed, setSoundArmed] = useState(false);
   const [toasts, setToasts] = useState<SignalToastItem[]>([]);
+  const [complianceError, setComplianceError] = useState<string | null>(null);
   const seenSignals = useRef<Set<string>>(new Set());
   const primed = useRef(false);
 
@@ -59,10 +71,29 @@ export function LiquidityDashboard({
   const { tick, sparkline, alerts, status, attempts } = useLiquiditySocket(wsUrl);
   const liveTick = tick?.symbol === selected ? tick : null;
   const regime = regimeFromNetFlow(liveTick?.netFlow ?? 0);
+  const radarRows = useMemo(() => {
+    const rows = snapshot?.radar ?? [];
+    if (!configured || radarError || radarTableLoading) return rows;
+    return rows.filter((row) => !prohibitedSymbols.has(row.symbol));
+  }, [configured, prohibitedSymbols, radarError, radarTableLoading, snapshot?.radar]);
+
+  const watchlistRows = useMemo(() => {
+    const rows = snapshot?.watchlist ?? [];
+    if (!configured || radarError || radarTableLoading) return rows;
+    return rows.filter((row) => !prohibitedSymbols.has(row.symbol));
+  }, [configured, prohibitedSymbols, radarError, radarTableLoading, snapshot?.watchlist]);
+
   const selectedRow =
-    snapshot?.watchlist.find((row) => row.symbol === selected) ??
-    snapshot?.radar.find((row) => row.symbol === selected) ??
+    watchlistRows.find((row) => row.symbol === selected) ??
+    radarRows.find((row) => row.symbol === selected) ??
     null;
+
+  useEffect(() => {
+    if (!prohibitedSymbols.has(selected)) return;
+    const next =
+      watchlistRows[0]?.symbol ?? radarRows[0]?.symbol ?? tableRows[0]?.symbol;
+    if (next && next !== selected) setSelected(next);
+  }, [prohibitedSymbols, radarRows, selected, tableRows, watchlistRows]);
 
   useEffect(() => {
     try {
@@ -74,7 +105,7 @@ export function LiquidityDashboard({
 
   useEffect(() => {
     if (!snapshot) return;
-    const rows = [...snapshot.watchlist, ...snapshot.radar];
+    const rows = [...watchlistRows, ...radarRows];
     const next: SignalToastItem[] = [];
     for (const row of rows) {
       if (!row.entry_signal && !row.exit_signal) continue;
@@ -105,7 +136,7 @@ export function LiquidityDashboard({
         });
       }
     }
-  }, [muted, snapshot]);
+  }, [muted, radarRows, snapshot, watchlistRows]);
 
   const toggleMute = () => {
     setMuted((current) => {
@@ -124,9 +155,15 @@ export function LiquidityDashboard({
     event.preventDefault();
     const value = draft.trim();
     if (!value) return;
+    const normalized = value.replace(/\D/g, "") || value;
+    if (prohibitedSymbols.has(normalized)) {
+      setComplianceError(ar.prohibitedBlocked);
+      return;
+    }
     try {
+      setComplianceError(null);
       await addSymbol(value);
-      setSelected(value.replace(/\D/g, "") || value);
+      setSelected(normalized);
       setDraft("");
     } catch {
       /* error banner from hook */
@@ -134,6 +171,13 @@ export function LiquidityDashboard({
   };
 
   const pulse = snapshot?.pulse;
+  const screenerRows = useMemo(
+    () =>
+      [...watchlistRows, ...radarRows].filter(
+        (row, index, rows) => rows.findIndex((item) => item.symbol === row.symbol) === index,
+      ),
+    [radarRows, watchlistRows],
+  );
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 lg:px-8">
@@ -146,6 +190,7 @@ export function LiquidityDashboard({
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-500">{ar.subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <AuthControls />
           <ConnectionBadge status={status} attempts={attempts} />
           <button
             type="button"
@@ -180,20 +225,39 @@ export function LiquidityDashboard({
         </div>
       ) : null}
 
-      {error ? (
-        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-200">{error}</p>
+      {(error || complianceError) ? (
+        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-200">
+          {complianceError ?? error}
+        </p>
       ) : null}
+
+      <StockRadarTable
+        rows={tableRows}
+        loading={radarTableLoading}
+        error={radarError}
+        onRetry={() => {
+          void refreshRadar();
+        }}
+        selectedSymbol={selected}
+        onSelect={setSelected}
+        screenerRows={screenerRows}
+      />
 
       <div className="grid gap-4 lg:grid-cols-12">
         <section className="lg:col-span-7">
           <div className="mb-3">
             <h2 className="text-lg font-semibold text-zinc-100">{ar.radarTitle}</h2>
-            <p className="mt-1 text-xs text-zinc-500">{ar.radarHint}</p>
+            <p className="mt-1 text-xs text-zinc-500">{ar.radarHintCompliant}</p>
           </div>
-          {snapshot?.radar.length ? (
+          {radarRows.length ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {snapshot.radar.map((row) => (
-                <StockSignalCard key={row.symbol} row={row} selected={row.symbol === selected} onSelect={setSelected} />
+              {radarRows.map((row) => (
+                <StockSignalCard
+                  key={row.symbol}
+                  row={row}
+                  selected={row.symbol === selected}
+                  onSelect={setSelected}
+                />
               ))}
             </div>
           ) : (
@@ -226,17 +290,23 @@ export function LiquidityDashboard({
             </button>
           </form>
           <div className="grid gap-3">
-            {snapshot?.watchlist.map((row) => (
-              <StockSignalCard
-                key={row.symbol}
-                row={row}
-                selected={row.symbol === selected}
-                onSelect={setSelected}
-                onRemove={(ticker) => {
-                  void removeSymbol(ticker);
-                }}
-              />
-            ))}
+            {watchlistRows.length ? (
+              watchlistRows.map((row) => (
+                <StockSignalCard
+                  key={row.symbol}
+                  row={row}
+                  selected={row.symbol === selected}
+                  onSelect={setSelected}
+                  onRemove={(ticker) => {
+                    void removeSymbol(ticker);
+                  }}
+                />
+              ))
+            ) : (
+              <p className="rounded-2xl border border-dashed border-zinc-800 px-4 py-8 text-center text-sm text-zinc-500">
+                {ar.watchlistEmpty}
+              </p>
+            )}
           </div>
         </section>
       </div>
