@@ -34,7 +34,12 @@ export async function verifySigned(token: string): Promise<string | null> {
   const value = token.slice(0, split);
   const sig = token.slice(split + 1);
   try {
-    const ok = await crypto.subtle.verify("HMAC", await hmacKey(), fromHex(sig), encoder.encode(value));
+    const ok = await crypto.subtle.verify(
+      "HMAC",
+      await hmacKey(),
+      fromHex(sig) as BufferSource,
+      encoder.encode(value),
+    );
     return ok ? value : null;
   } catch {
     return null;
@@ -42,7 +47,7 @@ export async function verifySigned(token: string): Promise<string | null> {
 }
 
 export async function hashSecret(secret: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
-  const salt = saltHex ? fromHex(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const salt = (saltHex ? fromHex(saltHex) : crypto.getRandomValues(new Uint8Array(16))) as BufferSource;
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt, iterations: 120_000 },
