@@ -1,13 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { ar } from "@/lib/ar";
-import { PIN_MAX_LENGTH } from "@/lib/auth";
+import { PIN_MAX_LENGTH } from "@/lib/auth/public-constants";
 
 export function AuthControls() {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [pin, setPin] = useState("");
@@ -18,8 +16,7 @@ export function AuthControls() {
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
+    window.location.assign("/login");
   };
 
   const onChangePin = async (event: FormEvent) => {

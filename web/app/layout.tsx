@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Cairo } from "next/font/google";
 
+import { AppUpdateGuard } from "@/components/AppUpdateGuard";
 import "./globals.css";
 
 const cairo = Cairo({
@@ -36,7 +37,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ar" dir="rtl">
-      <body className={`${cairo.className} min-h-screen antialiased`}>{children}</body>
+      <body className={`${cairo.className} min-h-screen antialiased`}>
+        <AppUpdateGuard />
+        {children}
+      </body>
     </html>
   );
 }

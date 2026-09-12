@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { applySessionCookie, createSessionToken } from "@/lib/auth/session";
 import { isValidPin, normalizePin } from "@/lib/auth";
-import { setSessionCookie } from "@/lib/auth/session";
 import { consumeResetCode } from "@/lib/auth/store";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,6 @@ export async function POST(request: Request) {
   if (!(await consumeResetCode(code, pin))) {
     return NextResponse.json({ message: "invalid_code" }, { status: 401 });
   }
-  await setSessionCookie();
-  return NextResponse.json({ ok: true });
+  const token = await createSessionToken();
+  return applySessionCookie(NextResponse.json({ ok: true }), token);
 }

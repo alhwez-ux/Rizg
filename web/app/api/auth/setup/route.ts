@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { applySessionCookie, createSessionToken } from "@/lib/auth/session";
 import { isValidPin, normalizePin } from "@/lib/auth";
-import { setSessionCookie } from "@/lib/auth/session";
 import { isPinConfigured, savePin } from "@/lib/auth/store";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "invalid_pin" }, { status: 422 });
   }
   await savePin(pin);
-  await setSessionCookie();
-  return NextResponse.json({ ok: true });
+  const token = await createSessionToken();
+  return applySessionCookie(NextResponse.json({ ok: true }), token);
 }

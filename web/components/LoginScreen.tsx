@@ -1,16 +1,14 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { RizgLogo } from "@/components/RizgLogo";
 import { ar } from "@/lib/ar";
-import { PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth";
+import { PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
 
 type Mode = "login" | "recover" | "reset";
 
 export function LoginScreen() {
-  const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -22,8 +20,7 @@ export function LoginScreen() {
 
   const goHome = () => {
     const next = new URLSearchParams(window.location.search).get("next") || "/";
-    router.replace(next.startsWith("/") ? next : "/");
-    router.refresh();
+    window.location.assign(next.startsWith("/") ? next : "/");
   };
 
   const onLogin = async (event: FormEvent) => {
@@ -100,7 +97,6 @@ export function LoginScreen() {
       <div className="flex flex-col items-center text-center">
         <RizgLogo iconClassName="h-14 w-14" />
         <h1 className="mt-4 text-2xl font-semibold text-zinc-50">{ar.authTitle}</h1>
-        <p className="mt-2 text-sm text-zinc-500">{ar.authHint}</p>
       </div>
 
       <section className="rounded-2xl border border-zinc-800 bg-tape-panel/90 p-5 shadow-glow">

@@ -8,6 +8,24 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/radar/stocks": ["./prisma/dev.db"],
   },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Cache-Control", value: "no-store, must-revalidate" },
+        ],
+      },
+      {
+        source: "/sw.js",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+      {
+        source: "/version.json",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
+    ];
+  },
   async rewrites() {
     if (!backend) return [];
     return [

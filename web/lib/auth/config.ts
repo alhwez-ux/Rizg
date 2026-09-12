@@ -1,11 +1,24 @@
-export const RECOVERY_EMAIL = "alhwez@gmail.com";
+import {
+  AUTH_VERSION,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+  RECOVERY_EMAIL,
+  RESET_MINUTES,
+  SESSION_DAYS,
+} from "./public-constants";
+
+export {
+  AUTH_VERSION,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+  RECOVERY_EMAIL,
+  RESET_MINUTES,
+  SESSION_DAYS,
+};
+
 export const DEFAULT_PIN = "123456";
-export const SESSION_COOKIE = "rizg_session";
-export const PIN_SETUP_COOKIE = "rizg_pin_cfg";
-export const PIN_MIN_LENGTH = 4;
-export const PIN_MAX_LENGTH = 8;
-export const SESSION_DAYS = 7;
-export const RESET_MINUTES = 15;
+export const SESSION_COOKIE = `rizg_session_v${AUTH_VERSION}`;
+export const PIN_SETUP_COOKIE = `rizg_pin_cfg_v${AUTH_VERSION}`;
 
 export function authSecret(): string {
   return process.env.AUTH_SECRET?.trim() || "rizg-personal-gate-v1";

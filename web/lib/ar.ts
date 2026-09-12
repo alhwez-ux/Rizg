@@ -92,7 +92,6 @@ export const ar = {
   radarLoadError: "تعذر جلب تصنيف الأسهم الشرعية. أعد المحاولة بعد قليل.",
   prohibitedBlocked: "هذا السهم محرّم ولا يُعرض في رادار السيولة",
   authTitle: "دخول رادار رزق",
-  authHint: "الرقم السري الافتراضي 123456 — يمكنك تغييره من لوحة التحكم بعد الدخول",
   authPinLabel: "الرقم السري",
   authEnter: "دخول",
   authLogout: "خروج",

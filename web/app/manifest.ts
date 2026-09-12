@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "رزق · رادار السيولة والزخم",
     short_name: "رزق",
     description: "إشارات دخول وخروج من صافي تدفق الأموال مع أسعار مقترحة وهدف ووقف خسارة",
-    start_url: "/",
+    start_url: "/?v=4",
     display: "standalone",
     background_color: "#0B0F19",
     theme_color: "#0B0F19",

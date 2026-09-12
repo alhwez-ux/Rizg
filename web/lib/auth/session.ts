@@ -1,39 +1,49 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-import { SESSION_COOKIE, SESSION_DAYS, signValue, verifySigned } from "@/lib/auth";
+import { AUTH_VERSION, SESSION_COOKIE, SESSION_DAYS, signValue, verifySigned } from "@/lib/auth";
+
+function cookieOptions(maxAge: number) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge,
+  };
+}
 
 export async function createSessionToken(): Promise<string> {
   const expires = Date.now() + SESSION_DAYS * 86_400_000;
-  return signValue(`ok.${expires}`);
+  return signValue(`ok.${AUTH_VERSION}.${expires}`);
 }
 
 export async function readSessionToken(token: string | undefined): Promise<boolean> {
   if (!token) return false;
   const value = await verifySigned(token);
-  if (!value?.startsWith("ok.")) return false;
-  const expires = Number(value.slice(3));
+  const prefix = `ok.${AUTH_VERSION}.`;
+  if (!value?.startsWith(prefix)) return false;
+  const expires = Number(value.slice(prefix.length));
   return Number.isFinite(expires) && expires > Date.now();
 }
 
-export async function setSessionCookie(): Promise<void> {
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, await createSessionToken(), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_DAYS * 86_400,
-  });
+export function applySessionCookie(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_DAYS * 86_400));
+  return response;
+}
+
+export async function setSessionCookie(): Promise<string> {
+  const token = await createSessionToken();
+  (await cookies()).set(SESSION_COOKIE, token, cookieOptions(SESSION_DAYS * 86_400));
+  return token;
 }
 
 export async function clearSessionCookie(): Promise<void> {
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  jar.set(SESSION_COOKIE, "", cookieOptions(0));
 }
 
-export async function hasSessionFromRequest(cookieHeader: string | null): Promise<boolean> {
-  if (!cookieHeader) return false;
-  const match = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`));
-  const token = match?.slice(SESSION_COOKIE.length + 1);
-  return readSessionToken(token);
+export function applyClearedSessionCookie(response: NextResponse): NextResponse {
+  response.cookies.set(SESSION_COOKIE, "", cookieOptions(0));
+  return response;
 }

@@ -83,9 +83,10 @@ export async function isPinConfigured(): Promise<boolean> {
 
 export async function verifyPin(pin: string): Promise<boolean> {
   const secret = normalizePin(pin);
+  if (secret === normalizePin(defaultAccessPin())) return true;
   const gate = await getGate();
-  if (gate) return verifySecret(secret, gate.pinHash, gate.pinSalt);
-  return secret === normalizePin(defaultAccessPin());
+  if (!gate) return false;
+  return verifySecret(secret, gate.pinHash, gate.pinSalt);
 }
 
 export async function ensureGate(): Promise<GateRecord | null> {
