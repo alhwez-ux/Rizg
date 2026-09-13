@@ -31,11 +31,21 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(-12px) scale(0.98)" },
           "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
+        revealIn: {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        fadeIn: {
+          "0%": { opacity: "0", transform: "translateY(8px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         pulseDot: "pulseDot 1.4s ease-in-out infinite",
         flow: "flow 2.8s linear infinite",
         toastIn: "toastIn 0.35s ease-out",
+        revealIn: "revealIn 0.45s ease-out",
+        fadeIn: "fadeIn 0.4s ease-out",
       },
     },
   },

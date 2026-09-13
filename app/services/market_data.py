@@ -26,6 +26,9 @@ class MarketDataService:
         )
         return quote
 
+    async def upsert(self, quote: Quote) -> Quote:
+        return await self._store.upsert_quote(quote)
+
     async def get_latest(self, symbol: str) -> Quote:
         quote = await self._store.get_latest(symbol.upper())
         if quote is None:

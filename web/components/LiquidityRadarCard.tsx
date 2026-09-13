@@ -1,0 +1,212 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+import { ar } from "@/lib/ar";
+import { formatMoney, formatPercent, formatPrice, formatRatio } from "@/lib/liquidity";
+import {
+  parseLiveRadarPayload,
+  type LiveRadarReport,
+  type LiveRadarResponse,
+  type LiveRadarSignal,
+} from "@/lib/liveRadar";
+
+export function LiquidityRadarCard({
+  symbol,
+  symbolName,
+}: {
+  symbol: string;
+  symbolName?: string;
+}) {
+  const [data, setData] = useState<LiveRadarResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const report = data?.analysis ?? null;
+  const title = (symbolName || "").trim();
+
+  const load = useCallback(async () => {
+    if (!symbol.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/v1/radar/live/${symbol}?interval=1d`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok) {
+        const detail = payload && typeof payload.detail === "string" ? payload.detail : null;
+        throw new Error(detail || ar.liveRadarEmpty);
+      }
+      const parsed = parseLiveRadarPayload(payload, symbol);
+      setData(parsed);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ar.liveRadarEmpty);
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <article className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-zinc-500">{ar.liveRadarTitle}</p>
+          <h3 className="mt-1 text-2xl font-semibold text-zinc-50">
+            {title ? <span>{title} </span> : null}
+            <span className="font-mono" dir="ltr">
+              {symbol}
+            </span>
+          </h3>
+          <p className="mt-1 text-xs text-zinc-500">{ar.liveRadarHint}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {report ? <SignalPill report={report} /> : null}
+          <button
+            type="button"
+            onClick={() => {
+              void load();
+            }}
+            className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300"
+          >
+            {ar.radarRetry}
+          </button>
+        </div>
+      </div>
+
+      {loading && !report ? (
+        <p className="mt-5 text-sm text-zinc-500">{ar.liveRadarLoading}</p>
+      ) : error && !report ? (
+        <p className="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          {error || ar.liveRadarEmpty}
+        </p>
+      ) : report ? (
+        <ReportBody report={report} source={data?.source} />
+      ) : (
+        <p className="mt-5 text-sm text-zinc-500">{ar.liveRadarEmpty}</p>
+      )}
+    </article>
+  );
+}
+
+function ReportBody({ report, source }: { report: LiveRadarReport; source?: string }) {
+  const positive = report.net_flow > 0;
+  const negative = report.net_flow < 0;
+
+  return (
+    <div className="mt-5 space-y-4">
+      {report.trap ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          {ar.liveRadarTrap}: {report.trap.label}
+        </p>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric
+          label={ar.netFlow}
+          value={formatMoney(report.net_flow)}
+          tone={positive ? "up" : negative ? "down" : "flat"}
+        />
+        <Metric label={ar.lastPrice} value={formatPrice(report.last_price)} />
+        <Metric
+          label={ar.regime}
+          value={formatPercent(report.change_percent)}
+          tone={(report.change_percent ?? 0) >= 0 ? "up" : "down"}
+        />
+      </div>
+
+      {report.entry && report.suggested_entry != null ? (
+        <p className="text-sm font-semibold text-emerald-300">
+          {ar.entryPriceLabel}:{" "}
+          <span dir="ltr" className="font-mono">
+            {formatPrice(report.suggested_entry)}
+          </span>
+        </p>
+      ) : null}
+      {report.exit && report.suggested_exit != null ? (
+        <p className="text-sm font-semibold text-amber-200">
+          {ar.exitPriceLabel}:{" "}
+          <span dir="ltr" className="font-mono">
+            {formatPrice(report.suggested_exit)}
+          </span>
+        </p>
+      ) : null}
+
+      <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+        <span>
+          {ar.vwap} <span dir="ltr">{formatPrice(report.vwap)}</span>
+        </span>
+        <span>
+          {ar.atr} <span dir="ltr">{formatPrice(report.atr)}</span>
+        </span>
+        <span>
+          {ar.buyPressure} {formatRatio(report.buy_ratio)}
+        </span>
+        <span>
+          {ar.sellPressure} {formatRatio(report.sell_ratio)}
+        </span>
+      </p>
+
+      {report.reasons.length ? (
+        <ul className="space-y-1 text-sm text-zinc-300">
+          {report.reasons.slice(0, 4).map((reason) => (
+            <li key={reason}>• {reason}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <p className="text-[11px] text-zinc-600">{`المصدر: ${source ?? "Sahm API"}`}</p>
+    </div>
+  );
+}
+
+function SignalPill({ report }: { report: LiveRadarReport }) {
+  const kind: LiveRadarSignal = report.entry ? "entry" : report.exit ? "exit" : report.trap ? "trap" : "neutral";
+  const label =
+    kind === "entry"
+      ? ar.entryBadge
+      : kind === "exit"
+        ? ar.exitBadge
+        : kind === "trap"
+          ? ar.liveRadarTrap
+          : ar.liveRadarNeutral;
+  const tone =
+    kind === "entry"
+      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+      : kind === "exit"
+        ? "border-amber-400/40 bg-amber-500/15 text-amber-200"
+        : kind === "trap"
+          ? "border-rose-400/40 bg-rose-500/15 text-rose-200"
+          : "border-zinc-700 bg-zinc-900 text-zinc-400";
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  tone = "flat",
+}: {
+  label: string;
+  value: string;
+  tone?: "up" | "down" | "flat";
+}) {
+  const color = tone === "up" ? "text-emerald-400" : tone === "down" ? "text-rose-400" : "text-zinc-100";
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-3">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p dir="ltr" className={`mt-1 font-mono text-sm ${color}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+export default LiquidityRadarCard;

@@ -19,6 +19,9 @@ async def list_symbols(request: Request) -> SymbolListResponse:
 
 @router.get("/{symbol}", response_model=QuoteOut)
 async def get_latest_quote(symbol: str, request: Request) -> QuoteOut:
+    analysis = getattr(request.app.state, "sahm_analysis", None)
+    if analysis is not None:
+        await analysis.ensure_seeded(symbol)
     quote = await request.app.state.market_data.get_latest(symbol)
     return request.app.state.liquidity.to_quote_out(quote)
 

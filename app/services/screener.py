@@ -54,6 +54,10 @@ class ScreenerService:
         self._updated_at: datetime | None = None
         self._priority: list[str] = []
 
+    def all_rows(self) -> list[ScreenerRow]:
+        with self._guard:
+            return list(self._rows.values())
+
     def snapshot(self) -> ScreenerSnapshot:
         tracked = [symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)]
         tracked_set = set(tracked)

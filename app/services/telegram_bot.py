@@ -6,12 +6,14 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 
 import httpx
 
 from app.core.config import Settings
 from app.models.alert import AlertKind, LiquidityAlert
 from app.models.trade import TradeResult, TradeSide
+from app.services.telegram_alert_bot import TelegramAlertBot, alert_copy_from_report
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class IntervalReport:
 
 
 class TelegramBot:
-    """Queues trades and sends one Arabic summary per interval instead of instant alerts."""
+    """Sends interval liquidity summaries plus instant radar/trap alerts."""
 
     def __init__(self, settings: Settings) -> None:
         self._token = settings.telegram_bot_token.strip()
@@ -55,6 +57,9 @@ class TelegramBot:
         self._last_flush_at: datetime | None = None
         self._flush_task: asyncio.Task[None] | None = None
         self._running = False
+        self._last_radar_sent: dict[tuple[str, str], datetime] = {}
+        self._radar_cooldown = timedelta(seconds=max(settings.alert_cooldown_seconds, 20))
+        self._intraday = TelegramAlertBot(settings)
 
     @property
     def enabled(self) -> bool:
@@ -63,6 +68,10 @@ class TelegramBot:
     @property
     def interval_minutes(self) -> int:
         return self._interval_minutes
+
+    @property
+    def alerts(self) -> TelegramAlertBot:
+        return self._intraday
 
     async def start(self) -> None:
         if self._client is None:
@@ -146,6 +155,39 @@ class TelegramBot:
             f"حالة السهم: {regime}"
         )
 
+    def format_radar_signal(self, report: dict[str, Any]) -> str:
+        ticker = str(report.get("symbol") or "").upper()
+        trap = report.get("trap") if isinstance(report.get("trap"), dict) else None
+        signal = str(report.get("signal") or "neutral")
+        if trap:
+            kind = str(trap.get("kind") or "trap")
+            label = str(trap.get("label") or "فخ سعري")
+            header = "فخ سعري لحظي ⚠️" if "bull" in kind or "bear" in kind else "فخ سيولة لحظي ⚠️"
+            regime = label
+        elif signal == "entry":
+            header = "إشارة رادار دخول 🚀"
+            regime = "دخول سيولة / تراكم"
+        elif signal == "exit":
+            header = "إشارة رادار خروج ⚠️"
+            regime = "تصريف / خروج سيولة"
+        else:
+            header = "تنبيه رادار"
+            regime = signal
+
+        reasons = report.get("reasons") if isinstance(report.get("reasons"), list) else []
+        reason_line = f"\nالسبب: {reasons[0]}" if reasons else ""
+        net_flow = report.get("net_flow")
+        last_price = report.get("last_price")
+        price_line = f"\nآخر سعر: <b>{last_price}</b>" if last_price is not None else ""
+        flow_line = f"\nصافي التدفق: <b>{net_flow}</b>" if net_flow is not None else ""
+        return (
+            f"{header}\n"
+            "━━━━━━━━━━━━━━\n"
+            f"اسم السهم: <code>{ticker}</code>\n"
+            f"حالة السيولة: {regime}"
+            f"{price_line}{flow_line}{reason_line}"
+        )
+
     def format_liquidity_alert(self, alert: LiquidityAlert) -> str:
         accumulating = alert.kind in {AlertKind.NET_FLOW_SPIKE, AlertKind.INFLOW_SURGE} or (
             alert.kind is not AlertKind.OUTFLOW_SURGE and alert.window_net_flow >= 0
@@ -167,6 +209,23 @@ class TelegramBot:
 
     async def send_liquidity_alert(self, alert: LiquidityAlert) -> bool:
         return await self.send_message(self.format_liquidity_alert(alert))
+
+    async def send_radar_event(self, report: dict[str, Any]) -> bool:
+        """Send an instant radar entry/exit/trap to the trader as soon as it fires."""
+
+        trap = report.get("trap") if isinstance(report.get("trap"), dict) else None
+        signal = str(report.get("signal") or "neutral")
+        if signal == "neutral" and not trap:
+            return False
+        ticker = str(report.get("symbol") or "").upper()
+        kind = "trap" if trap else signal
+        if not self._radar_ready(ticker, kind):
+            return False
+        symbol, name, signal_type, details = alert_copy_from_report(report)
+        ok = await self._intraday.send_intraday_alert(symbol, name, signal_type, details)
+        if ok:
+            self._mark_radar_sent(ticker, kind)
+        return ok
 
     async def flush_reports(self, *, force: bool = False) -> int:
         now = datetime.now(timezone.utc)
@@ -249,6 +308,16 @@ class TelegramBot:
         except asyncio.CancelledError:
             logger.info("telegram report loop cancelled")
             raise
+
+    def _radar_ready(self, symbol: str, kind: str) -> bool:
+        key = (symbol, kind)
+        last = self._last_radar_sent.get(key)
+        if last is None:
+            return True
+        return datetime.now(timezone.utc) - last >= self._radar_cooldown
+
+    def _mark_radar_sent(self, symbol: str, kind: str) -> None:
+        self._last_radar_sent[(symbol, kind)] = datetime.now(timezone.utc)
 
     @staticmethod
     def _clone(bucket: IntervalReport) -> IntervalReport:

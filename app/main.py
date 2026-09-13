@@ -14,10 +14,16 @@ from app.routers import api_router
 from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
 from app.services.liquidity import LiquidityService
-from app.services.liquidity_engine import LiquidityEngine
+from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.market_data import MarketDataService
 from app.services.screener import ScreenerService
+from app.services.sahm_analysis import SahmAnalysisService
+from app.services.sahm_data_provider import SahmDataProvider
 from app.services.sahmk_feed import SahmkTradeFeed
+from app.services.email_alert_service import EmailAlertService
+from app.services.financial_sync import FinancialSyncService
+from app.services.financial_sync_service import FinancialSyncService as MarketFinancialSyncService
+from app.services.ranking_store import RankingStore
 from app.services.telegram_bot import TelegramBot
 from app.services.tick_feed import MockTickFeed
 from app.services.watchlist import WatchlistService
@@ -30,14 +36,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     broadcaster = ConnectionManager()
     broadcaster.bind_loop(asyncio.get_running_loop())
     liquidity = LiquidityService()
-    liquidity_engine = LiquidityEngine()
+    liquidity_engine = LiquidityRadarEngine()
+    sahm = SahmDataProvider(settings)
+    await sahm.start()
     telegram = TelegramBot(settings)
     if settings.telegram_enabled:
         await telegram.start()
     alerts = AlertService(
         settings,
         broadcaster,
-        telegram=telegram if settings.telegram_enabled else None,
+        telegram=telegram,
     )
     watchlist = WatchlistService(initial=settings.sahmk_symbols)
     screener = ScreenerService(settings, watchlist, liquidity_engine=liquidity_engine)
@@ -51,28 +59,57 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     mock_feed = MockTickFeed(liquidity_engine, broadcaster, settings, alerts=alerts)
     tick_feed = live_feed if live_feed.enabled else mock_feed
+    market_data = MarketDataService(store, liquidity, broadcaster)
+    sahm_analysis = SahmAnalysisService(
+        sahm,
+        liquidity_engine,
+        market_data=market_data,
+        telegram=telegram,
+    )
+    financial_sync = FinancialSyncService(settings)
+    ranking_store = RankingStore()
+    email_alerts = EmailAlertService(settings)
+    market_financial_sync = MarketFinancialSyncService(
+        settings,
+        store=ranking_store,
+        email_service=email_alerts,
+    )
 
     app.state.store = store
     app.state.broadcaster = broadcaster
     app.state.liquidity = liquidity
     app.state.liquidity_engine = liquidity_engine
     app.state.telegram = telegram
+    app.state.telegram_alerts = telegram.alerts
     app.state.alerts = alerts
     app.state.watchlist = watchlist
     app.state.screener = screener
     app.state.live_feed = live_feed
     app.state.tick_feed = tick_feed
-    app.state.market_data = MarketDataService(store, liquidity, broadcaster)
+    app.state.market_data = market_data
+    app.state.sahm = sahm
+    app.state.sahm_analysis = sahm_analysis
+    app.state.financial_sync = financial_sync
+    app.state.ranking_store = ranking_store
+    app.state.market_financial_sync = market_financial_sync
+    app.state.sync_service = market_financial_sync
+    app.state.email_alerts = email_alerts
 
     if live_feed.enabled:
         await live_feed.start()
     elif settings.enable_mock_feed:
         await mock_feed.start()
 
+    # تهيئة وبدء خدمة المزامنة الخلفية فور إقلاع FastAPI
+    market_financial_sync.start_scheduler()
+    market_financial_sync.sync_market_financials()
+
     yield
 
+    market_financial_sync.shutdown()
     await live_feed.stop()
     await mock_feed.stop()
+    await sahm.aclose()
     await telegram.aclose()
     await broadcaster.close_all()
     await close_store()

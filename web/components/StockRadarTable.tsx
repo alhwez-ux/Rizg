@@ -30,6 +30,7 @@ export function StockRadarTable({
   onSelect?: (symbol: string) => void;
   screenerRows?: ScreenerRow[];
 }) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
 
@@ -61,20 +62,50 @@ export function StockRadarTable({
   const pureCount = rows.filter((row) => row.currentStatus === "PURE").length;
   const mixedCount = rows.filter((row) => row.currentStatus === "MIXED").length;
 
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 px-4 py-4 text-start shadow-glow transition hover:border-emerald-500/40 hover:bg-zinc-900/60 sm:px-5"
+      >
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="text-lg font-semibold text-zinc-100">{ar.tableShowList}</span>
+          <span className="text-xs text-zinc-500">{ar.radarHintCompliant}</span>
+        </span>
+        <span className="shrink-0 rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300">
+          <span className="font-mono text-zinc-100" dir="ltr">
+            {rows.length}
+          </span>{" "}
+          {ar.tableCount}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-tape-panel/90 shadow-glow">
       <header className="flex flex-col gap-4 border-b border-zinc-800/80 px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-100">{ar.radarTitle}</h2>
             <p className="mt-1 text-xs text-zinc-500">{ar.radarHintCompliant}</p>
           </div>
-          <p className="text-xs text-zinc-500">
-            <span className="font-mono text-zinc-300" dir="ltr">
-              {filtered.length}
-            </span>{" "}
-            {ar.tableCount}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-zinc-500">
+              <span className="font-mono text-zinc-300" dir="ltr">
+                {filtered.length}
+              </span>{" "}
+              {ar.tableCount}
+            </p>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300"
+            >
+              {ar.tableHideList}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">

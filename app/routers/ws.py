@@ -40,6 +40,9 @@ async def liquidity_symbol_stream(websocket: WebSocket, symbol: str) -> None:
 
     await manager.connect(websocket, ticker)
     try:
+        analysis = getattr(websocket.app.state, "sahm_analysis", None)
+        if analysis is not None:
+            await analysis.ensure_seeded(ticker)
         snapshot = LiquidityStreamMessage.from_session(
             engine.session_snapshot(ticker),
             timestamp=datetime.now(timezone.utc),

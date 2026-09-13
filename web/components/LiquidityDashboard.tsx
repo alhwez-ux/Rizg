@@ -5,6 +5,7 @@ import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { AuthControls } from "@/components/AuthControls";
 import { RizgLogo } from "@/components/RizgLogo";
+import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { SignalBadge, SuggestedPrices } from "@/components/SignalBadge";
 import { SignalToasts, type SignalToastItem } from "@/components/SignalToasts";
 import { StockRadarTable } from "@/components/StockRadarTable";
@@ -330,7 +331,8 @@ export function LiquidityDashboard({
             </div>
           ) : null}
         </div>
-        <div className="grid gap-4 lg:grid-cols-12">
+        <LiquidityRadarCard symbol={selected} symbolName={selectedRow?.name} />
+        <div className="mt-4 grid gap-4 lg:grid-cols-12">
           <NetFlowMeter tick={liveTick} sparkline={sparkline} className="lg:col-span-8" />
           <RegimeCard regime={regime} tick={liveTick} className="lg:col-span-4" />
           <VolumeCard

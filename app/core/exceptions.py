@@ -77,3 +77,22 @@ class ProhibitedSymbolError(AppError):
             error_code="prohibited_symbol",
             details={"symbol": symbol},
         )
+
+
+class SahmApiError(AppError):
+    """Raised when the SAHMK REST API cannot be used or returns an error."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 502,
+        error_code: str = "sahm_api_error",
+        details: Any | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            status_code=status_code,
+            error_code=error_code,
+            details=details,
+        )

@@ -8,9 +8,11 @@ const STALE_COOKIES = [
   "rizg_session",
   "rizg_session_v3",
   "rizg_session_v4",
+  "rizg_session_v5",
   "rizg_pin_cfg",
   "rizg_pin_cfg_v3",
   "rizg_pin_cfg_v4",
+  "rizg_pin_cfg_v5",
 ];
 
 function withNoStore(response: NextResponse, auth: string): NextResponse {

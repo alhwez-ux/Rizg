@@ -7,6 +7,9 @@ router = APIRouter(prefix="/api/v1/liquidity", tags=["liquidity"])
 
 @router.get("/{symbol}", response_model=LiquiditySnapshot)
 async def get_liquidity_snapshot(symbol: str, request: Request) -> LiquiditySnapshot:
+    analysis = getattr(request.app.state, "sahm_analysis", None)
+    if analysis is not None:
+        await analysis.ensure_seeded(symbol)
     quote = await request.app.state.market_data.get_latest(symbol)
     return request.app.state.liquidity.snapshot(quote)
 

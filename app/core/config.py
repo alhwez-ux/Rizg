@@ -1,7 +1,7 @@
 from functools import lru_cache
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     app_name: str = "Rizg Liquidity Tracker"
@@ -29,8 +30,14 @@ class Settings(BaseSettings):
     mock_feed_symbols: list[str] = Field(
         default_factory=lambda: ["AAPL", "MSFT", "TSLA", "NVDA", "4030"]
     )
-    sahmk_api_key: str = ""
-    sahmk_rest_url: str = "https://api.sahmk.sa/api/v1"
+    sahmk_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("SAHMK_API_KEY", "SAHM_API_KEY", "sahmk_api_key"),
+    )
+    sahmk_rest_url: str = Field(
+        default="https://api.sahmk.sa/api/v1",
+        validation_alias=AliasChoices("SAHMK_REST_URL", "SAHM_API_BASE_URL", "sahmk_rest_url"),
+    )
     sahmk_data_mode: str = "delayed"
     sahmk_poll_seconds: float = Field(default=30, ge=5, le=600)
     sahmk_watchlist_poll_seconds: float = Field(default=20, ge=5, le=600)
@@ -56,6 +63,48 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     telegram_report_interval_minutes: int = Field(default=30, ge=1, le=1440)
     telegram_report_symbols: list[str] = Field(default_factory=lambda: ["4030"])
+    smtp_server: str = Field(
+        default="smtp.gmail.com",
+        validation_alias=AliasChoices("SMTP_SERVER", "smtp_server"),
+    )
+    smtp_port: int = Field(
+        default=587,
+        ge=1,
+        le=65535,
+        validation_alias=AliasChoices("SMTP_PORT", "smtp_port"),
+    )
+    sender_email: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENDER_EMAIL", "smtp_sender_email", "sender_email"),
+    )
+    sender_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENDER_PASSWORD", "smtp_sender_password", "sender_password"),
+    )
+    alert_recipient_email: str = Field(
+        default="alhwez@gmail.com",
+        validation_alias=AliasChoices("ALERT_RECIPIENT_EMAIL", "alert_recipient_email"),
+    )
+    financial_sync_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("FINANCIAL_SYNC_ENABLED", "financial_sync_enabled"),
+    )
+    financial_sync_hour: int = Field(
+        default=17,
+        ge=0,
+        le=23,
+        validation_alias=AliasChoices("FINANCIAL_SYNC_HOUR", "financial_sync_hour"),
+    )
+    financial_sync_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        validation_alias=AliasChoices("FINANCIAL_SYNC_MINUTE", "financial_sync_minute"),
+    )
+    financial_sync_run_on_startup: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("FINANCIAL_SYNC_RUN_ON_STARTUP", "financial_sync_run_on_startup"),
+    )
 
     @property
     def is_production(self) -> bool:

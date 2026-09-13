@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.quote import Quote
+from app.models.trade import SessionFlow
 
 
 class QuoteIn(BaseModel):
@@ -88,6 +89,103 @@ class QuoteHistoryResponse(BaseModel):
 class SymbolListResponse(BaseModel):
     symbols: list[str]
     count: int
+
+
+class CandleOut(BaseModel):
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class MarketLevelsOut(BaseModel):
+    symbol: str
+    vwap: float | None = None
+    atr: float | None = None
+    last_price: float | None = None
+    session_high: float | None = None
+    session_low: float | None = None
+    book_pressure: float | None = None
+
+
+class AnalyzeResponse(BaseModel):
+    symbol: str
+    interval: str
+    source: str = "sahm"
+    bars: int
+    session: SessionFlow
+    levels: MarketLevelsOut
+    candles: list[CandleOut]
+
+
+class RadarLiveResponse(BaseModel):
+    symbol: str
+    success: bool = True
+    source: str = "Sahm API"
+    analysis: dict[str, Any]
+
+
+class ComplianceSyncItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    symbol: str = Field(..., min_length=1, max_length=12)
+    name: str | None = None
+    companyNameAr: str | None = None
+    currentStatus: str | None = None
+    status: str | None = None
+    category: str | None = None
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        return value.upper().strip()
+
+
+class ComplianceChangeOut(BaseModel):
+    symbol: str
+    name: str
+    old_category: str
+    new_category: str
+
+
+class ComplianceSyncRequest(BaseModel):
+    items: list[ComplianceSyncItem] = Field(default_factory=list)
+
+
+class ComplianceSyncResponse(BaseModel):
+    updated: int
+    changes: list[ComplianceChangeOut]
+
+
+class RankingMatrixResponse(BaseModel):
+    success: bool = True
+    message: str | None = None
+    total_companies: int
+    synced_at: str | None = None
+    data: list[dict[str, Any]]
+
+
+class SectorRotationResponse(BaseModel):
+    success: bool = True
+    total_sectors: int
+    leaders: list[dict[str, Any]]
+    laggards: list[dict[str, Any]]
+    data: list[dict[str, Any]]
+    sectors: list[dict[str, Any]]
+
+
+class SectorCompaniesResponse(BaseModel):
+    success: bool = True
+    sector: str
+    total_companies: int
+    companies: list[dict[str, Any]]
+
+
+class TriggerTestAlertResponse(BaseModel):
+    success: bool = True
+    message: str
 
 
 class HealthResponse(BaseModel):

@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
-const backend = (process.env.API_PROXY_URL || "").replace(/\/$/, "");
+const backend = (
+  process.env.API_PROXY_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000"
+).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -22,7 +26,6 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    if (!backend) return [];
     return [
       { source: "/api/v1/:path*", destination: `${backend}/api/v1/:path*` },
       { source: "/health", destination: `${backend}/health` },

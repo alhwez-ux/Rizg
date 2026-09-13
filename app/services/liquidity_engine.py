@@ -262,6 +262,36 @@ class LiquidityEngine:
             self.process_trade(symbol, price, volume) for symbol, price, volume in trades
         ]
 
+    def ingest_candles(self, candles: Any) -> list[TradeResult]:
+        """Ingest a Sahm OHLCV DataFrame (or list of row mappings) in timestamp order."""
+
+        rows = _candle_rows(candles)
+        results: list[TradeResult] = []
+        for row in rows:
+            symbol = str(row.get("symbol") or "").strip()
+            close = _optional_decimal(row.get("close") or row.get("price"))
+            volume = _optional_decimal(row.get("volume"))
+            if not symbol or close is None or volume is None or close <= ZERO or volume < ZERO:
+                continue
+            payload = {
+                "price": close,
+                "close": close,
+                "high": row.get("high"),
+                "low": row.get("low"),
+                "open": row.get("open"),
+                "volume": volume,
+                "previous_close": row.get("previous_close"),
+            }
+            timestamp = _optional_datetime(row.get("timestamp") or row.get("date"))
+            try:
+                self.observe_market(symbol, payload)
+                results.append(
+                    self.process_trade(symbol, close, volume, timestamp=timestamp)
+                )
+            except InvalidTradeError:
+                continue
+        return results
+
     def get_session(self, symbol: str) -> SessionFlow:
         ticker = self._normalize_symbol(symbol)
         with self._lock:
@@ -447,3 +477,219 @@ def _optional_decimal(value: Any) -> Decimal | None:
     except (InvalidOperation, TypeError, ValueError):
         return None
     return number if number.is_finite() else None
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    to_pydatetime = getattr(value, "to_pydatetime", None)
+    if callable(to_pydatetime):
+        return _optional_datetime(to_pydatetime())
+    return None
+
+
+def _candle_rows(candles: Any) -> list[dict[str, Any]]:
+    if candles is None:
+        return []
+    if getattr(candles, "empty", None) is True:
+        return []
+    frame = candles
+    if hasattr(frame, "sort_values") and "timestamp" in getattr(frame, "columns", []):
+        columns = ["timestamp"]
+        if "symbol" in getattr(frame, "columns", []):
+            columns = ["symbol", "timestamp"]
+        frame = frame.sort_values(columns, kind="mergesort")
+    if hasattr(frame, "to_dict"):
+        records = frame.to_dict("records")
+        return [row for row in records if isinstance(row, dict)]
+    if isinstance(candles, list):
+        rows = [row for row in candles if isinstance(row, dict)]
+        return sorted(
+            rows,
+            key=lambda row: (str(row.get("symbol") or ""), str(row.get("timestamp") or "")),
+        )
+    return []
+
+
+def _json_number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _candle_frame(candles: Any, symbol: str) -> Any:
+    if candles is None or getattr(candles, "empty", False):
+        return None
+    if not hasattr(candles, "iloc"):
+        return None
+    frame = candles
+    if "symbol" in getattr(frame, "columns", []):
+        filtered = frame[frame["symbol"].astype(str).str.upper() == symbol]
+        if not filtered.empty:
+            frame = filtered
+    return frame
+
+
+def _candle_context(candles: Any, symbol: str) -> tuple[Decimal, Decimal, Decimal | None]:
+    frame = _candle_frame(candles, symbol)
+    if frame is None or len(frame) == 0:
+        return Decimal("0"), Decimal("0"), None
+    last = frame.iloc[-1]
+    volume = _optional_decimal(last.get("volume")) or Decimal("0")
+    prev_volume = None
+    change = Decimal("0")
+    if len(frame) >= 2:
+        prev = frame.iloc[-2]
+        prev_volume = _optional_decimal(prev.get("volume"))
+        first_close = _optional_decimal(frame.iloc[0].get("close"))
+        last_close = _optional_decimal(last.get("close"))
+        if first_close and last_close and first_close > 0:
+            change = ((last_close - first_close) / first_close) * Decimal("100")
+    return change, volume, prev_volume
+
+
+def _detect_liquidity_trap(candles: Any, symbol: str) -> dict[str, str] | None:
+    frame = _candle_frame(candles, symbol)
+    if frame is None or len(frame) < 3:
+        return None
+    last = frame.iloc[-1]
+    prev = frame.iloc[-2]
+    high = _optional_decimal(last.get("high"))
+    low = _optional_decimal(last.get("low"))
+    close = _optional_decimal(last.get("close"))
+    opened = _optional_decimal(last.get("open"))
+    if high is None or low is None or close is None or opened is None:
+        return None
+    span = high - low
+    if span <= 0:
+        return None
+    upper = high - max(opened, close)
+    lower = min(opened, close) - low
+    lookback = frame.iloc[0] if len(frame) < 4 else frame.iloc[-4]
+    prior_close = _optional_decimal(lookback.get("close"))
+    trend_up = prior_close is not None and close > prior_close
+    if upper / span >= Decimal("0.55") and close < opened:
+        return {
+            "kind": "bull_trap",
+            "label": "فخ صعود: رفض أعلى النطاق مع إغلاق ضعيف",
+        }
+    if lower / span >= Decimal("0.55") and close > opened:
+        return {
+            "kind": "bear_trap",
+            "label": "فخ هبوط: كنس السيولة السفلية ثم إغلاق قوي",
+        }
+    volumes = frame["volume"] if "volume" in frame.columns else None
+    if volumes is not None and len(frame) >= 5:
+        window = [_optional_decimal(value) or Decimal("0") for value in volumes.iloc[-6:-1].tolist()]
+        avg = (sum(window, Decimal("0")) / len(window)) if window else Decimal("0")
+        last_volume = _optional_decimal(last.get("volume")) or Decimal("0")
+        prev_close = _optional_decimal(prev.get("close"))
+        if avg > 0 and last_volume >= avg * Decimal("1.8") and prev_close is not None:
+            if close < prev_close and trend_up:
+                return {
+                    "kind": "bull_trap",
+                    "label": "فخ صعود: تصريف بكمية مرتفعة بعد الصعود",
+                }
+            if close > prev_close and not trend_up:
+                return {
+                    "kind": "bear_trap",
+                    "label": "فخ هبوط: امتصاص بكمية مرتفعة بعد الهبوط",
+                }
+    return None
+
+
+class LiquidityRadarEngine(LiquidityEngine):
+    """Candle-aware radar: ingest a Sahm DataFrame and emit the latest signal report."""
+
+    def __init__(self, candles: Any = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._candles: Any = None
+        self._primary_symbol: str | None = None
+        if candles is not None:
+            self.ingest(candles)
+
+    def ingest(self, candles: Any) -> list[TradeResult]:
+        self._candles = candles
+        results = self.ingest_candles(candles)
+        if results:
+            self._primary_symbol = results[-1].symbol
+        elif hasattr(candles, "empty") and not candles.empty and "symbol" in candles.columns:
+            self._primary_symbol = str(candles["symbol"].iloc[-1])
+        return results
+
+    def get_latest_signal_report(self, symbol: str | None = None) -> dict[str, Any]:
+        """Latest liquidity-flow / trap report after ingesting Sahm candles."""
+
+        from app.services.signals import SignalEngine, SignalInputs, apply_levels
+
+        ticker = (symbol or self._primary_symbol or "").strip().upper()
+        if not ticker:
+            symbols = self.active_symbols()
+            ticker = symbols[0] if symbols else ""
+        if not ticker:
+            return {
+                "symbol": None,
+                "signal": "neutral",
+                "entry": False,
+                "exit": False,
+                "trap": None,
+                "flow_verified": False,
+                "reasons": ["لا توجد شموع محملة في محرك الرادار"],
+            }
+
+        session = self.session_snapshot(ticker)
+        levels = self.levels_snapshot(ticker)
+        change_percent, volume, prev_volume = _candle_context(self._candles, ticker)
+        trap = _detect_liquidity_trap(self._candles, ticker)
+        inputs = apply_levels(
+            SignalInputs(
+                volume=volume,
+                prev_volume=prev_volume,
+                inflow=session.inflow,
+                outflow=session.outflow,
+                net_flow=session.net_flow,
+                buy_volume=session.buy_volume,
+                sell_volume=session.sell_volume,
+                change_percent=change_percent,
+                price=session.last_price or levels.last_price,
+                tracked=True,
+            ),
+            levels,
+        )
+        decision = SignalEngine().evaluate(inputs)
+        signal = "entry" if decision.entry else "exit" if decision.exit else "trap" if trap else "neutral"
+        reasons = list(decision.reasons)
+        if trap and trap["label"] not in reasons:
+            reasons.insert(0, trap["label"])
+        return {
+            "symbol": ticker,
+            "signal": signal,
+            "entry": decision.entry,
+            "exit": decision.exit,
+            "trap": trap,
+            "flow_verified": decision.flow_verified,
+            "score": _json_number(decision.score),
+            "net_flow": _json_number(session.net_flow),
+            "inflow": _json_number(session.inflow),
+            "outflow": _json_number(session.outflow),
+            "buy_volume": _json_number(session.buy_volume),
+            "sell_volume": _json_number(session.sell_volume),
+            "buy_ratio": _json_number(decision.buy_ratio),
+            "sell_ratio": _json_number(decision.sell_ratio),
+            "last_price": _json_number(session.last_price or levels.last_price),
+            "vwap": _json_number(decision.vwap or levels.vwap),
+            "atr": _json_number(decision.atr or levels.atr),
+            "suggested_entry": _json_number(decision.suggested_entry),
+            "suggested_exit": _json_number(decision.suggested_exit),
+            "target_price": _json_number(decision.target_price),
+            "stop_loss": _json_number(decision.stop_loss),
+            "change_percent": _json_number(change_percent),
+            "trade_count": session.trade_count,
+            "reasons": reasons,
+        }

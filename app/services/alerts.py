@@ -43,7 +43,8 @@ class _Sample:
 class AlertService:
     """Detects short-window liquidity spikes for the live dashboard.
 
-    Telegram receives queued interval summaries instead of instant alerts.
+    Telegram queues these trades into interval summaries. Instant radar/trap
+    alerts are sent separately from LiquidityRadarEngine reports.
     """
 
     def __init__(

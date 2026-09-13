@@ -1,4 +1,4 @@
-export const AUTH_VERSION = "5";
+export const AUTH_VERSION = "6";
 export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 8;
 export const RECOVERY_EMAIL = "alhwez@gmail.com";
