@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ar } from "@/lib/ar";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
@@ -34,6 +34,22 @@ export function RankingRevealCard() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isRevealed) return;
+    const timer = window.setInterval(() => {
+      void fetchRankingMatrix()
+        .then((result) => {
+          setCompanies(result.data);
+          setCached(result.source === "cached");
+          setError(null);
+        })
+        .catch(() => {
+          /* keep the last successful snapshot while TickChart refreshes */
+        });
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [isRevealed]);
 
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">

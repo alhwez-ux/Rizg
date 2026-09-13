@@ -7,9 +7,6 @@ from typing import Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.config import Settings, get_settings
-from app.services.liquidity_engine import LiquidityRadarEngine
-from app.services.recommendations_engine import clear_recommendations_cache, live_market_recommendations
-from app.services.sahm_live_market import overlay_quote_on_report, _flatten_quote
 from app.services.shariah import company_name_for, is_prohibited
 from app.services.tasi_clock import (
     TASI_TZ,
@@ -52,14 +49,16 @@ class TasiMarketScheduler:
         telegram: Any = None,
         ranking_sync: Any = None,
         watchlist: Any = None,
+        tickchart: Any = None,
         scheduler: AsyncIOScheduler | None = None,
         enable_scheduler: bool = True,
     ) -> None:
         self._settings = settings or get_settings()
-        self._sahm = sahm
+        self._sahm = None
         self._telegram = telegram
         self._ranking_sync = ranking_sync
         self._watchlist = watchlist
+        self._tickchart = tickchart
         self.scheduler = scheduler or AsyncIOScheduler(timezone=TASI_TZ)
         self._enabled = enable_scheduler and self._settings.tasi_scheduler_enabled
         self._last: dict[str, Any] = {"open": None, "scan": None, "close": None}
@@ -173,39 +172,26 @@ class TasiMarketScheduler:
         symbols = self._scan_symbols()
         alerts: list[dict[str, Any]] = []
         scanned = 0
-        provider = self._sahm
-        if provider is None or not getattr(provider, "enabled", False):
+        feed = self._tickchart
+        if feed is None or not getattr(feed, "enabled", False):
             payload = {
                 "job": "scan",
                 "ran_at": current.isoformat(),
                 "scanned": 0,
                 "alerts": 0,
-                "reason": "sahm_disabled",
+                "reason": "tickchart_disabled",
             }
             self._last["scan"] = payload
             return payload
-        interval = "30m" if is_intraday_window(current) else "1d"
         for symbol in symbols:
-            frame = None
             try:
-                frame = await provider.fetch_candles(symbol, interval=interval)
+                report = feed.radar_report(symbol)
             except Exception:
-                frame = None
-            if frame is None or getattr(frame, "empty", True):
-                try:
-                    frame = await provider.fetch_candles(symbol, interval="1d")
-                except Exception:
-                    logger.exception("TASI scan candles failed for %s", symbol)
-                    continue
-            try:
-                quote = await provider.fetch_quote(symbol)
-            except Exception:
-                quote = {}
-            if frame is None or getattr(frame, "empty", True):
+                logger.exception("TASI TickChart scan failed for %s", symbol)
+                continue
+            if not report.get("last_price"):
                 continue
             scanned += 1
-            engine = LiquidityRadarEngine(frame.tail(80).reset_index(drop=True))
-            report = overlay_quote_on_report(engine.get_latest_signal_report(symbol), quote)
             if not _is_actionable(report):
                 continue
             sent = False
@@ -221,7 +207,7 @@ class TasiMarketScheduler:
                     "signal": report.get("signal"),
                     "trap": bool(report.get("trap")),
                     "score": report.get("score"),
-                    "volume": report.get("volume"),
+                    "volume": report.get("session_volume"),
                     "change_percent": report.get("change_percent"),
                     "notified": sent,
                 }
@@ -248,20 +234,9 @@ class TasiMarketScheduler:
         current = now_riyadh()
         ranking_updated = 0
         recs = 0
-        if self._ranking_sync is not None:
-            try:
-                result = self._ranking_sync.sync_market_financials()
-                ranking_updated = int(result.get("updated") or 0)
-            except Exception:
-                logger.exception("TASI close ranking sync failed")
-        clear_recommendations_cache()
-        provider = self._sahm
-        if provider is not None and getattr(provider, "enabled", False):
-            try:
-                rows = await live_market_recommendations(provider, use_cache=False)
-                recs = len(rows)
-            except Exception:
-                logger.exception("TASI close recommendations refresh failed")
+        feed = self._tickchart
+        if feed is not None:
+            recs = len(feed.opportunities())
         payload = {
             "job": "close",
             "ran_at": current.isoformat(),
@@ -304,33 +279,21 @@ class TasiMarketScheduler:
         return seen
 
     async def _collect_quotes(self) -> list[dict[str, Any]]:
-        provider = self._sahm
+        feed = self._tickchart
         symbols = self._scan_symbols()
-        if provider is None or not getattr(provider, "enabled", False):
-            return [{"symbol": item, "name": company_name_for(item) or item} for item in symbols]
-        try:
-            raw = await provider.fetch_quotes_for(symbols, limit=len(symbols))
-        except Exception:
-            logger.exception("TASI open quote fetch failed")
+        if feed is None:
             return [{"symbol": item, "name": company_name_for(item) or item} for item in symbols]
         rows: list[dict[str, Any]] = []
-        mapping = raw if isinstance(raw, dict) else {}
         for symbol in symbols:
-            quote = _flatten_quote(mapping.get(symbol))
-            price = quote.get("price")
-            change = quote.get("change_percent")
-            previous = None
-            if price not in (None, 0) and change is not None:
-                previous = round(float(price) / (1 + float(change) / 100.0), 4)
+            report = feed.radar_report(symbol)
             rows.append(
                 {
                     "symbol": symbol,
-                    "name": quote.get("name") or company_name_for(symbol) or symbol,
-                    "last": price,
-                    "previous_close": previous,
-                    "change_percent": change,
-                    "volume": quote.get("volume"),
-                    "value_traded": quote.get("value_traded"),
+                    "name": company_name_for(symbol) or symbol,
+                    "last": report.get("last_price"),
+                    "change_percent": report.get("change_percent"),
+                    "volume": report.get("session_volume"),
+                    "value_traded": report.get("session_value"),
                 }
             )
         return rows

@@ -96,7 +96,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ALERT_RECIPIENT_EMAIL", "alert_recipient_email"),
     )
     financial_sync_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("FINANCIAL_SYNC_ENABLED", "financial_sync_enabled"),
     )
     financial_sync_hour: int = Field(
@@ -112,7 +112,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("FINANCIAL_SYNC_MINUTE", "financial_sync_minute"),
     )
     financial_sync_run_on_startup: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("FINANCIAL_SYNC_RUN_ON_STARTUP", "financial_sync_run_on_startup"),
     )
     tasi_scheduler_enabled: bool = Field(
@@ -136,7 +136,7 @@ class Settings(BaseSettings):
     tasi_close_hour: int = Field(default=15, ge=0, le=23)
     tasi_close_minute: int = Field(default=30, ge=0, le=59)
     tadawul_daily_sync_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_ENABLED", "tadawul_daily_sync_enabled"),
     )
     tadawul_daily_sync_hour: int = Field(
@@ -152,7 +152,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_MINUTE", "tadawul_daily_sync_minute"),
     )
     tadawul_daily_sync_on_startup: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_ON_STARTUP", "tadawul_daily_sync_on_startup"),
     )
     tadawul_daily_quote_limit: int = Field(
@@ -160,6 +160,72 @@ class Settings(BaseSettings):
         ge=10,
         le=500,
         validation_alias=AliasChoices("TADAWUL_DAILY_QUOTE_LIMIT", "tadawul_daily_quote_limit"),
+    )
+    tickchart_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TICKCHART_ENABLED", "tickchart_enabled"),
+    )
+    tickchart_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("TICKCHART_API_KEY", "tickchart_api_key"),
+    )
+    tickchart_rest_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("TICKCHART_REST_URL", "tickchart_rest_url"),
+    )
+    tickchart_trades_ws: str = Field(
+        default="wss://api.sahmk.sa/ws/v1/market/trades/",
+        validation_alias=AliasChoices("TICKCHART_TRADES_WS", "tickchart_trades_ws"),
+    )
+    tickchart_depth_ws: str = Field(
+        default="wss://api.sahmk.sa/ws/v1/market/depth/",
+        validation_alias=AliasChoices("TICKCHART_DEPTH_WS", "tickchart_depth_ws"),
+    )
+    tickchart_symbols: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("TICKCHART_SYMBOLS", "tickchart_symbols"),
+    )
+    tickchart_ping_seconds: float = Field(
+        default=30,
+        ge=5,
+        le=120,
+        validation_alias=AliasChoices("TICKCHART_PING_SECONDS", "tickchart_ping_seconds"),
+    )
+    tickchart_depth_levels: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        validation_alias=AliasChoices("TICKCHART_DEPTH_LEVELS", "tickchart_depth_levels"),
+    )
+    tickchart_poll_seconds: float = Field(
+        default=3,
+        ge=1,
+        le=60,
+        validation_alias=AliasChoices("TICKCHART_POLL_SECONDS", "tickchart_poll_seconds"),
+    )
+    tickchart_ingest_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("TICKCHART_INGEST_TOKEN", "tickchart_ingest_token"),
+    )
+    tickchart_block_value: float = Field(
+        default=500000,
+        ge=10000,
+        le=50_000_000,
+        validation_alias=AliasChoices("TICKCHART_BLOCK_VALUE", "tickchart_block_value"),
+    )
+    tickchart_autosync_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TICKCHART_AUTOSYNC_ENABLED", "tickchart_autosync_enabled"),
+    )
+    tickchart_export_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices("TICKCHART_EXPORT_DIR", "tickchart_export_dir"),
+    )
+    tickchart_export_poll_seconds: float = Field(
+        default=0.5,
+        ge=0.2,
+        le=10,
+        validation_alias=AliasChoices("TICKCHART_EXPORT_POLL_SECONDS", "tickchart_export_poll_seconds"),
     )
 
     @property

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { parseRow, toFiniteNumber, type ScreenerSnapshot } from "@/lib/screener";
 
-const POLL_MS = 5000;
+const POLL_MS = 2_000;
 
 interface UseScreenerState {
   snapshot: ScreenerSnapshot | null;

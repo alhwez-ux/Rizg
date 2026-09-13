@@ -117,27 +117,22 @@ def test_live_recommendations_require_api_key() -> None:
     assert exc.value.status_code == 503
 
 
-def test_recommendations_endpoint_returns_scanned_opportunities(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_live(_provider: object, *, use_cache: bool = True) -> list[dict[str, object]]:
-        return MarketRecommendationsEngine(
-            {"1120": _momentum_frame(), "2222": _bounce_frame()},
-            names={"1120": "مصرف الراجحي", "2222": "أرامكو السعودية"},
-        ).scan_for_opportunities()
+def test_recommendations_endpoint_returns_scanned_opportunities() -> None:
+    class _Feed:
+        def opportunities(self):
+            return MarketRecommendationsEngine(
+                {"1120": _momentum_frame(), "2222": _bounce_frame()},
+                names={"1120": "مصرف الراجحي", "2222": "أرامكو السعودية"},
+            ).scan_for_opportunities()
 
-    from app.core.config import Settings
-    from app.services.sahm_data_provider import SahmDataProvider
-
-    monkeypatch.setattr("app.routers.market.live_market_recommendations", fake_live)
     app = FastAPI()
-    app.state.sahm = SahmDataProvider(
-        Settings(_env_file=None, sahmk_api_key="test-key", telegram_bot_token="", telegram_chat_id=""),
-        api_key="test-key",
-    )
+    app.state.tickchart = _Feed()
     app.include_router(market_router)
     response = TestClient(app).get("/api/v1/market/recommendations")
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
+    assert payload["source"] == "TickChart"
     assert payload["count"] == len(payload["data"])
     assert payload["count"] >= 2
     symbols = {row["symbol"] for row in payload["data"]}

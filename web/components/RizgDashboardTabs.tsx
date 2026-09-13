@@ -10,6 +10,7 @@ import { RecommendationsCard } from "@/components/RecommendationsCard";
 import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
+import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import NotificationCenter from "./NotificationCenter";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
@@ -103,10 +104,7 @@ function DashboardShell() {
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <NotificationCenter />
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            {ar.tabsMarketLive}
-          </div>
+          <TickChartSyncChip />
           <TasiSchedulerChip />
           <AuthControls />
         </div>

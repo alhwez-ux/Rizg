@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
 import { ar } from "@/lib/ar";
+import { wsUrlFor } from "@/lib/api";
 import { formatMoney, formatPercent, formatPrice, formatRatio } from "@/lib/liquidity";
-import { fetchLiveRadar, type LiveRadarReport, type LiveRadarResponse, type LiveRadarSignal } from "@/lib/liveRadar";
+import {
+  overlayTickOnReport,
+  type LiveRadarReport,
+  type LiveRadarSignal,
+} from "@/lib/liveRadar";
+import { useLiveRadar } from "@/hooks/useLiveRadar";
+import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 
 export function LiquidityRadarCard({
   symbol,
@@ -13,35 +18,11 @@ export function LiquidityRadarCard({
   symbol: string;
   symbolName?: string;
 }) {
-  const [data, setData] = useState<LiveRadarResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const report = data?.analysis ?? null;
+  const { data, error, loading, refresh } = useLiveRadar(symbol);
+  const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
+  const report = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
   const title = (symbolName || "").trim();
-
-  const load = useCallback(async () => {
-    if (!symbol.trim()) return;
-    setLoading(true);
-    try {
-      const parsed = await fetchLiveRadar(symbol, "1d");
-      if (parsed?.analysis.last_price) {
-        setData(parsed);
-        setError(null);
-      } else {
-        setData(null);
-        setError(ar.liveRadarEmpty);
-      }
-    } catch {
-      setData(null);
-      setError(ar.liveRadarEmpty);
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const live = status === "live";
 
   return (
     <article className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow sm:p-6">
@@ -54,16 +35,23 @@ export function LiquidityRadarCard({
               {symbol}
             </span>
           </h3>
-          <p className="mt-1 text-xs text-zinc-500">
-            {data?.source === "cached" ? ar.liveRadarCached : ar.liveRadarHint}
-          </p>
+          <p className="mt-1 text-xs text-zinc-500">{ar.liveRadarHint}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex rounded-full border px-3 py-1.5 text-[11px] ${
+              live
+                ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                : "border-zinc-700 bg-zinc-900 text-zinc-400"
+            }`}
+          >
+            {live ? ar.liveRadarLive : status === "offline" ? ar.offline : ar.connecting}
+          </span>
           {report ? <SignalPill report={report} /> : null}
           <button
             type="button"
             onClick={() => {
-              void load();
+              void refresh();
             }}
             className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300"
           >
@@ -113,6 +101,20 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
         />
       </div>
 
+      {report.bid != null || report.ask != null ? (
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+          <span>
+            {ar.bid} <span dir="ltr">{formatPrice(report.bid ?? null)}</span>
+          </span>
+          <span>
+            {ar.ask} <span dir="ltr">{formatPrice(report.ask ?? null)}</span>
+          </span>
+          <span>
+            {ar.spread} <span dir="ltr">{formatPrice(report.spread ?? null)}</span>
+          </span>
+        </p>
+      ) : null}
+
       {report.entry && report.suggested_entry != null ? (
         <p className="text-sm font-semibold text-emerald-300">
           {ar.entryPriceLabel}:{" "}
@@ -143,7 +145,50 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
         <span>
           {ar.sellPressure} {formatRatio(report.sell_ratio)}
         </span>
+        <span>
+          MFI مؤسسي{" "}
+          <span dir="ltr">
+            {report.institutional_mfi != null || report.mfi != null
+              ? `${Math.round(report.institutional_mfi ?? report.mfi ?? 0)}%`
+              : "—"}
+          </span>
+        </span>
+        <span>
+          MFI أفراد{" "}
+          <span dir="ltr">{report.retail_mfi != null ? `${Math.round(report.retail_mfi)}%` : "—"}</span>
+        </span>
+        <span>
+          تضاعف الحجم{" "}
+          <span dir="ltr">
+            {report.volume_ratio != null ? `${report.volume_ratio.toFixed(2)}×` : "—"}
+          </span>
+        </span>
+        <span>
+          صفقات بلوك{" "}
+          <span dir="ltr">{report.block_trades ?? 0}</span>
+        </span>
       </p>
+
+      {report.bid_wall || report.ask_wall ? (
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+          {report.bid_wall ? (
+            <span>
+              جدار طلب{" "}
+              <span dir="ltr">
+                {formatPrice(report.bid_wall.price)} × {Math.round(report.bid_wall.quantity).toLocaleString("en-US")}
+              </span>
+            </span>
+          ) : null}
+          {report.ask_wall ? (
+            <span>
+              جدار عرض{" "}
+              <span dir="ltr">
+                {formatPrice(report.ask_wall.price)} × {Math.round(report.ask_wall.quantity).toLocaleString("en-US")}
+              </span>
+            </span>
+          ) : null}
+        </p>
+      ) : null}
 
       {report.reasons.length ? (
         <ul className="space-y-1 text-sm text-zinc-300">
@@ -153,9 +198,7 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
         </ul>
       ) : null}
 
-      <p className="text-[11px] text-zinc-600">
-        {source === "cached" ? ar.liveRadarCached : ar.liveRadarSource}
-      </p>
+      <p className="text-[11px] text-zinc-600">{source === "cached" ? ar.liveRadarCached : ar.liveRadarSource}</p>
     </div>
   );
 }

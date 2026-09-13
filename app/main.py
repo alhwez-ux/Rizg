@@ -17,18 +17,15 @@ from app.services.liquidity import LiquidityService
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.market_data import MarketDataService
 from app.services.screener import ScreenerService
-from app.services.sahm_analysis import SahmAnalysisService
-from app.services.sahm_data_provider import SahmDataProvider
-from app.services.sahm_live_market import live_ranking_rows
-from app.services.sahmk_feed import SahmkTradeFeed
 from app.services.email_alert_service import EmailAlertService
 from app.services.financial_sync import FinancialSyncService
 from app.services.financial_sync_service import FinancialSyncService as MarketFinancialSyncService
 from app.services.ranking_store import RankingStore
 from app.services.telegram_bot import TelegramBot
 from app.services.tick_feed import MockTickFeed
+from app.services.tickchart_integration import DEFAULT_TICKCHART_SYMBOLS, TickChartFeed
+from app.services.tickchart_autosync import TickChartAutoSync
 from app.services.tasi_scheduler import TasiMarketScheduler
-from app.services.tadawul_daily_sync import TadawulDailySync
 from app.services.watchlist import WatchlistService
 
 
@@ -40,8 +37,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     broadcaster.bind_loop(asyncio.get_running_loop())
     liquidity = LiquidityService()
     liquidity_engine = LiquidityRadarEngine()
-    sahm = SahmDataProvider(settings)
-    await sahm.start()
     telegram = TelegramBot(settings)
     if settings.telegram_enabled:
         await telegram.start()
@@ -50,9 +45,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         broadcaster,
         telegram=telegram,
     )
-    watchlist = WatchlistService(initial=settings.sahmk_symbols)
+    watchlist = WatchlistService(
+        initial=settings.tickchart_symbols or settings.sahmk_symbols or DEFAULT_TICKCHART_SYMBOLS
+    )
     screener = ScreenerService(settings, watchlist, liquidity_engine=liquidity_engine)
-    live_feed = SahmkTradeFeed(
+    tickchart = TickChartFeed(
         liquidity_engine,
         broadcaster,
         settings,
@@ -61,48 +58,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         screener=screener,
     )
     mock_feed = MockTickFeed(liquidity_engine, broadcaster, settings, alerts=alerts)
-    tick_feed = live_feed if live_feed.enabled else mock_feed
+    tick_feed = tickchart if tickchart.enabled else mock_feed
+    tickchart_autosync = TickChartAutoSync(tickchart, settings)
+    tickchart.bind_autosync(tickchart_autosync)
     market_data = MarketDataService(store, liquidity, broadcaster)
-    sahm_analysis = SahmAnalysisService(
-        sahm,
-        liquidity_engine,
-        market_data=market_data,
-        telegram=telegram,
-    )
     financial_sync = FinancialSyncService(settings)
     ranking_store = RankingStore()
     email_alerts = EmailAlertService(settings)
-
-    def _live_ranking_provider() -> list:
-        if not sahm.enabled:
-            return []
-        try:
-            return sahm._run_sync(live_ranking_rows(sahm))
-        except Exception:
-            return []
-
     market_financial_sync = MarketFinancialSyncService(
         settings,
         store=ranking_store,
         email_service=email_alerts,
-        provider=_live_ranking_provider,
+        provider=lambda: [],
+        enable_scheduler=False,
     )
     tasi_scheduler = TasiMarketScheduler(
         settings,
-        sahm=sahm,
+        sahm=None,
         telegram=telegram,
-        ranking_sync=market_financial_sync,
+        ranking_sync=None,
         watchlist=watchlist,
+        tickchart=tickchart,
         enable_scheduler=settings.tasi_scheduler_enabled,
     )
-    tadawul_daily_sync = TadawulDailySync(
-        settings,
-        sahm=sahm,
-        ranking_store=ranking_store,
-        telegram=telegram,
-        enable_scheduler=settings.tadawul_daily_sync_enabled,
-    )
-
     app.state.store = store
     app.state.broadcaster = broadcaster
     app.state.liquidity = liquidity
@@ -112,41 +90,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.alerts = alerts
     app.state.watchlist = watchlist
     app.state.screener = screener
-    app.state.live_feed = live_feed
+    app.state.live_feed = None
+    app.state.tickchart = tickchart
+    app.state.tickchart_autosync = tickchart_autosync
     app.state.tick_feed = tick_feed
     app.state.market_data = market_data
-    app.state.sahm = sahm
-    app.state.sahm_analysis = sahm_analysis
+    app.state.sahm = None
+    app.state.sahm_analysis = None
     app.state.financial_sync = financial_sync
     app.state.ranking_store = ranking_store
     app.state.market_financial_sync = market_financial_sync
     app.state.sync_service = market_financial_sync
     app.state.email_alerts = email_alerts
     app.state.tasi_scheduler = tasi_scheduler
-    app.state.tadawul_daily_sync = tadawul_daily_sync
+    app.state.tadawul_daily_sync = None
 
-    if live_feed.enabled:
-        await live_feed.start()
-    elif settings.enable_mock_feed:
+    if tickchart.enabled:
+        await tickchart.start()
+        await tickchart_autosync.start()
+    elif settings.enable_mock_feed and not settings.tickchart_enabled:
         await mock_feed.start()
 
-    # تهيئة وبدء خدمة المزامنة الخلفية فور إقلاع FastAPI
-    market_financial_sync.start_scheduler()
-    market_financial_sync.sync_market_financials()
     tasi_scheduler.bind_loop(asyncio.get_running_loop())
     tasi_scheduler.start()
-    tadawul_daily_sync.bind_loop(asyncio.get_running_loop())
-    tadawul_daily_sync.start()
-    tadawul_daily_sync.schedule_startup_catch_up()
 
     yield
 
-    market_financial_sync.shutdown()
     tasi_scheduler.shutdown()
-    tadawul_daily_sync.shutdown()
-    await live_feed.stop()
+    await tickchart_autosync.stop()
+    await tickchart.stop()
     await mock_feed.stop()
-    await sahm.aclose()
     await telegram.aclose()
     await broadcaster.close_all()
     await close_store()

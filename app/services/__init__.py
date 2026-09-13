@@ -17,6 +17,7 @@ from app.services.telegram_bot import TelegramBot
 from app.services.tasi_scheduler import TasiMarketScheduler
 from app.services.tadawul_daily_sync import TadawulDailySync
 from app.services.tick_feed import MockTickFeed
+from app.services.tickchart_integration import TickChartFeed
 
 __all__ = [
     "AlertService",
@@ -39,4 +40,5 @@ __all__ = [
     "TelegramBot",
     "TasiMarketScheduler",
     "TadawulDailySync",
+    "TickChartFeed",
 ]

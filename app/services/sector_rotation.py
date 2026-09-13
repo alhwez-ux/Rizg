@@ -132,20 +132,23 @@ def companies_for_sector(
     sector_name: str,
     screener: Any = None,
     live_rows: list[dict[str, Any]] | None = None,
+    *,
+    tape_only: bool = False,
 ) -> dict[str, Any]:
     requested = unquote(sector_name or "").strip()
     wanted = _canonical_sector(requested)
-    live: dict[str, dict[str, Any]] = {}
+    live_map: dict[str, dict[str, Any]] = {}
     for row in live_rows or []:
         symbol = str(row.get("symbol") or "").strip().upper()
         if symbol:
-            live[symbol] = dict(row)
-    for row in rows_from_screener(screener):
-        symbol = str(row.get("symbol") or "").strip().upper()
-        if not symbol:
-            continue
-        current = live.get(symbol, {})
-        live[symbol] = {**current, **{key: value for key, value in row.items() if value not in (None, "")}}
+            live_map[symbol] = dict(row)
+    if not tape_only:
+        for row in rows_from_screener(screener):
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            current = live_map.get(symbol, {})
+            live_map[symbol] = {**current, **{key: value for key, value in row.items() if value not in (None, "")}}
     companies: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -158,15 +161,34 @@ def companies_for_sector(
         sector = str(item.get("sector") or sector_for(symbol) or "أخرى").strip() or "أخرى"
         if not _sectors_match(sector, wanted):
             continue
+        quote = live_map.get(symbol)
         seen.add(symbol)
         companies.append(
             _company_record(
                 symbol=symbol,
                 name=company_name_for(symbol) or str(item.get("companyNameAr") or symbol),
                 sector=sector,
-                live=live.get(symbol),
+                live=quote,
             )
         )
+    if tape_only:
+        for symbol, row in live_map.items():
+            if symbol in seen or is_prohibited(symbol):
+                continue
+            sector = str(row.get("sector") or sector_for(symbol) or "أخرى").strip() or "أخرى"
+            if not _sectors_match(sector, wanted):
+                continue
+            if row.get("last_price") in (None, "", 0):
+                continue
+            seen.add(symbol)
+            companies.append(
+                _company_record(
+                    symbol=symbol,
+                    name=str(row.get("name") or company_name_for(symbol) or symbol),
+                    sector=sector,
+                    live=row,
+                )
+            )
 
     companies.sort(key=lambda item: abs(float(item.get("net_flow") or 0)), reverse=True)
     return {
@@ -215,7 +237,7 @@ def _company_record(
         "inflow": round(inflow, 4),
         "outflow": round(outflow, 4),
         "flow_status": flow_status,
-        "live": live is not None,
+        "live": bool(price),
     }
 
 

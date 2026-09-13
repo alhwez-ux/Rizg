@@ -1,7 +1,4 @@
-import { TASI_MARKET, MARKET_AS_OF, valueTraded, type TasiCompany } from "@/lib/marketData";
-import { radarFromMarket, recommendationsFromMarket } from "@/lib/marketEngine";
-import { loadTasiTape } from "@/lib/tadawulCloses";
-import { fetchSchedulerStatus } from "@/lib/tasiScheduler";
+import { apiFetch } from "@/lib/api";
 
 export type AlertKind = "trap" | "inflow" | "opportunity";
 export type NoticeType = "success" | "alert" | "info";
@@ -27,7 +24,8 @@ function noticeType(kind: AlertKind): NoticeType {
 }
 
 function noticeTime(at: string): string {
-  const [year, month, day] = at.slice(0, 10).split("-");
+  const stamp = at.slice(0, 10);
+  const [year, month, day] = stamp.split("-");
   if (!year || !month || !day) return "قبل قليل";
   return `${day}/${month}/${year}`;
 }
@@ -39,83 +37,44 @@ function alertBase(
   name: string,
   title: string,
   message: string,
-  at = MARKET_AS_OF,
+  at: string,
 ): MarketAlert {
   return { id, kind, type: noticeType(kind), symbol, name, title, message, at, time: noticeTime(at) };
 }
 
-export function collectMarketAlerts(
-  companies: TasiCompany[] = TASI_MARKET,
-  asOf = MARKET_AS_OF,
-): MarketAlert[] {
+export function collectMarketAlerts(): MarketAlert[] {
+  return [];
+}
+
+export async function collectLiveAlerts(): Promise<MarketAlert[]> {
+  const response = await apiFetch("/api/v1/tickchart/alerts");
+  const payload = (await response.json().catch(() => null)) as {
+    data?: Array<{
+      id?: string;
+      kind?: string;
+      symbol?: string;
+      name?: string;
+      title?: string;
+      message?: string;
+    }>;
+  } | null;
+  if (!response.ok || !payload) return [];
+  const now = new Date().toISOString();
   const alerts: MarketAlert[] = [];
-  for (const company of companies) {
-    const radar = radarFromMarket(company.symbol, companies);
-    const report = radar?.analysis;
-    if (!report) continue;
-    const volume = Math.round(company.volume).toLocaleString("en-US");
-    const value = (valueTraded(company) / 1_000_000).toFixed(1);
-    if (report.exit || (report.trap && company.change_percent < 0)) {
-      alerts.push(
-        alertBase(
-          `trap-${company.symbol}`,
-          "trap",
-          company.symbol,
-          company.name,
-          "فخ هبوط محتمل (Bear Trap)",
-          `${company.name} (${company.symbol}) يتراجع ${company.change_percent}% مع حجم ${volume} وقيمة ${value} مليون ر.س.`,
-          asOf,
-        ),
-      );
-      continue;
-    }
-    if (report.entry || (report.net_flow > 0 && company.change_percent >= 0.35)) {
-      alerts.push(
-        alertBase(
-          `inflow-${company.symbol}`,
-          "inflow",
-          company.symbol,
-          company.name,
-          "تدفق سيولة مؤسسي",
-          `رصد حجم تداول عالي ودخول سيولة إيجابية على ${company.name} (${company.symbol}) مع تغير +${company.change_percent}%.`,
-          asOf,
-        ),
-      );
-    }
-  }
-  for (const row of recommendationsFromMarket(companies).data) {
-    if (alerts.some((item) => item.symbol === row.symbol)) continue;
+  for (const row of payload.data ?? []) {
+    const kind = row.kind === "trap" || row.kind === "inflow" || row.kind === "opportunity" ? row.kind : "opportunity";
     alerts.push(
       alertBase(
-        `opp-${row.symbol}-${row.signal_kind}`,
-        "opportunity",
-        row.symbol,
-        row.name,
-        row.signal_type,
-        row.reason,
-        asOf,
+        String(row.id || `${kind}-${row.symbol}`),
+        kind,
+        String(row.symbol || ""),
+        String(row.name || row.symbol || ""),
+        String(row.title || ""),
+        String(row.message || ""),
+        now,
       ),
     );
   }
   alerts.sort((left, right) => KIND_ORDER[left.kind] - KIND_ORDER[right.kind] || left.symbol.localeCompare(right.symbol));
   return alerts;
-}
-
-export async function collectLiveAlerts(): Promise<MarketAlert[]> {
-  const tape = await loadTasiTape();
-  const base = collectMarketAlerts(tape.rows, tape.asOf);
-  const scheduler = await fetchSchedulerStatus();
-  const scan = scheduler?.last?.scan;
-  if (!scan?.alerts) return base;
-  const extra = alertBase(
-    `scan-${scan.ran_at ?? "live"}`,
-    "opportunity",
-    "TASI",
-    "تاسي",
-    "تحديث مصفوفة التصنيف",
-    `المجدول رصد ${scan.alerts} إشارة خلال مسح ${scan.scanned ?? 0} رمزاً.`,
-    scan.ran_at ?? MARKET_AS_OF,
-  );
-  if (base.some((item) => item.id === extra.id)) return base;
-  return [extra, ...base];
 }

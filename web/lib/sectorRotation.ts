@@ -1,5 +1,4 @@
-import { companiesFromMarket, sectorsFromMarket } from "@/lib/marketEngine";
-import { loadTasiTape } from "@/lib/tadawulCloses";
+import { apiFetch } from "@/lib/api";
 
 export interface SectorData {
   sector: string;
@@ -24,7 +23,7 @@ export interface SectorCompany {
   symbol: string;
   name: string;
   sector: string;
-  last_price: number;
+  last_price: number | null;
   price_change_pct: number;
   volume: number;
   value_traded: number;
@@ -43,11 +42,19 @@ export interface SectorCompaniesResponse {
 }
 
 export async function fetchSectorCompanies(sector: string): Promise<SectorCompaniesResponse> {
-  const tape = await loadTasiTape();
-  return companiesFromMarket(sector, tape.rows);
+  const response = await apiFetch(`/api/v1/market/sector-companies/${encodeURIComponent(sector)}`);
+  const payload = (await response.json().catch(() => null)) as SectorCompaniesResponse | null;
+  if (!response.ok || !payload) {
+    throw new Error("تعذر جلب شركات القطاع من تكرتشارت");
+  }
+  return payload;
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationResponse> {
-  const tape = await loadTasiTape();
-  return sectorsFromMarket(tape.rows, tape.source);
+  const response = await apiFetch("/api/v1/market/sector-rotation");
+  const payload = (await response.json().catch(() => null)) as SectorRotationResponse | null;
+  if (!response.ok || !payload) {
+    throw new Error("تعذر جلب خريطة القطاعات من تكرتشارت");
+  }
+  return payload;
 }

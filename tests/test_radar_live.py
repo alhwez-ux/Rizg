@@ -10,8 +10,9 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.core.middleware import register_exception_handlers
 from app.routers.radar import router as radar_router
+from app.routers.tickchart import router as tickchart_router
 from app.services.liquidity_engine import LiquidityRadarEngine
-from app.services.sahm_data_provider import SahmDataProvider
+from app.services.tickchart_integration import TickChartFeed
 
 
 def _settings(**overrides: object) -> Settings:
@@ -65,66 +66,76 @@ def test_engine_detects_bull_trap_from_upper_wick() -> None:
     assert report["trap"]["kind"] == "bull_trap"
 
 
-def test_live_radar_route_fetches_sahm_automatically() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if "/quote/" in str(request.url):
-            return httpx.Response(
-                200,
-                json={
-                    "symbol": "4030",
-                    "data": {"price": 24.9, "volume": 1500, "value": 37350, "change_percent": 1.63},
-                },
-            )
-        return httpx.Response(
-            200,
-            json={
-                "symbol": "4030",
-                "interval": "1d",
-                "data": [
-                    {"date": "2026-09-10", "open": 24.0, "high": 24.6, "low": 23.9, "close": 24.5, "volume": 1000},
-                    {"date": "2026-09-11", "open": 24.5, "high": 25.0, "low": 24.4, "close": 24.9, "volume": 1500},
-                ],
-            },
-        )
+class _Broadcaster:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, dict]] = []
 
-    provider = SahmDataProvider(
-        _settings(),
-        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    async def broadcast(self, symbol: str, message: dict) -> None:
+        self.messages.append((symbol, message))
+
+    def subscribed_symbols(self) -> set[str]:
+        return set()
+
+
+def _tickchart_feed(**overrides: object) -> TickChartFeed:
+    payload: dict[str, object] = {
+        "tickchart_api_key": "test-key",
+        "sahmk_api_key": "test-key",
+        "enable_mock_feed": False,
+    }
+    payload.update(overrides)
+    settings = _settings(**payload)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"events": [], "bids": [], "asks": []}))
     )
+    return TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, client=client)
+
+
+def test_live_radar_route_uses_tickchart_ticks() -> None:
+    feed = _tickchart_feed()
     app = FastAPI()
     register_exception_handlers(app)
-    app.state.sahm = provider
+    app.state.tickchart = feed
     app.include_router(radar_router)
+    app.include_router(tickchart_router)
     with TestClient(app) as client:
+        ingest = client.post(
+            "/api/v1/tickchart/ingest",
+            json={
+                "type": "trade",
+                "symbol": "4030",
+                "price": 24.9,
+                "quantity": 1500,
+                "event_time": "2026-09-13T10:01:00+03:00",
+            },
+        )
+        depth = client.post(
+            "/api/v1/tickchart/ingest",
+            json={
+                "type": "depth_snapshot",
+                "symbol": "4030",
+                "best_bid": 24.88,
+                "best_ask": 24.92,
+                "bids": [{"price": 24.88, "quantity": 800}],
+                "asks": [{"price": 24.92, "quantity": 600}],
+            },
+        )
         response = client.get("/api/v1/radar/live/4030")
+    assert ingest.status_code == 200
+    assert ingest.json()["ingested"] == 1
+    assert depth.status_code == 200
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert payload["source"] == "Sahm API"
+    assert payload["source"] == "TickChart"
     assert payload["symbol"] == "4030"
-    assert payload["analysis"]["symbol"] == "4030"
-    assert payload["analysis"]["trade_count"] == 2
-    assert payload["analysis"]["value_traded"] == 37350
+    assert payload["analysis"]["last_price"] == 24.9
     assert payload["analysis"]["live_quote"] is True
+    assert payload["analysis"]["bid"] == 24.88
+    assert payload["analysis"]["ask"] == 24.92
 
 
 def test_live_radar_route_sends_telegram_radar_event() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if "/quote/" in str(request.url):
-            return httpx.Response(200, json={"symbol": "4030", "data": {"price": 25.35, "volume": 2800}})
-        return httpx.Response(
-            200,
-            json={
-                "symbol": "4030",
-                "interval": "1d",
-                "data": [
-                    {"date": "2026-09-10", "open": 24.0, "high": 24.6, "low": 23.9, "close": 24.5, "volume": 1000},
-                    {"date": "2026-09-11", "open": 24.5, "high": 25.0, "low": 24.4, "close": 24.9, "volume": 1500},
-                    {"date": "2026-09-12", "open": 25.4, "high": 26.8, "low": 25.3, "close": 25.35, "volume": 2800},
-                ],
-            },
-        )
-
     class _Telegram:
         def __init__(self) -> None:
             self.reports: list[dict[str, object]] = []
@@ -133,38 +144,68 @@ def test_live_radar_route_sends_telegram_radar_event() -> None:
             self.reports.append(report)
             return True
 
-    provider = SahmDataProvider(
-        _settings(),
-        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-    )
+    feed = _tickchart_feed()
     telegram = _Telegram()
     app = FastAPI()
     register_exception_handlers(app)
-    app.state.sahm = provider
+    app.state.tickchart = feed
     app.state.telegram = telegram
     app.include_router(radar_router)
+    app.include_router(tickchart_router)
     with TestClient(app) as client:
+        client.post(
+            "/api/v1/tickchart/ingest",
+            json={
+                "ticks": [
+                    {"symbol": "4030", "price": 25.1, "quantity": 400, "event_time": "2026-09-13T10:00:01+03:00"},
+                    {"symbol": "4030", "price": 25.35, "quantity": 2800, "event_time": "2026-09-13T10:00:02+03:00"},
+                ]
+            },
+        )
+        client.post(
+            "/api/v1/tickchart/ingest",
+            json={
+                "type": "depth_snapshot",
+                "symbol": "4030",
+                "best_bid": 25.3,
+                "best_ask": 25.36,
+                "bids": [{"price": 25.3, "quantity": 200}],
+                "asks": [{"price": 25.36, "quantity": 9000}],
+            },
+        )
         response = client.get("/api/v1/radar/live/4030")
     assert response.status_code == 200
     assert len(telegram.reports) == 1
     assert telegram.reports[0]["symbol"] == "4030"
-    assert telegram.reports[0]["trap"] is not None
+    assert telegram.reports[0]["last_price"]
 
 
-def test_live_radar_route_falls_back_when_sahm_has_no_candles() -> None:
-    provider = SahmDataProvider(
-        _settings(),
-        client=httpx.AsyncClient(
-            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"data": []}))
-        ),
-    )
+def test_live_radar_route_404_when_tickchart_has_no_ticks() -> None:
+    feed = _tickchart_feed()
     app = FastAPI()
     register_exception_handlers(app)
-    app.state.sahm = provider
+    app.state.tickchart = feed
     app.include_router(radar_router)
     with TestClient(app) as client:
         response = client.get("/api/v1/radar/live/4030")
     assert response.status_code == 404
+    assert "تكرتشارت" in response.json()["message"]
+
+
+def test_live_radar_route_503_when_tickchart_disabled() -> None:
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.state.tickchart = _tickchart_feed(
+        tickchart_api_key="",
+        sahmk_api_key="",
+        tickchart_enabled=False,
+        tickchart_autosync_enabled=False,
+    )
+    app.include_router(radar_router)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/radar/live/4030")
+    assert response.status_code == 503
+    assert "تكرتشارت" in response.json()["message"]
 
 
 def test_trigger_test_alert_sends_intraday_message() -> None:

@@ -1,5 +1,4 @@
-import { rankingFromMarket } from "@/lib/marketEngine";
-import { loadTasiTape } from "@/lib/tadawulCloses";
+import { apiFetch } from "@/lib/api";
 
 export interface RankingRow {
   rank: number;
@@ -26,6 +25,10 @@ export interface RankingMatrixResponse {
 }
 
 export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
-  const tape = await loadTasiTape();
-  return rankingFromMarket(tape.rows, tape.source);
+  const response = await apiFetch("/api/v1/market/ranking-matrix");
+  const payload = (await response.json().catch(() => null)) as RankingMatrixResponse | null;
+  if (!response.ok || !payload) {
+    throw new Error("تعذر جلب مصفوفة التصنيف من تكرتشارت");
+  }
+  return payload;
 }

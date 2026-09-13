@@ -1,5 +1,4 @@
-import { recommendationsFromMarket } from "@/lib/marketEngine";
-import { loadTasiTape } from "@/lib/tadawulCloses";
+import { apiFetch } from "@/lib/api";
 
 export type RecommendationKind = "bounce" | "momentum";
 
@@ -27,6 +26,10 @@ export interface RecommendationsResponse {
 }
 
 export async function fetchMarketRecommendations(): Promise<RecommendationsResponse> {
-  const tape = await loadTasiTape();
-  return recommendationsFromMarket(tape.rows, tape.source);
+  const response = await apiFetch("/api/v1/market/recommendations");
+  const payload = (await response.json().catch(() => null)) as RecommendationsResponse | null;
+  if (!response.ok || !payload) {
+    throw new Error("تعذر جلب توصيات تكرتشارت اللحظية");
+  }
+  return payload;
 }

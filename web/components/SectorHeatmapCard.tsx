@@ -68,13 +68,13 @@ export function SectorHeatmapCard({
     void loadSectors();
     const interval = window.setInterval(() => {
       void loadSectors(true);
-    }, 120_000);
+    }, 2_000);
     return () => window.clearInterval(interval);
   }, [loadSectors]);
 
-  const loadCompanies = useCallback(async (sectorName: string) => {
+  const loadCompanies = useCallback(async (sectorName: string, silent = false) => {
     const ticket = ++requestId.current;
-    setLoadingCompanies(true);
+    if (!silent) setLoadingCompanies(true);
     setCompanyError(null);
     try {
       const result = await fetchSectorCompanies(sectorName);
@@ -102,6 +102,10 @@ export function SectorHeatmapCard({
       return;
     }
     void loadCompanies(activeSector);
+    const timer = window.setInterval(() => {
+      void loadCompanies(activeSector, true);
+    }, 2_000);
+    return () => window.clearInterval(timer);
   }, [activeSector, loadCompanies]);
 
   const handleSectorClick = (sectorName: string) => {
@@ -377,7 +381,7 @@ function CompanyTable({
                     {comp.name}
                   </td>
                   <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
-                    {comp.live ? comp.last_price.toFixed(2) : ar.missingMetric}
+                    {comp.live && comp.last_price != null ? comp.last_price.toFixed(2) : ar.missingMetric}
                   </td>
                   <td
                     className={`p-3 font-bold ${comp.live ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}

@@ -49,6 +49,10 @@ export function RecommendationsCard() {
 
   useEffect(() => {
     void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 2_000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   const visible = useMemo(() => {

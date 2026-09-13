@@ -113,7 +113,7 @@ class MarketLevelsOut(BaseModel):
 class AnalyzeResponse(BaseModel):
     symbol: str
     interval: str
-    source: str = "sahm"
+    source: str = "TickChart"
     bars: int
     session: SessionFlow
     levels: MarketLevelsOut
@@ -123,8 +123,30 @@ class AnalyzeResponse(BaseModel):
 class RadarLiveResponse(BaseModel):
     symbol: str
     success: bool = True
-    source: str = "Sahm API"
+    source: str = "TickChart"
     analysis: dict[str, Any]
+
+
+class TickChartIngestResponse(BaseModel):
+    success: bool = True
+    ingested: int = 0
+    source: str = "TickChart"
+
+
+class TickChartStatusResponse(BaseModel):
+    enabled: bool
+    connected: bool
+    trades_live: bool = False
+    depth_live: bool = False
+    symbols: list[str] = Field(default_factory=list)
+    source: str = "TickChart"
+    autosync_enabled: bool = False
+    autosync_watching: bool = False
+    autosync_dirs: list[str] = Field(default_factory=list)
+    autosync_files: int = 0
+    last_file: str | None = None
+    last_ingested: int = 0
+    last_sync_at: str | None = None
 
 
 class ComplianceSyncItem(BaseModel):
@@ -162,7 +184,7 @@ class ComplianceSyncResponse(BaseModel):
 class RankingMatrixResponse(BaseModel):
     success: bool = True
     message: str | None = None
-    source: str = "Sahm API"
+    source: str = "TickChart"
     total_companies: int
     synced_at: str | None = None
     data: list[dict[str, Any]]
@@ -170,7 +192,7 @@ class RankingMatrixResponse(BaseModel):
 
 class SectorRotationResponse(BaseModel):
     success: bool = True
-    source: str = "Sahm API"
+    source: str = "TickChart"
     total_sectors: int
     leaders: list[dict[str, Any]]
     laggards: list[dict[str, Any]]
@@ -204,7 +226,7 @@ class MarketRecommendation(BaseModel):
 class MarketRecommendationsResponse(BaseModel):
     success: bool = True
     count: int
-    source: str = "Sahm API"
+    source: str = "TickChart"
     data: list[MarketRecommendation]
 
 

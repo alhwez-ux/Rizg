@@ -48,44 +48,39 @@ def test_open_prep_lists_major_symbols_without_sahm() -> None:
     assert result["quotes"][0]["symbol"]
 
 
-def test_close_refreshes_ranking_matrix() -> None:
-    ranking = MagicMock()
-    ranking.sync_market_financials.return_value = {"updated": 8}
-    scheduler = TasiMarketScheduler(_settings(), sahm=None, ranking_sync=ranking, enable_scheduler=False)
+def test_close_uses_tickchart_opportunities() -> None:
+    class _Feed:
+        def opportunities(self):
+            return [{"symbol": "2222"}, {"symbol": "1120"}]
+
+    scheduler = TasiMarketScheduler(_settings(), sahm=None, tickchart=_Feed(), enable_scheduler=False)
     result = asyncio.run(scheduler.close_market())
-    ranking.sync_market_financials.assert_called_once()
     assert result["job"] == "close"
-    assert result["ranking_updated"] == 8
-    assert result["recommendations"] == 0
+    assert result["ranking_updated"] == 0
+    assert result["recommendations"] == 2
 
 
 def test_forced_scan_sends_trap_alert(monkeypatch) -> None:
-    import pandas as pd
-
     monkeypatch.setattr("app.services.tasi_scheduler.is_intraday_window", lambda moment=None: True)
-    monkeypatch.setattr(
-        "app.services.tasi_scheduler.overlay_quote_on_report",
-        lambda report, quote: report,
-    )
 
-    class _Engine:
-        def __init__(self, _frame):
-            pass
+    class _Feed:
+        enabled = True
 
-        def get_latest_signal_report(self, symbol=None):
-            return {"symbol": symbol, "signal": "trap", "trap": {"kind": "bull_trap", "label": "فخ"}, "score": 81}
+        def radar_report(self, symbol):
+            return {
+                "symbol": symbol,
+                "signal": "trap",
+                "trap": {"kind": "bull_trap", "label": "فخ"},
+                "score": 81,
+                "last_price": 36.6,
+            }
 
-    monkeypatch.setattr("app.services.tasi_scheduler.LiquidityRadarEngine", _Engine)
-    sahm = MagicMock()
-    sahm.enabled = True
-    frame = pd.DataFrame({"close": [1, 2, 3], "volume": [10, 10, 20]})
-    sahm.fetch_candles = AsyncMock(return_value=frame)
-    sahm.fetch_quote = AsyncMock(return_value={"price": 36.6, "volume": 1000})
     telegram = MagicMock()
     telegram.send_radar_event = AsyncMock(return_value=True)
     scheduler = TasiMarketScheduler(
         _settings(),
-        sahm=sahm,
+        sahm=None,
+        tickchart=_Feed(),
         telegram=telegram,
         enable_scheduler=False,
     )

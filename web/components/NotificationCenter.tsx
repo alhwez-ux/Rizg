@@ -55,7 +55,7 @@ export default function NotificationCenter() {
     void load();
     const timer = window.setInterval(() => {
       void load();
-    }, 45_000);
+    }, 2_000);
     return () => {
       alive = false;
       window.clearInterval(timer);

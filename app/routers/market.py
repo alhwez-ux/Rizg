@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.core.exceptions import SahmApiError
 from app.models.schemas import (
     RankingMatrixResponse,
     SectorCompaniesResponse,
@@ -13,20 +12,14 @@ from app.models.schemas import (
     SchedulerStatusResponse,
 )
 from app.services.ranking_store import RankingStore
-from app.services.recommendations_engine import live_market_recommendations
-from app.services.sahm_data_provider import SahmDataProvider
-from app.services.sahm_live_market import live_ranking_rows, live_sector_rows
-from app.services.sector_rotation import (
-    SectorRotationEngine,
-    companies_for_sector,
-    rows_from_screener,
-)
+from app.services.sector_rotation import SectorRotationEngine, companies_for_sector
+from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
-_LIVE_MESSAGE = "تم استرجاع أحدث تصنيف مالي حي من Sahm API بنجاح"
-_CACHED_MESSAGE = "آخر لقطة حقيقية محفوظة من Sahm — ليست أرقاماً مولَّدة"
-_EMPTY_MESSAGE = "لا توجد بيانات تصنيف حية من Sahm حالياً"
+_LIVE_MESSAGE = "تم استرجاع أحدث تصنيف حي من تكرتشارت بنجاح"
+_CACHED_MESSAGE = "آخر لقطة مالية محفوظة مع أسعار تكرتشارت اللحظية"
+_EMPTY_MESSAGE = "لا توجد بيانات تكرتشارت حية حالياً"
 
 
 @router.get("/ranking-matrix", response_model=RankingMatrixResponse)
@@ -36,82 +29,49 @@ async def get_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
 
 @router.get("/live-rankings", response_model=RankingMatrixResponse)
 async def get_live_rankings_from_db(request: Request) -> RankingMatrixResponse:
-    """جلب مصفوفة التصنيف الحية من Sahm مع الاعتماد على آخر لقطة محفوظة عند الحاجة."""
-
     return await _live_rankings_response(request)
 
 
 @router.get("/sector-rotation", response_model=SectorRotationResponse)
 async def get_sector_rotation_analysis(request: Request) -> SectorRotationResponse:
-    """جلب تحليل تدوير السيولة القطاعية من لوحات Sahm الحية."""
-
-    rows: list[dict] = []
-    provider = _sahm(request, required=False)
-    if provider is not None and provider.enabled:
-        try:
-            rows = await live_sector_rows(provider)
-        except SahmApiError:
-            rows = []
-    screener = getattr(request.app.state, "screener", None)
-    if screener is not None:
-        rows = _prefer_live(rows, rows_from_screener(screener))
+    rows = _tickchart_rows(request)
     payload = SectorRotationEngine(rows).ranked_payload()
-    payload["source"] = "Sahm API"
+    payload["source"] = "TickChart"
     return SectorRotationResponse.model_validate(payload)
 
 
 @router.get("/sector-companies/{sector_name}", response_model=SectorCompaniesResponse)
 async def get_companies_by_sector(sector_name: str, request: Request) -> SectorCompaniesResponse:
-    """إرجاع قائمة الشركات والأسهم التابعة لقطاع معين في تاسي."""
-
-    live_rows: list[dict] = []
-    provider = _sahm(request, required=False)
-    if provider is not None and provider.enabled:
-        try:
-            live_rows = await live_sector_rows(provider)
-        except SahmApiError:
-            live_rows = []
-    screener = getattr(request.app.state, "screener", None)
-    payload = companies_for_sector(sector_name, screener, live_rows=live_rows)
+    rows = _tickchart_rows(request)
+    payload = companies_for_sector(sector_name, live_rows=rows, tape_only=True)
     return SectorCompaniesResponse.model_validate(payload)
 
 
 @router.get("/recommendations", response_model=MarketRecommendationsResponse)
 async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
-    """فرص الارتداد الإيجابي واستمرار الزخم من أسعار الإغلاق والسيولة الحية."""
-
-    rows: list[dict] = []
-    provider = _sahm(request, required=False)
-    if provider is not None and provider.enabled:
-        try:
-            rows = await live_market_recommendations(provider)
-        except SahmApiError:
-            rows = []
+    feed = getattr(request.app.state, "tickchart", None)
+    rows = feed.opportunities() if feed is not None else []
     return MarketRecommendationsResponse(
         success=True,
         count=len(rows),
-        source="Sahm API",
+        source="TickChart",
         data=rows,
     )
 
 
 @router.post("/ranking-matrix/sync", response_model=RankingMatrixResponse)
 async def sync_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
-    return await _live_rankings_response(request, persist=True)
+    return await _live_rankings_response(request)
 
 
 @router.get("/scheduler", response_model=SchedulerStatusResponse)
 async def get_tasi_scheduler_status(request: Request) -> SchedulerStatusResponse:
-    """حالة مجدول تاسي: افتتاح 9:30، فحص كل دقيقتين، إغلاق 15:30."""
-
     scheduler = _tasi_scheduler(request)
     return SchedulerStatusResponse.model_validate(scheduler.status())
 
 
 @router.post("/scheduler/run/{job}", response_model=SchedulerRunResponse)
 async def run_tasi_scheduler_job(job: str, request: Request) -> SchedulerRunResponse:
-    """تشغيل يدوي لمهمة الافتتاح أو الفحص أو الإغلاق."""
-
     key = job.strip().lower()
     if key not in {"open", "scan", "close"}:
         raise HTTPException(status_code=422, detail="المهمة يجب أن تكون open أو scan أو close")
@@ -122,80 +82,85 @@ async def run_tasi_scheduler_job(job: str, request: Request) -> SchedulerRunResp
 
 @router.get("/daily-sync", response_model=DailySyncStatusResponse)
 async def get_tadawul_daily_sync_status(request: Request) -> DailySyncStatusResponse:
-    """حالة سحب إغلاق تاسي اليومي الساعة 16:00 بتوقيت الرياض."""
-
-    sync = _tadawul_daily_sync(request)
-    return DailySyncStatusResponse.model_validate(sync.status())
+    current = now_riyadh()
+    phase = session_phase(current)
+    return DailySyncStatusResponse(
+        success=True,
+        enabled=False,
+        running=False,
+        timezone="Asia/Riyadh",
+        clock=current.isoformat(),
+        hour=16,
+        minute=0,
+        phase=phase,
+        phase_label=phase_label(phase),
+        as_of=None,
+        symbols=0,
+        jobs=[],
+        last={"disabled": "tickchart_only"},
+    )
 
 
 @router.post("/daily-sync/run", response_model=SchedulerRunResponse)
-async def run_tadawul_daily_sync(request: Request) -> SchedulerRunResponse:
-    """تشغيل يدوي لسحب أسعار الإغلاق اليومية وتحديث المصفوفة."""
+async def run_tadawul_daily_sync(_request: Request) -> SchedulerRunResponse:
+    return SchedulerRunResponse(
+        success=True,
+        job="daily_close",
+        result={"skipped": True, "reason": "tickchart_only"},
+    )
 
-    sync = _tadawul_daily_sync(request)
-    result = await sync.run_daily_sync()
-    return SchedulerRunResponse(success=True, job="daily_close", result=result)
 
-
-async def _live_rankings_response(request: Request, *, persist: bool = True) -> RankingMatrixResponse:
-    provider = _sahm(request, required=False)
+async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
     store = _ranking_store(request)
+    tape = {str(row.get("symbol")): row for row in _tickchart_rows(request)}
+    cached = store.snapshot() or []
     rows: list[dict] = []
-    if provider is not None and provider.enabled:
-        try:
-            rows = await live_ranking_rows(provider, stored=store.snapshot())
-        except SahmApiError:
-            rows = []
+    for row in cached:
+        symbol = str(row.get("symbol") or "").upper()
+        live = tape.get(symbol) or {}
+        merged = dict(row)
+        if live.get("last_price") is not None:
+            merged["last_price"] = live["last_price"]
+        if live.get("volume"):
+            merged["volume"] = live["volume"]
+        rows.append(merged)
+    if not rows and tape:
+        rows = [
+            {
+                "symbol": item["symbol"],
+                "name": item.get("name"),
+                "last_price": item.get("last_price"),
+                "volume": item.get("volume"),
+                "matrix_score": 0,
+                "category": "تكرتشارت لحظي",
+            }
+            for item in tape.values()
+        ]
     synced_at = datetime.now(timezone.utc).isoformat()
     if rows:
-        if persist:
-            store.replace(rows, synced_at, source="Sahm API")
         return RankingMatrixResponse(
             success=True,
-            message=_LIVE_MESSAGE,
-            source="Sahm API",
+            message=_LIVE_MESSAGE if tape else _CACHED_MESSAGE,
+            source="TickChart",
             total_companies=len(rows),
-            synced_at=synced_at,
+            synced_at=store.synced_at() or synced_at,
             data=rows,
-        )
-    cached = store.snapshot()
-    if cached:
-        return RankingMatrixResponse(
-            success=True,
-            message=_CACHED_MESSAGE,
-            source="cached",
-            total_companies=len(cached),
-            synced_at=store.synced_at(),
-            data=cached,
         )
     return RankingMatrixResponse(
         success=True,
         message=_EMPTY_MESSAGE,
-        source="Sahm API",
+        source="TickChart",
         total_companies=0,
         synced_at=synced_at,
         data=[],
     )
 
 
-def _prefer_live(primary: list[dict], extra: list[dict]) -> list[dict]:
-    merged = {str(row.get("symbol") or "").upper(): row for row in extra if row.get("symbol")}
-    for row in primary:
-        symbol = str(row.get("symbol") or "").upper()
-        if not symbol:
-            continue
-        current = merged.get(symbol, {})
-        merged[symbol] = {**current, **{key: value for key, value in row.items() if value not in (None, "")}}
-    return list(merged.values())
-
-
-def _sahm(request: Request, *, required: bool = True) -> SahmDataProvider | None:
-    provider = getattr(request.app.state, "sahm", None)
-    if isinstance(provider, SahmDataProvider):
-        return provider
-    if required:
-        raise HTTPException(status_code=503, detail="مزود بيانات Sahm غير مهيأ")
-    return None
+def _tickchart_rows(request: Request) -> list[dict]:
+    feed = getattr(request.app.state, "tickchart", None)
+    if feed is None:
+        return []
+    return feed.market_rows()
 
 
 def _ranking_store(request: Request) -> RankingStore:
@@ -212,10 +177,3 @@ def _tasi_scheduler(request: Request):
     if scheduler is None:
         raise HTTPException(status_code=503, detail="مجدول تاسي غير مهيأ")
     return scheduler
-
-
-def _tadawul_daily_sync(request: Request):
-    sync = getattr(request.app.state, "tadawul_daily_sync", None)
-    if sync is None:
-        raise HTTPException(status_code=503, detail="خدمة السحب اليومي غير مهيأة")
-    return sync

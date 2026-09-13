@@ -2,11 +2,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.core.exceptions import InvalidSymbolError, SahmApiError
+from app.core.exceptions import TickChartNoTickError, TickChartNotConfiguredError
 from app.models.schemas import RadarLiveResponse, TriggerTestAlertResponse
-from app.services.liquidity_engine import LiquidityRadarEngine
-from app.services.sahm_data_provider import SahmDataProvider
-from app.services.sahm_live_market import overlay_quote_on_report
 from app.services.telegram_alert_bot import TelegramAlertBot
 
 logger = logging.getLogger(__name__)
@@ -22,47 +19,32 @@ _TEST_ALERT_DETAILS = (
 async def get_live_liquidity_radar(
     symbol: str,
     request: Request,
-    interval: str = Query(default="1d", description="Sahm candle interval: 1d, 1w, 1h, 60m, 30m"),
+    interval: str = Query(default="1d", description="kept for compatibility; live radar uses TickChart ticks"),
     limit: int = Query(default=100, ge=1, le=2000),
 ) -> RadarLiveResponse:
-    """Fetch Sahm candles automatically and return the latest liquidity/trap signal."""
+    """Return the latest liquidity/trap signal from TickChart ticks and depth."""
 
-    provider: SahmDataProvider | None = getattr(request.app.state, "sahm", None)
-    if provider is None or not provider.enabled:
-        raise HTTPException(status_code=503, detail="مزود بيانات Sahm غير مهيأ")
+    del interval, limit
+    feed = getattr(request.app.state, "tickchart", None)
+    if feed is None or not getattr(feed, "enabled", False):
+        raise TickChartNotConfiguredError()
 
-    try:
-        frame = await provider.fetch_candles(symbol, interval=interval)
-        quote = await provider.fetch_quote(symbol)
-    except InvalidSymbolError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    except SahmApiError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-
-    if frame is None or frame.empty:
-        raise HTTPException(status_code=404, detail=f"لا توجد شموع حية للرمز {symbol} من Sahm")
-
-    capped = frame.tail(limit).reset_index(drop=True)
-    engine = LiquidityRadarEngine(capped)
-    report = overlay_quote_on_report(engine.get_latest_signal_report(), quote)
-    analysis = getattr(request.app.state, "sahm_analysis", None)
-    if analysis is not None:
-        await analysis.ensure_seeded(symbol, interval=interval, limit=limit)
+    ticker = symbol.strip().upper()
+    report = await feed.ensure_radar(ticker)
+    if not report.get("last_price"):
+        raise TickChartNoTickError(ticker)
 
     telegram = getattr(request.app.state, "telegram", None)
     if telegram is not None:
         try:
             await telegram.send_radar_event(report)
         except Exception:
-            logger.exception("failed to send telegram radar event for %s", symbol)
+            logger.exception("failed to send telegram radar event for %s", ticker)
 
-    ticker = str(report.get("symbol") or symbol).upper()
-    if not report.get("last_price"):
-        raise HTTPException(status_code=404, detail=f"لا يوجد سعر حي للرمز {ticker} من Sahm")
     return RadarLiveResponse(
-        symbol=ticker,
+        symbol=str(report.get("symbol") or ticker),
         success=True,
-        source="Sahm API",
+        source="TickChart",
         analysis=report,
     )
 

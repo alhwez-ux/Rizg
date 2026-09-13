@@ -79,58 +79,22 @@ def test_rows_from_screener_maps_tape() -> None:
 
 
 def test_sector_rotation_endpoint_returns_leaders() -> None:
-    import httpx
+    class _Feed:
+        def market_rows(self):
+            return [
+                {"symbol": "1120", "name": "الراجحي", "sector": "المصارف", "price_change_pct": 1.8, "volume": 8_200_000, "value_traded": 640_000_000, "net_flow": 85_000_000, "last_price": 90},
+                {"symbol": "2222", "name": "أرامكو السعودية", "sector": "الطاقة", "price_change_pct": 0.4, "volume": 12_400_000, "value_traded": 1_150_000_000, "net_flow": 48_000_000, "last_price": 25.7},
+                {"symbol": "2010", "name": "سابك", "sector": "المواد الأساسية", "price_change_pct": -1.4, "volume": 4_800_000, "value_traded": 210_000_000, "net_flow": -62_000_000, "last_price": 52},
+            ]
 
-    from app.core.config import Settings
-    from app.services.sahm_data_provider import SahmDataProvider
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = str(request.url)
-        if "/companies/" in path:
-            return httpx.Response(
-                200,
-                json={
-                    "results": [
-                        {"symbol": "1120", "name": "الراجحي", "sector": "المصارف", "status": "active"},
-                        {"symbol": "2010", "name": "سابك", "sector": "المواد الأساسية", "status": "active"},
-                        {"symbol": "2222", "name": "أرامكو السعودية", "sector": "الطاقة", "status": "active"},
-                    ],
-                    "total": 3,
-                    "limit": 500,
-                    "offset": 0,
-                },
-            )
-        if "/market/gainers/" in path:
-            return httpx.Response(
-                200,
-                json={"gainers": [{"symbol": "1120", "name": "الراجحي", "change_percent": 1.8, "volume": 8200000, "value": 640000000}]},
-            )
-        if "/market/volume/" in path:
-            return httpx.Response(
-                200,
-                json={"stocks": [{"symbol": "2222", "name": "أرامكو السعودية", "change_percent": 0.4, "volume": 12400000, "value": 1150000000}]},
-            )
-        if "/market/value/" in path:
-            return httpx.Response(
-                200,
-                json={"stocks": [{"symbol": "2010", "name": "سابك", "change_percent": -1.4, "volume": 4800000, "value": 210000000}]},
-            )
-        if "/market/summary/" in path:
-            return httpx.Response(200, json={"index": "TASI", "index_value": 12000})
-        if "/quote/" in path:
-            return httpx.Response(200, json={"symbol": "1180", "data": {"price": 38.0, "change_percent": 0.9, "volume": 6100000, "value": 410000000}})
-        return httpx.Response(404, json={"error": "missing"})
-
-    settings = Settings(_env_file=None, sahmk_api_key="test-key", sahmk_request_gap_seconds=0.05, sahmk_max_backoff_seconds=15, telegram_bot_token="", telegram_chat_id="")
-    provider = SahmDataProvider(settings, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     app = FastAPI()
-    app.state.sahm = provider
+    app.state.tickchart = _Feed()
     app.include_router(market_router)
     response = TestClient(app).get("/api/v1/market/sector-rotation")
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert payload["source"] == "Sahm API"
+    assert payload["source"] == "TickChart"
     assert payload["total_sectors"] >= 3
     assert payload["data"][0]["rank"] == 1
     assert payload["sectors"][0]["sector"] == payload["data"][0]["sector"]

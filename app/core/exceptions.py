@@ -79,6 +79,34 @@ class ProhibitedSymbolError(AppError):
         )
 
 
+class TickChartNotConfiguredError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "مزود تكرتشارت غير مهيأ. فعّل TICKCHART_ENABLED أو ضع مجلد التصدير في TICKCHART_EXPORT_DIR.",
+            status_code=503,
+            error_code="tickchart_not_configured",
+        )
+
+
+class TickChartUnauthorizedError(AppError):
+    def __init__(self) -> None:
+        super().__init__(
+            "رمز تكرتشارت غير صالح",
+            status_code=401,
+            error_code="tickchart_unauthorized",
+        )
+
+
+class TickChartNoTickError(AppError):
+    def __init__(self, symbol: str) -> None:
+        super().__init__(
+            f"لا يوجد تدفق لحظي من تكرتشارت للرمز {symbol}",
+            status_code=404,
+            error_code="tickchart_no_tick",
+            details={"symbol": symbol},
+        )
+
+
 class SahmApiError(AppError):
     """Raised when the SAHMK REST API cannot be used or returns an error."""
 
