@@ -1,2 +1,7 @@
 .vercel
 tsconfig.tsbuildinfo
+.env
+.env.local
+.env.production
+.env*.local
+prisma/.env
