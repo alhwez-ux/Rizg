@@ -1,4 +1,4 @@
-import { RIZG_DOT, RIZG_INK, RIZG_MONOGRAM_PATH, RIZG_SIZE, RIZG_STROKE_WIDTH } from "@/lib/rizg-mark";
+import { RIZG_BG, RIZG_DOT, RIZG_INK, RIZG_MONOGRAM_PATH, RIZG_SIZE, RIZG_STROKE_WIDTH } from "@/lib/rizg-mark";
 import { toneColor, type MarketTone } from "@/lib/market-tone";
 
 type RizgLogoProps = {
@@ -21,8 +21,8 @@ export function RizgLogo({
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       <div
-        className={`${iconClassName} flex shrink-0 items-center justify-center rounded-full transition-colors duration-500`}
-        style={{ backgroundColor: color }}
+        className={`${iconClassName} flex shrink-0 items-center justify-center rounded-full border-[2.5px] transition-[border-color] duration-500`}
+        style={{ backgroundColor: RIZG_BG, borderColor: color }}
         role="img"
         aria-label={title}
       >

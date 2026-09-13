@@ -213,6 +213,30 @@ class TriggerTestAlertResponse(BaseModel):
     message: str
 
 
+class SchedulerJobStatus(BaseModel):
+    id: str
+    next_run_at: str | None = None
+
+
+class SchedulerStatusResponse(BaseModel):
+    success: bool = True
+    enabled: bool
+    running: bool
+    timezone: str
+    clock: str
+    phase: str
+    phase_label: str
+    intraday: bool
+    jobs: list[SchedulerJobStatus] = Field(default_factory=list)
+    last: dict[str, Any] = Field(default_factory=dict)
+
+
+class SchedulerRunResponse(BaseModel):
+    success: bool = True
+    job: str
+    result: dict[str, Any]
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str

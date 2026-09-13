@@ -8,6 +8,8 @@ from app.models.schemas import (
     SectorCompaniesResponse,
     SectorRotationResponse,
     MarketRecommendationsResponse,
+    SchedulerRunResponse,
+    SchedulerStatusResponse,
 )
 from app.services.ranking_store import RankingStore
 from app.services.recommendations_engine import live_market_recommendations
@@ -97,6 +99,26 @@ async def sync_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
     return await _live_rankings_response(request, persist=True)
 
 
+@router.get("/scheduler", response_model=SchedulerStatusResponse)
+async def get_tasi_scheduler_status(request: Request) -> SchedulerStatusResponse:
+    """حالة مجدول تاسي: افتتاح 9:30، فحص كل دقيقتين، إغلاق 15:30."""
+
+    scheduler = _tasi_scheduler(request)
+    return SchedulerStatusResponse.model_validate(scheduler.status())
+
+
+@router.post("/scheduler/run/{job}", response_model=SchedulerRunResponse)
+async def run_tasi_scheduler_job(job: str, request: Request) -> SchedulerRunResponse:
+    """تشغيل يدوي لمهمة الافتتاح أو الفحص أو الإغلاق."""
+
+    key = job.strip().lower()
+    if key not in {"open", "scan", "close"}:
+        raise HTTPException(status_code=422, detail="المهمة يجب أن تكون open أو scan أو close")
+    scheduler = _tasi_scheduler(request)
+    result = await scheduler.run(key, force=key == "scan")
+    return SchedulerRunResponse(success=True, job=key, result=result)
+
+
 async def _live_rankings_response(request: Request, *, persist: bool = True) -> RankingMatrixResponse:
     provider = _sahm(request, required=False)
     store = _ranking_store(request)
@@ -165,3 +187,10 @@ def _ranking_store(request: Request) -> RankingStore:
     store = RankingStore()
     request.app.state.ranking_store = store
     return store
+
+
+def _tasi_scheduler(request: Request):
+    scheduler = getattr(request.app.state, "tasi_scheduler", None)
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="مجدول تاسي غير مهيأ")
+    return scheduler

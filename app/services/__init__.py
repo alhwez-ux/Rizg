@@ -14,6 +14,7 @@ from app.services.sahmk_feed import SahmkTradeFeed
 from app.services.sector_rotation import SectorRotationEngine
 from app.services.telegram_alert_bot import TelegramAlertBot
 from app.services.telegram_bot import TelegramBot
+from app.services.tasi_scheduler import TasiMarketScheduler
 from app.services.tick_feed import MockTickFeed
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "SectorRotationEngine",
     "TelegramAlertBot",
     "TelegramBot",
+    "TasiMarketScheduler",
 ]

@@ -9,6 +9,8 @@ import { RankingRevealCard } from "@/components/RankingRevealCard";
 import { RecommendationsCard } from "@/components/RecommendationsCard";
 import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
+import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
+import NotificationCenter from "./NotificationCenter";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
 
@@ -40,7 +42,7 @@ function DashboardShell() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-          const { tone } = useTasiTone();
+  const { tone } = useTasiTone();
   const tablistId = useId();
   const activeTab = parseTab(searchParams.get("tab"));
   const selectedSector = searchParams.get("sector");
@@ -90,7 +92,7 @@ function DashboardShell() {
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 text-zinc-100 sm:px-6 lg:px-8">
+    <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-6 pt-14 text-zinc-100 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow backdrop-blur-md sm:p-6 md:flex-row md:items-center">
         <div>
           <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" tone={tone} />
@@ -99,11 +101,13 @@ function DashboardShell() {
           </h1>
           <p className="mt-1 text-xs text-zinc-400">{ar.tabsWelcome}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-4">
+          <NotificationCenter />
           <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
             {ar.tabsMarketLive}
           </div>
+          <TasiSchedulerChip />
           <AuthControls />
         </div>
       </div>

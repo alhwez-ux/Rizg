@@ -27,6 +27,7 @@ from app.services.financial_sync_service import FinancialSyncService as MarketFi
 from app.services.ranking_store import RankingStore
 from app.services.telegram_bot import TelegramBot
 from app.services.tick_feed import MockTickFeed
+from app.services.tasi_scheduler import TasiMarketScheduler
 from app.services.watchlist import WatchlistService
 
 
@@ -85,6 +86,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         email_service=email_alerts,
         provider=_live_ranking_provider,
     )
+    tasi_scheduler = TasiMarketScheduler(
+        settings,
+        sahm=sahm,
+        telegram=telegram,
+        ranking_sync=market_financial_sync,
+        watchlist=watchlist,
+        enable_scheduler=settings.tasi_scheduler_enabled,
+    )
 
     app.state.store = store
     app.state.broadcaster = broadcaster
@@ -105,6 +114,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.market_financial_sync = market_financial_sync
     app.state.sync_service = market_financial_sync
     app.state.email_alerts = email_alerts
+    app.state.tasi_scheduler = tasi_scheduler
 
     if live_feed.enabled:
         await live_feed.start()
@@ -114,10 +124,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # تهيئة وبدء خدمة المزامنة الخلفية فور إقلاع FastAPI
     market_financial_sync.start_scheduler()
     market_financial_sync.sync_market_financials()
+    tasi_scheduler.bind_loop(asyncio.get_running_loop())
+    tasi_scheduler.start()
 
     yield
 
     market_financial_sync.shutdown()
+    tasi_scheduler.shutdown()
     await live_feed.stop()
     await mock_feed.stop()
     await sahm.aclose()

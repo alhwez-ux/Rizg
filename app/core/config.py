@@ -115,6 +115,26 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("FINANCIAL_SYNC_RUN_ON_STARTUP", "financial_sync_run_on_startup"),
     )
+    tasi_scheduler_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TASI_SCHEDULER_ENABLED", "tasi_scheduler_enabled"),
+    )
+    tasi_scan_interval_minutes: int = Field(
+        default=2,
+        ge=1,
+        le=30,
+        validation_alias=AliasChoices("TASI_SCAN_INTERVAL_MINUTES", "tasi_scan_interval_minutes"),
+    )
+    tasi_scan_limit: int = Field(
+        default=12,
+        ge=4,
+        le=40,
+        validation_alias=AliasChoices("TASI_SCAN_LIMIT", "tasi_scan_limit"),
+    )
+    tasi_open_hour: int = Field(default=9, ge=0, le=23)
+    tasi_open_minute: int = Field(default=30, ge=0, le=59)
+    tasi_close_hour: int = Field(default=15, ge=0, le=23)
+    tasi_close_minute: int = Field(default=30, ge=0, le=59)
 
     @property
     def is_production(self) -> bool:

@@ -39,6 +39,10 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        ticker: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
       },
       animation: {
         pulseDot: "pulseDot 1.4s ease-in-out infinite",
@@ -46,6 +50,7 @@ const config: Config = {
         toastIn: "toastIn 0.35s ease-out",
         revealIn: "revealIn 0.45s ease-out",
         fadeIn: "fadeIn 0.4s ease-out",
+        ticker: "ticker 42s linear infinite",
       },
     },
   },
