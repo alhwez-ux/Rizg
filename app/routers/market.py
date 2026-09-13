@@ -22,6 +22,8 @@ from app.services.sector_rotation import (
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
 _LIVE_MESSAGE = "تم استرجاع أحدث تصنيف مالي حي من Sahm API بنجاح"
+_CACHED_MESSAGE = "آخر لقطة حقيقية محفوظة من Sahm — ليست أرقاماً مولَّدة"
+_EMPTY_MESSAGE = "لا توجد بيانات تصنيف حية من Sahm حالياً"
 
 
 @router.get("/ranking-matrix", response_model=RankingMatrixResponse)
@@ -40,16 +42,16 @@ async def get_live_rankings_from_db(request: Request) -> RankingMatrixResponse:
 async def get_sector_rotation_analysis(request: Request) -> SectorRotationResponse:
     """جلب تحليل تدوير السيولة القطاعية من لوحات Sahm الحية."""
 
-    provider = _sahm(request)
-    try:
-        rows = await live_sector_rows(provider)
-    except SahmApiError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    rows: list[dict] = []
+    provider = _sahm(request, required=False)
+    if provider is not None and provider.enabled:
+        try:
+            rows = await live_sector_rows(provider)
+        except SahmApiError:
+            rows = []
     screener = getattr(request.app.state, "screener", None)
     if screener is not None:
         rows = _prefer_live(rows, rows_from_screener(screener))
-    if not rows:
-        raise HTTPException(status_code=404, detail="تعذر جلب بيانات القطاعات من Sahm API")
     payload = SectorRotationEngine(rows).ranked_payload()
     payload["source"] = "Sahm API"
     return SectorRotationResponse.model_validate(payload)
@@ -59,8 +61,15 @@ async def get_sector_rotation_analysis(request: Request) -> SectorRotationRespon
 async def get_companies_by_sector(sector_name: str, request: Request) -> SectorCompaniesResponse:
     """إرجاع قائمة الشركات والأسهم التابعة لقطاع معين في تاسي."""
 
+    live_rows: list[dict] = []
+    provider = _sahm(request, required=False)
+    if provider is not None and provider.enabled:
+        try:
+            live_rows = await live_sector_rows(provider)
+        except SahmApiError:
+            live_rows = []
     screener = getattr(request.app.state, "screener", None)
-    payload = companies_for_sector(sector_name, screener)
+    payload = companies_for_sector(sector_name, screener, live_rows=live_rows)
     return SectorCompaniesResponse.model_validate(payload)
 
 
@@ -68,11 +77,13 @@ async def get_companies_by_sector(sector_name: str, request: Request) -> SectorC
 async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
     """فرص الارتداد الإيجابي واستمرار الزخم من أسعار الإغلاق والسيولة الحية."""
 
-    provider = _sahm(request)
-    try:
-        rows = await live_market_recommendations(provider)
-    except SahmApiError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    rows: list[dict] = []
+    provider = _sahm(request, required=False)
+    if provider is not None and provider.enabled:
+        try:
+            rows = await live_market_recommendations(provider)
+        except SahmApiError:
+            rows = []
     return MarketRecommendationsResponse(
         success=True,
         count=len(rows),
@@ -88,17 +99,17 @@ async def sync_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
 
 async def _live_rankings_response(request: Request, *, persist: bool = True) -> RankingMatrixResponse:
     provider = _sahm(request, required=False)
+    store = _ranking_store(request)
     rows: list[dict] = []
     if provider is not None and provider.enabled:
         try:
-            rows = await live_ranking_rows(provider)
-        except SahmApiError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    store = _ranking_store(request)
+            rows = await live_ranking_rows(provider, stored=store.snapshot())
+        except SahmApiError:
+            rows = []
     synced_at = datetime.now(timezone.utc).isoformat()
     if rows:
         if persist:
-            store.replace(rows, synced_at)
+            store.replace(rows, synced_at, source="Sahm API")
         return RankingMatrixResponse(
             success=True,
             message=_LIVE_MESSAGE,
@@ -111,13 +122,20 @@ async def _live_rankings_response(request: Request, *, persist: bool = True) -> 
     if cached:
         return RankingMatrixResponse(
             success=True,
-            message=_LIVE_MESSAGE,
-            source="Sahm API",
+            message=_CACHED_MESSAGE,
+            source="cached",
             total_companies=len(cached),
             synced_at=store.synced_at(),
             data=cached,
         )
-    raise HTTPException(status_code=404, detail="تعذر جلب مصفوفة التصنيف من Sahm API")
+    return RankingMatrixResponse(
+        success=True,
+        message=_EMPTY_MESSAGE,
+        source="Sahm API",
+        total_companies=0,
+        synced_at=synced_at,
+        data=[],
+    )
 
 
 def _prefer_live(primary: list[dict], extra: list[dict]) -> list[dict]:

@@ -27,13 +27,18 @@ export function apiFetch(path: string, init: RequestInit = {}): Promise<Response
   if (init.body != null) {
     headers["Content-Type"] = "application/json";
   }
+  const controller = init.signal ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), 18_000) : null;
   return fetch(apiUrl(path), {
     ...init,
+    signal: init.signal ?? controller?.signal,
     cache: init.cache ?? "no-store",
     headers: {
       ...headers,
       ...(init.headers ?? {}),
     },
+  }).finally(() => {
+    if (timer) clearTimeout(timer);
   });
 }
 

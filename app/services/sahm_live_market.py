@@ -4,7 +4,11 @@ import logging
 from typing import Any
 
 from app.core.exceptions import SahmApiError
-from app.services.company_ranker import MAJOR_TASI_COMPANIES, CompanyRankingEngine
+from app.services.company_ranker import (
+    MAJOR_TASI_COMPANIES,
+    CompanyRankingEngine,
+    merge_ranking_financials,
+)
 from app.services.sahm_data_provider import SahmDataProvider, normalize_sahm_symbol
 from app.services.shariah import company_name_for, is_prohibited, sector_for
 
@@ -48,7 +52,10 @@ async def live_sector_rows(provider: SahmDataProvider) -> list[dict[str, Any]]:
     return rows
 
 
-async def live_ranking_rows(provider: SahmDataProvider) -> list[dict[str, Any]]:
+async def live_ranking_rows(
+    provider: SahmDataProvider,
+    stored: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Rank major TASI names from live Sahm quotes and company profiles."""
 
     if not provider.enabled:
@@ -57,6 +64,11 @@ async def live_ranking_rows(provider: SahmDataProvider) -> list[dict[str, Any]]:
             status_code=503,
             error_code="sahm_not_configured",
         )
+    stored_map = {
+        str(row.get("symbol") or "").strip().upper(): row
+        for row in (stored or [])
+        if isinstance(row, dict) and row.get("symbol")
+    }
     directory = await _directory_by_symbol(provider)
     board = await provider.fetch_market_board()
     movers = _merge_board(board)
@@ -70,16 +82,16 @@ async def live_ranking_rows(provider: SahmDataProvider) -> list[dict[str, Any]]:
     for symbol in wanted:
         profile = directory.get(symbol) or _major_profile(symbol)
         quote = movers.get(symbol) or _flatten_quote(extra.get(symbol) or {})
-        if not quote and not profile:
-            continue
         seen.add(symbol)
-        financials.append(_ranking_row(symbol, quote, profile))
+        financials.append(_ranking_row(symbol, quote, profile, stored_map.get(symbol)))
     for symbol, quote in movers.items():
         if symbol in seen or is_prohibited(symbol):
             continue
         seen.add(symbol)
         profile = directory.get(symbol) or _major_profile(symbol)
-        financials.append(_ranking_row(symbol, quote, profile))
+        financials.append(_ranking_row(symbol, quote, profile, stored_map.get(symbol)))
+    if not financials:
+        return []
     return CompanyRankingEngine(financials).get_ranked_payload()
 
 
@@ -216,28 +228,18 @@ def _sector_row(symbol: str, quote: dict[str, Any], profile: dict[str, Any] | No
     }
 
 
-def _ranking_row(symbol: str, quote: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any]:
-    merged = dict(profile or {})
-    merged.update({key: value for key, value in (quote or {}).items() if value not in (None, "")})
+def _ranking_row(
+    symbol: str,
+    quote: dict[str, Any],
+    profile: dict[str, Any] | None,
+    stored: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     name = (
-        str(merged.get("name") or "").strip()
+        str((quote or {}).get("name") or "").strip()
         or company_name_for(symbol)
-        or str(merged.get("name_ar") or symbol)
+        or str((profile or {}).get("name_ar") or (profile or {}).get("name") or symbol)
     )
-    return {
-        "symbol": symbol,
-        "name": name,
-        "profit_growth": merged.get("change_percent") or merged.get("profit_growth"),
-        "dividend_yield": merged.get("dividend_yield"),
-        "roe": merged.get("roe"),
-        "roa": merged.get("roa"),
-        "pe_ratio": merged.get("pe_ratio"),
-        "net_income": merged.get("net_income"),
-        "volume": merged.get("volume"),
-        "value_traded": merged.get("value_traded"),
-        "last_price": merged.get("price"),
-        "live": True,
-    }
+    return merge_ranking_financials(symbol, name, quote=quote, profile=profile, stored=stored)
 
 
 def _major_profile(symbol: str) -> dict[str, Any] | None:

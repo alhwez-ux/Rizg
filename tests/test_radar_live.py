@@ -151,7 +151,7 @@ def test_live_radar_route_sends_telegram_radar_event() -> None:
     assert telegram.reports[0]["trap"] is not None
 
 
-def test_live_radar_route_returns_404_when_sahm_has_no_candles() -> None:
+def test_live_radar_route_falls_back_when_sahm_has_no_candles() -> None:
     provider = SahmDataProvider(
         _settings(),
         client=httpx.AsyncClient(
@@ -165,7 +165,6 @@ def test_live_radar_route_returns_404_when_sahm_has_no_candles() -> None:
     with TestClient(app) as client:
         response = client.get("/api/v1/radar/live/4030")
     assert response.status_code == 404
-    assert "Sahm API" in response.json()["message"]
 
 
 def test_trigger_test_alert_sends_intraday_message() -> None:

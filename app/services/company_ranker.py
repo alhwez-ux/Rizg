@@ -168,7 +168,7 @@ class CompanyRankingEngine:
         frame = self.df.copy()
         for column in ("profit_growth", "dividend_yield", "roe", "roa", "pe_ratio", "net_income"):
             if column not in frame.columns:
-                frame[column] = 0.0
+                frame[column] = pd.NA
             frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
         scored = frame.apply(_score_row, axis=1, result_type="expand")
@@ -197,15 +197,17 @@ def _score_row(row: pd.Series) -> pd.Series:
     if net_income is not None and net_income <= 0:
         return pd.Series([-1000.0, CATEGORY_LOSER])
 
-    growth = _clip_norm(_num(row, "profit_growth"), low=-20.0, high=40.0)
-    dividend = _clip_norm(_num(row, "dividend_yield"), low=0.0, high=8.0)
-    roe = _clip_norm(_num(row, "roe"), low=0.0, high=30.0)
-    roa_raw = row.get("roa")
-    roa_value = _num(row, "roe") if pd.isna(roa_raw) else _num(row, "roa")
-    roa = _clip_norm(roa_value, low=0.0, high=15.0)
+    growth = _norm_or_mid(row, "profit_growth", low=-20.0, high=40.0)
+    dividend = _norm_or_mid(row, "dividend_yield", low=0.0, high=8.0)
+    roe = _norm_or_mid(row, "roe", low=0.0, high=30.0)
+    roa_raw = _optional_num(row, "roa")
+    if roa_raw is None:
+        roa = _norm_or_mid(row, "roe", low=0.0, high=15.0) if _optional_num(row, "roe") is not None else 50.0
+    else:
+        roa = _clip_norm(roa_raw, low=0.0, high=15.0)
     solvency = 0.6 * roe + 0.4 * roa
-    pe = _num(row, "pe_ratio", default=15.0)
-    pe_score = _clip_norm(pe, low=8.0, high=35.0, invert=True) if pe > 0 else 0.0
+    pe = _optional_num(row, "pe_ratio")
+    pe_score = _clip_norm(pe, low=8.0, high=35.0, invert=True) if pe is not None and pe > 0 else 50.0
 
     score = (
         growth * GROWTH_WEIGHT
@@ -237,6 +239,13 @@ def _clip_norm(value: float, *, low: float, high: float, invert: bool = False) -
     return ratio * 100.0
 
 
+def _norm_or_mid(row: pd.Series, key: str, *, low: float, high: float, invert: bool = False) -> float:
+    value = _optional_num(row, key)
+    if value is None:
+        return 50.0
+    return _clip_norm(value, low=low, high=high, invert=invert)
+
+
 def _optional_num(row: pd.Series, key: str) -> float | None:
     try:
         value = row[key]
@@ -253,22 +262,6 @@ def _optional_num(row: pd.Series, key: str) -> float | None:
     return number
 
 
-def _num(row: pd.Series, key: str, default: float = 0.0) -> float:
-    try:
-        value = row[key]
-    except Exception:
-        return default
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return default
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    if pd.isna(number):
-        return default
-    return number
-
-
 def _native_record(row: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key, value in row.items():
@@ -282,3 +275,77 @@ def _native_record(row: dict[str, Any]) -> dict[str, Any]:
     payload["matrix_score"] = round(float(payload.get("matrix_score") or 0), 2)
     payload["rank"] = int(payload.get("rank") or 0)
     return payload
+
+
+def merge_ranking_financials(
+    symbol: str,
+    name: str = "",
+    quote: dict[str, Any] | None = None,
+    profile: dict[str, Any] | None = None,
+    stored: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge live Sahm quote/profile with a previously persisted real snapshot.
+
+    Missing P/E, ROE, or profit growth stay `None`. Daily price change is never
+    treated as annual profit growth.
+    """
+
+    ticker = str(symbol or "").strip().upper()
+    live = _public_metrics(profile)
+    live.update(_public_metrics(quote))
+    previous = _public_metrics(stored)
+    display_name = (
+        str(live.get("name") or "").strip()
+        or str(previous.get("name") or "").strip()
+        or name
+        or ticker
+    )
+    return {
+        "symbol": ticker,
+        "name": display_name,
+        "profit_growth": _real_profit_growth(live, previous),
+        "dividend_yield": _coalesce_metric(
+            live.get("dividend_yield"), previous.get("dividend_yield"), allow_zero=True
+        ),
+        "roe": _coalesce_metric(live.get("roe"), previous.get("roe")),
+        "roa": _coalesce_metric(live.get("roa"), previous.get("roa")),
+        "pe_ratio": _coalesce_metric(live.get("pe_ratio"), previous.get("pe_ratio")),
+        "net_income": _coalesce_metric(live.get("net_income"), previous.get("net_income")),
+        "volume": _coalesce_metric(live.get("volume"), previous.get("volume"), allow_zero=True),
+        "value_traded": _coalesce_metric(
+            live.get("value_traded"), previous.get("value_traded"), allow_zero=True
+        ),
+        "last_price": _coalesce_metric(
+            live.get("price") or live.get("last_price"), previous.get("last_price")
+        ),
+        "live": bool(quote),
+    }
+
+
+def _public_metrics(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(row, dict):
+        return {}
+    return {key: value for key, value in row.items() if value not in (None, "")}
+
+
+def _real_profit_growth(live: dict[str, Any], previous: dict[str, Any]) -> float | None:
+    candidate = live.get("profit_growth") or live.get("earnings_growth") or live.get("yoy_growth")
+    if candidate in (None, "") or candidate == live.get("change_percent"):
+        return _coalesce_metric(previous.get("profit_growth"), None)
+    return _coalesce_metric(candidate, previous.get("profit_growth"))
+
+
+def _coalesce_metric(primary: Any, fallback: Any, *, allow_zero: bool = False) -> float | None:
+    for value in (primary, fallback):
+        if value is None or value == "":
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number != number or abs(number) == float("inf"):
+            continue
+        if number == 0 and not allow_zero:
+            continue
+        return number
+    return None

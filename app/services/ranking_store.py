@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 _DEFAULT_PATH = Path("data/company_rankings.json")
+_SCHEMA_VERSION = 2
 
 
 class RankingStore:
@@ -16,6 +17,7 @@ class RankingStore:
         self._guard = threading.RLock()
         self._rows: list[dict[str, Any]] = []
         self._synced_at: str | None = None
+        self._source: str = "Sahm API"
         self._load()
 
     def snapshot(self) -> list[dict[str, Any]]:
@@ -26,10 +28,15 @@ class RankingStore:
         with self._guard:
             return self._synced_at
 
-    def replace(self, rows: list[dict[str, Any]], synced_at: str) -> None:
+    def source(self) -> str:
+        with self._guard:
+            return self._source
+
+    def replace(self, rows: list[dict[str, Any]], synced_at: str, *, source: str = "Sahm API") -> None:
         with self._guard:
             self._rows = [dict(row) for row in rows]
             self._synced_at = synced_at
+            self._source = source or "Sahm API"
             self._save()
 
     def _load(self) -> None:
@@ -40,21 +47,32 @@ class RankingStore:
         except (OSError, json.JSONDecodeError):
             return
         if isinstance(payload, dict):
+            version = int(payload.get("schema_version") or 0)
+            accurate = bool(payload.get("accurate"))
+            if version < _SCHEMA_VERSION and not accurate:
+                return
             rows = payload.get("data", [])
             synced = payload.get("synced_at")
+            source = str(payload.get("source") or "cached")
         elif isinstance(payload, list):
-            rows = payload
-            synced = None
+            return
         else:
             return
         if not isinstance(rows, list):
             return
         self._rows = [row for row in rows if isinstance(row, dict)]
         self._synced_at = str(synced) if synced else None
+        self._source = source
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"synced_at": self._synced_at, "data": self._rows}
+        payload = {
+            "schema_version": _SCHEMA_VERSION,
+            "accurate": True,
+            "source": self._source,
+            "synced_at": self._synced_at,
+            "data": self._rows,
+        }
         self._path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",

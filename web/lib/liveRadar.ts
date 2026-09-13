@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { readLiveCache, writeLiveCache } from "@/lib/liveCache";
 import { toFiniteNumber } from "@/lib/screener";
 
 export type LiveRadarSignal = "entry" | "exit" | "trap" | "neutral";
@@ -42,19 +43,33 @@ export interface LiveRadarResponse {
   analysis: LiveRadarReport;
 }
 
+function cacheKey(symbol: string, interval: string): string {
+  return `radar:${symbol.trim().toUpperCase()}:${interval}`;
+}
+
 export async function fetchLiveRadar(
   symbol: string,
   interval = "1d",
-): Promise<LiveRadarResponse> {
+): Promise<LiveRadarResponse | null> {
   const ticker = symbol.trim();
-  const response = await apiFetch(`/api/v1/radar/live/${encodeURIComponent(ticker)}?interval=${interval}`, {
-    method: "GET",
-  });
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!response.ok) {
-    throw new Error(extractError(payload, response.status));
+  const cached = readLiveCache<LiveRadarResponse>(cacheKey(ticker, interval));
+  try {
+    const response = await apiFetch(`/api/v1/radar/live/${encodeURIComponent(ticker)}?interval=${interval}`, {
+      method: "GET",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok) {
+      return cached ? { ...cached, source: "cached" } : null;
+    }
+    const parsed = parseLiveRadarPayload(payload, ticker);
+    if (!parsed.analysis.last_price) {
+      return cached ? { ...cached, source: "cached" } : null;
+    }
+    writeLiveCache(cacheKey(ticker, interval), parsed);
+    return parsed;
+  } catch {
+    return cached ? { ...cached, source: "cached" } : null;
   }
-  return parseLiveRadarPayload(payload, ticker);
 }
 
 export function parseLiveRadarPayload(
@@ -71,15 +86,6 @@ export function parseLiveRadarPayload(
     source: String(payload?.source ?? "Sahm API"),
     analysis,
   };
-}
-
-function extractError(payload: Record<string, unknown> | null, status: number): string {
-  if (!payload) return `HTTP ${status}`;
-  const detail = payload.detail;
-  if (typeof detail === "string" && detail.trim()) return detail;
-  if (typeof payload.message === "string" && payload.message.trim()) return payload.message;
-  if (typeof payload.error === "string" && payload.error.trim()) return payload.error;
-  return `HTTP ${status}`;
 }
 
 function parseReport(raw: unknown): LiveRadarReport | null {

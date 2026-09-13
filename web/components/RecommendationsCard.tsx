@@ -19,6 +19,7 @@ export function RecommendationsCard() {
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cached, setCached] = useState(false);
   const [filter, setFilter] = useState<FilterKind>("all");
   const [sortKey, setSortKey] = useState<SortKey>("confidence");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
@@ -29,15 +30,18 @@ export function RecommendationsCard() {
     setError(null);
     try {
       const result = await fetchMarketRecommendations();
-      setRows(result.data);
+      const data = result.data;
+      setRows(data);
+      setCached(result.source === "cached");
       setLoaded(true);
       setSelected((current) => {
         if (!current) return null;
-        return result.data.find((row) => row.symbol === current.symbol) ?? null;
+        return data.find((row) => row.symbol === current.symbol) ?? null;
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ar.recoLoadError);
+    } catch {
       setRows([]);
+      setError(ar.recoLoadError);
+      setLoaded(true);
     } finally {
       setLoading(false);
     }
@@ -80,7 +84,7 @@ export function RecommendationsCard() {
             <span aria-hidden="true">🎯</span>
             {ar.recoTitle}
           </h2>
-          <p className="mt-1 text-xs text-zinc-500">{ar.recoHint}</p>
+          <p className="mt-1 text-xs text-zinc-500">{cached ? ar.recoCached : ar.recoHint}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">

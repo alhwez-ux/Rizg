@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { readLiveCache, writeLiveCache } from "@/lib/liveCache";
 import { toFiniteNumber } from "@/lib/screener";
 
 export interface SectorData {
@@ -16,6 +17,7 @@ export interface SectorData {
 export interface SectorRotationResponse {
   success: boolean;
   total_sectors: number;
+  source?: string;
   sectors: SectorData[];
 }
 
@@ -41,22 +43,40 @@ export interface SectorCompaniesResponse {
 }
 
 export async function fetchSectorCompanies(sector: string): Promise<SectorCompaniesResponse> {
-  const encoded = encodeURIComponent(sector.trim());
-  const response = await apiFetch(`/api/v1/market/sector-companies/${encoded}`, {
-    method: "GET",
-  });
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!response.ok) {
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : null;
-    throw new Error(detail || "تعذر جلب شركات هذا القطاع");
+  const key = `sector-companies:${sector.trim()}`;
+  const cached = readLiveCache<SectorCompaniesResponse>(key);
+  try {
+    const encoded = encodeURIComponent(sector.trim());
+    const response = await apiFetch(`/api/v1/market/sector-companies/${encoded}`, {
+      method: "GET",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok) {
+      return cached ?? emptySectorCompanies(sector);
+    }
+    const rows = Array.isArray(payload?.companies) ? payload.companies : [];
+    const companies = rows.map((row) => parseCompany(row));
+    const result: SectorCompaniesResponse = {
+      success: true,
+      sector: String(payload?.sector ?? sector),
+      total_companies: Number(payload?.total_companies) || companies.length,
+      companies,
+    };
+    if (companies.some((row) => row.live)) {
+      writeLiveCache(key, result);
+      return result;
+    }
+    if (cached?.companies?.some((row) => row.live)) {
+      return cached;
+    }
+    return result;
+  } catch {
+    return cached ?? emptySectorCompanies(sector);
   }
-  const rows = Array.isArray(payload?.companies) ? payload.companies : [];
-  return {
-    success: Boolean(payload?.success ?? true),
-    sector: String(payload?.sector ?? sector),
-    total_companies: Number(payload?.total_companies) || rows.length,
-    companies: rows.map((row) => parseCompany(row)),
-  };
+}
+
+function emptySectorCompanies(sector: string): SectorCompaniesResponse {
+  return { success: true, sector, total_companies: 0, companies: [] };
 }
 
 function parseCompany(raw: unknown): SectorCompany {
@@ -77,24 +97,42 @@ function parseCompany(raw: unknown): SectorCompany {
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationResponse> {
-  const response = await apiFetch("/api/v1/market/sector-rotation", {
-    method: "GET",
-  });
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!response.ok) {
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : null;
-    throw new Error(detail || "فشل في جلب بيانات تدوير السيولة القطاعية");
+  const cached = readLiveCache<SectorRotationResponse>("sector-rotation");
+  try {
+    const response = await apiFetch("/api/v1/market/sector-rotation", {
+      method: "GET",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok) {
+      return cached ?? emptySectors();
+    }
+    const rows = Array.isArray(payload?.sectors)
+      ? payload.sectors
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+    const sectors = rows.map((row, index) => parseSector(row, index));
+    const result: SectorRotationResponse = {
+      success: true,
+      total_sectors: Number(payload?.total_sectors) || sectors.length,
+      source: String(payload?.source ?? "Sahm API"),
+      sectors,
+    };
+    if (sectors.length && sectors.some((row) => row.total_value_traded > 0 || row.total_volume > 0)) {
+      writeLiveCache("sector-rotation", result);
+      return result;
+    }
+    if (cached?.sectors?.length) {
+      return { ...cached, source: "cached" };
+    }
+    return result;
+  } catch {
+    return cached ?? emptySectors();
   }
-  const rows = Array.isArray(payload?.sectors)
-    ? payload.sectors
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : [];
-  return {
-    success: Boolean(payload?.success ?? true),
-    total_sectors: Number(payload?.total_sectors) || rows.length,
-    sectors: rows.map((row, index) => parseSector(row, index)),
-  };
+}
+
+function emptySectors(): SectorRotationResponse {
+  return { success: true, total_sectors: 0, source: "Sahm API", sectors: [] };
 }
 
 function parseSector(raw: unknown, index: number): SectorData {

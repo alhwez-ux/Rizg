@@ -144,7 +144,9 @@ def test_sector_companies_endpoint_lists_banks() -> None:
     symbols = {row["symbol"] for row in payload["companies"]}
     assert payload["success"] is True
     assert payload["sector"] == "البنوك"
-    assert {"1120", "1180", "1010"} <= symbols
+    assert "1120" in symbols
+    assert "1010" not in symbols
+    assert "1180" not in symbols
     assert all("net_flow" in row and "flow_status" in row for row in payload["companies"])
 
     app = FastAPI()
@@ -155,7 +157,7 @@ def test_sector_companies_endpoint_lists_banks() -> None:
     assert body["success"] is True
     assert body["sector"] == "البنوك"
     assert body["total_companies"] >= 3
-    assert {row["symbol"] for row in body["companies"]} >= {"1120", "1180", "1010"}
+    assert "1120" in {row["symbol"] for row in body["companies"]}
 
     energy = TestClient(app).get("/api/v1/market/sector-companies/الطاقة")
     assert energy.status_code == 200

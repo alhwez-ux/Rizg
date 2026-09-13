@@ -1,5 +1,8 @@
 import { apiFetch } from "@/lib/api";
+import { readLiveCache, writeLiveCache } from "@/lib/liveCache";
 import { toFiniteNumber } from "@/lib/screener";
+
+const CACHE_KEY = "recommendations";
 
 export type RecommendationKind = "bounce" | "momentum";
 
@@ -27,19 +30,36 @@ export interface RecommendationsResponse {
 }
 
 export async function fetchMarketRecommendations(): Promise<RecommendationsResponse> {
-  const response = await apiFetch("/api/v1/market/recommendations", { method: "GET" });
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!response.ok) {
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : null;
-    throw new Error(detail || "تعذر جلب توصيات الفرص");
+  const cached = readLiveCache<RecommendationsResponse>(CACHE_KEY);
+  try {
+    const response = await apiFetch("/api/v1/market/recommendations", { method: "GET" });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok) {
+      return cached ?? emptyRecommendations();
+    }
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    const data = rows.map((row) => parseRecommendation(row)).filter((row) => row.close_price > 0);
+    const result: RecommendationsResponse = {
+      success: true,
+      count: Number(payload?.count) || data.length,
+      source: String(payload?.source ?? "Sahm API"),
+      data,
+    };
+    if (data.length) {
+      writeLiveCache(CACHE_KEY, result);
+      return result;
+    }
+    if (cached?.data?.length) {
+      return { ...cached, source: "cached" };
+    }
+    return result;
+  } catch {
+    return cached ?? emptyRecommendations();
   }
-  const rows = Array.isArray(payload?.data) ? payload.data : [];
-  return {
-    success: Boolean(payload?.success ?? true),
-    count: Number(payload?.count) || rows.length,
-    source: String(payload?.source ?? "Sahm API"),
-    data: rows.map((row) => parseRecommendation(row)),
-  };
+}
+
+function emptyRecommendations(): RecommendationsResponse {
+  return { success: true, count: 0, source: "Sahm API", data: [] };
 }
 
 function parseRecommendation(raw: unknown): MarketRecommendation {

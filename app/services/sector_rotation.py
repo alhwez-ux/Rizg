@@ -26,18 +26,6 @@ DEMO_TASI_SECTOR_TAPE: list[dict[str, Any]] = [
     {"symbol": "2380", "name": "بترورابغ", "sector": "الطاقة", "price_change_pct": 2.1, "volume": 8_000_000, "value_traded": 110_000_000},
 ]
 
-MOCK_SECTOR_DATABASE: dict[str, list[dict[str, Any]]] = {
-    "البنوك": [
-        {"symbol": "1120", "name": "الراجحي", "price_change_pct": 1.5, "value_traded": 450_000_000, "volume": 5_000_000},
-        {"symbol": "1180", "name": "الأهلي", "price_change_pct": 0.8, "value_traded": 250_000_000, "volume": 3_000_000},
-        {"symbol": "1010", "name": "الرياض", "price_change_pct": -0.4, "value_traded": 120_000_000, "volume": 1_800_000},
-    ],
-    "الطاقة": [
-        {"symbol": "2222", "name": "أرامكو السعودية", "price_change_pct": -0.2, "value_traded": 380_000_000, "volume": 12_000_000},
-        {"symbol": "2380", "name": "بترورابغ", "price_change_pct": 2.1, "value_traded": 110_000_000, "volume": 8_000_000},
-    ],
-}
-
 
 class SectorRotationEngine:
     def __init__(self, market_data: list[dict[str, Any]]):
@@ -140,11 +128,24 @@ def rows_from_screener(screener: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def companies_for_sector(sector_name: str, screener: Any = None) -> dict[str, Any]:
+def companies_for_sector(
+    sector_name: str,
+    screener: Any = None,
+    live_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     requested = unquote(sector_name or "").strip()
     wanted = _canonical_sector(requested)
-    live = {row["symbol"]: row for row in rows_from_screener(screener)}
-    sample = {row["symbol"]: row for row in [*SAMPLE_SECTOR_TAPE, *DEMO_TASI_SECTOR_TAPE, *_mock_sector_rows()]}
+    live: dict[str, dict[str, Any]] = {}
+    for row in live_rows or []:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if symbol:
+            live[symbol] = dict(row)
+    for row in rows_from_screener(screener):
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        current = live.get(symbol, {})
+        live[symbol] = {**current, **{key: value for key, value in row.items() if value not in (None, "")}}
     companies: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -164,24 +165,6 @@ def companies_for_sector(sector_name: str, screener: Any = None) -> dict[str, An
                 name=company_name_for(symbol) or str(item.get("companyNameAr") or symbol),
                 sector=sector,
                 live=live.get(symbol),
-                sample=sample.get(symbol),
-            )
-        )
-
-    for row in sample.values():
-        symbol = str(row.get("symbol") or "").strip().upper()
-        if not symbol or symbol in seen:
-            continue
-        if not _sectors_match(str(row.get("sector") or ""), wanted):
-            continue
-        seen.add(symbol)
-        companies.append(
-            _company_record(
-                symbol=symbol,
-                name=str(row.get("name") or symbol),
-                sector=str(row.get("sector") or wanted),
-                live=live.get(symbol),
-                sample=row,
             )
         )
 
@@ -194,31 +177,22 @@ def companies_for_sector(sector_name: str, screener: Any = None) -> dict[str, An
     }
 
 
-def _mock_sector_rows() -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for sector, companies in MOCK_SECTOR_DATABASE.items():
-        for item in companies:
-            row = dict(item)
-            row["sector"] = sector
-            rows.append(row)
-    return rows
-
-
 def _company_record(
     *,
     symbol: str,
     name: str,
     sector: str,
     live: dict[str, Any] | None,
-    sample: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    source = dict(live or {})
-    if not source and sample:
-        source = dict(sample)
-    change = float(source.get("price_change_pct") or 0)
-    net_flow = float(source.get("net_flow") or 0)
-    inflow = float(source.get("inflow") or 0)
-    outflow = float(source.get("outflow") or 0)
+    live_row = dict(live or {})
+    change = _first_metric(live_row.get("price_change_pct"))
+    volume = _first_metric(live_row.get("volume"))
+    value = _first_metric(live_row.get("value_traded"))
+    net_flow = _first_metric(live_row.get("net_flow"))
+    if net_flow == 0 and value and change:
+        net_flow = value * (change / 100.0)
+    inflow = _first_metric(live_row.get("inflow"))
+    outflow = _first_metric(live_row.get("outflow"))
     if inflow == 0 and outflow == 0 and net_flow:
         inflow = max(net_flow, 0.0)
         outflow = max(-net_flow, 0.0)
@@ -233,14 +207,27 @@ def _company_record(
         "name": name,
         "sector": sector,
         "price_change_pct": round(change, 4),
-        "volume": round(float(source.get("volume") or 0), 4),
-        "value_traded": round(float(source.get("value_traded") or 0), 4),
+        "volume": round(volume, 4),
+        "value_traded": round(value, 4),
         "net_flow": round(net_flow, 4),
         "inflow": round(inflow, 4),
         "outflow": round(outflow, 4),
         "flow_status": flow_status,
         "live": live is not None,
     }
+
+
+def _first_metric(*values: Any) -> float:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number != 0:
+            return number
+    return 0.0
 
 
 def _canonical_sector(name: str) -> str:

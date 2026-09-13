@@ -24,10 +24,16 @@ export function LiquidityRadarCard({
     setLoading(true);
     try {
       const parsed = await fetchLiveRadar(symbol, "1d");
-      setData(parsed);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ar.liveRadarEmpty);
+      if (parsed?.analysis.last_price) {
+        setData(parsed);
+        setError(null);
+      } else {
+        setData(null);
+        setError(ar.liveRadarEmpty);
+      }
+    } catch {
+      setData(null);
+      setError(ar.liveRadarEmpty);
     } finally {
       setLoading(false);
     }
@@ -48,7 +54,9 @@ export function LiquidityRadarCard({
               {symbol}
             </span>
           </h3>
-          <p className="mt-1 text-xs text-zinc-500">{ar.liveRadarHint}</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {data?.source === "cached" ? ar.liveRadarCached : ar.liveRadarHint}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {report ? <SignalPill report={report} /> : null}
@@ -145,7 +153,9 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
         </ul>
       ) : null}
 
-      <p className="text-[11px] text-zinc-600">{`المصدر: ${source ?? "Sahm API"}`}</p>
+      <p className="text-[11px] text-zinc-600">
+        {source === "cached" ? ar.liveRadarCached : ar.liveRadarSource}
+      </p>
     </div>
   );
 }

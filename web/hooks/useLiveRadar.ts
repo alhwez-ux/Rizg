@@ -19,8 +19,13 @@ export function useLiveRadar(symbol: string, interval = "1d") {
     try {
       const payload = await fetchLiveRadar(ticker, interval);
       if (!alive.current) return;
-      setData(payload);
-      setError(null);
+      if (payload?.analysis.last_price) {
+        setData(payload);
+        setError(null);
+      } else {
+        setData(null);
+        setError("تعذر جلب رادار السيولة");
+      }
     } catch (err) {
       if (!alive.current) return;
       setError(err instanceof Error ? err.message : "تعذر جلب رادار السيولة");

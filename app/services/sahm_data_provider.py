@@ -18,7 +18,9 @@ from app.services.liquidity_engine import LiquidityEngine, LiquidityRadarEngine
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_REST_URL = "https://api.sahmcapital.com/v1"
+_SAHMK_REST_URL = "https://api.sahmk.sa/api/v1"
+_SAHMCAPITAL_REST_URL = "https://api.sahmcapital.com/v1"
+_DEFAULT_REST_URL = _SAHMK_REST_URL
 _PLACEHOLDER_API_KEYS = frozenset({
     "",
     "your_api_key",
@@ -77,6 +79,29 @@ RADAR_DTYPES: dict[str, str] = {
 }
 
 
+def sahm_rest_candidates(configured: str | None, api_key: str = "") -> list[str]:
+    """Prefer the SAHMK host for `shmk_` keys, then the configured URL, then capital."""
+
+    ordered: list[str] = []
+    key = str(api_key or "").strip().lower()
+    configured_url = str(configured or "").strip().rstrip("/")
+    if key.startswith("shmk"):
+        ordered.append(_SAHMK_REST_URL)
+    if configured_url:
+        ordered.append(configured_url)
+    ordered.extend((_SAHMK_REST_URL, _SAHMCAPITAL_REST_URL))
+    unique: list[str] = []
+    for url in ordered:
+        clean = url.rstrip("/")
+        if clean and clean not in unique:
+            unique.append(clean)
+    return unique or [_DEFAULT_REST_URL]
+
+
+def prefer_sahm_rest_url(configured: str | None, api_key: str = "") -> str:
+    return sahm_rest_candidates(configured, api_key)[0]
+
+
 class SahmDataProvider:
     """Programmatic bridge to the Sahm / SAHMK market-data API.
 
@@ -95,12 +120,14 @@ class SahmDataProvider:
     ) -> None:
         self._settings = settings or get_settings()
         self.api_key = resolve_sahm_api_key(self._settings, explicit=api_key)
-        self.base_url = (
+        configured = (
             rest_url
             or os.getenv("SAHM_API_BASE_URL")
             or self._settings.sahmk_rest_url
             or _DEFAULT_REST_URL
-        ).rstrip("/")
+        )
+        self._rest_bases = sahm_rest_candidates(configured, self.api_key)
+        self.base_url = self._rest_bases[0]
         self.headers = sahm_auth_headers(self.api_key)
         self._api_key = self.api_key
         self._rest_url = self.base_url
@@ -458,6 +485,14 @@ class SahmDataProvider:
             self._owns_client = True
         return self._client
 
+    def _ordered_bases(self) -> list[str]:
+        bases = [url for url in self._rest_bases if url]
+        current = self._rest_url
+        if current in bases:
+            index = bases.index(current)
+            return bases[index:] + bases[:index]
+        return bases or [_DEFAULT_REST_URL]
+
     async def _get(self, path: str, params: Mapping[str, Any]) -> dict[str, Any]:
         if not self._api_key:
             raise SahmApiError(
@@ -466,56 +501,74 @@ class SahmDataProvider:
                 error_code="sahm_not_configured",
             )
         client = await self._ensure_client()
-        url = f"{self._rest_url}{path}"
         headers = sahm_auth_headers(self._api_key)
-        delay = max(self._request_gap, 0.4)
         last_error: Exception | None = None
-        for attempt in range(4):
-            try:
-                response = await client.get(url, params=dict(params), headers=headers)
-            except httpx.HTTPError as exc:
-                last_error = exc
-                logger.warning("sahm network error %s %s attempt=%s", path, exc.__class__.__name__, attempt + 1)
-                await asyncio.sleep(min(delay, self._max_backoff))
-                delay = min(delay * 2, self._max_backoff)
-                continue
+        for base in self._ordered_bases():
+            delay = max(self._request_gap, 0.4)
+            try_next_host = False
+            for attempt in range(4):
+                url = f"{base}{path}"
+                try:
+                    response = await client.get(url, params=dict(params), headers=headers)
+                except httpx.HTTPError as exc:
+                    last_error = exc
+                    logger.warning("sahm network error %s %s attempt=%s", path, exc.__class__.__name__, attempt + 1)
+                    await asyncio.sleep(min(delay, self._max_backoff))
+                    delay = min(delay * 2, self._max_backoff)
+                    continue
 
-            if response.status_code == 429:
-                wait = _retry_after(response) or delay
-                logger.warning("sahm rate limited (HTTP 429) path=%s wait=%.1fs", path, wait)
-                await asyncio.sleep(min(max(wait, 1.0), self._max_backoff))
-                delay = min(delay * 2, self._max_backoff)
-                last_error = SahmApiError(
-                    "SAHMK rate limit exceeded",
-                    status_code=429,
-                    error_code="sahm_rate_limit",
-                    details={"path": path},
-                )
+                if response.status_code == 429:
+                    wait = _retry_after(response) or delay
+                    logger.warning("sahm rate limited (HTTP 429) path=%s wait=%.1fs", path, wait)
+                    await asyncio.sleep(min(max(wait, 1.0), self._max_backoff))
+                    delay = min(delay * 2, self._max_backoff)
+                    last_error = SahmApiError(
+                        "SAHMK rate limit exceeded",
+                        status_code=429,
+                        error_code="sahm_rate_limit",
+                        details={"path": path},
+                    )
+                    continue
+                if response.status_code >= 500:
+                    last_error = SahmApiError(
+                        f"SAHMK server error (HTTP {response.status_code})",
+                        status_code=502,
+                        error_code="sahm_server_error",
+                        details={"path": path, "status": response.status_code},
+                    )
+                    await asyncio.sleep(min(delay, self._max_backoff))
+                    delay = min(delay * 2, self._max_backoff)
+                    continue
+                if response.status_code == 404:
+                    last_error = _api_error(response, path)
+                    try_next_host = True
+                    break
+                if response.status_code >= 400:
+                    raise _api_error(response, path)
+                payload = _response_json(response)
+                if payload is None:
+                    raise SahmApiError(
+                        "SAHMK returned a non-JSON payload",
+                        status_code=502,
+                        error_code="sahm_invalid_payload",
+                        details={"path": path},
+                    )
+                nested = payload.get("error")
+                if nested:
+                    error = _payload_error(nested, response.status_code, path)
+                    if error.status_code == 404 or error.error_code == "sahm_symbol_not_found":
+                        last_error = error
+                        try_next_host = True
+                        break
+                    raise error
+                if base != self._rest_url:
+                    logger.info("sahm host failover succeeded base=%s path=%s", base, path)
+                self._rest_url = base
+                self.base_url = base
+                return payload
+            if try_next_host:
+                logger.warning("sahm host 404, trying next base=%s path=%s", base, path)
                 continue
-            if response.status_code >= 500:
-                last_error = SahmApiError(
-                    f"SAHMK server error (HTTP {response.status_code})",
-                    status_code=502,
-                    error_code="sahm_server_error",
-                    details={"path": path, "status": response.status_code},
-                )
-                await asyncio.sleep(min(delay, self._max_backoff))
-                delay = min(delay * 2, self._max_backoff)
-                continue
-            if response.status_code >= 400:
-                raise _api_error(response, path)
-            payload = _response_json(response)
-            if payload is None:
-                raise SahmApiError(
-                    "SAHMK returned a non-JSON payload",
-                    status_code=502,
-                    error_code="sahm_invalid_payload",
-                    details={"path": path},
-                )
-            nested = payload.get("error")
-            if nested:
-                raise _payload_error(nested, response.status_code, path)
-            return payload
 
         if isinstance(last_error, SahmApiError):
             raise last_error
@@ -898,7 +951,9 @@ __all__ = [
     "candles_to_radar_frame",
     "empty_radar_frame",
     "normalize_sahm_symbol",
+    "prefer_sahm_rest_url",
     "resolve_sahm_api_key",
     "sahm_auth_headers",
+    "sahm_rest_candidates",
     "LiquidityRadarEngine",
 ]

@@ -37,8 +37,9 @@ export function SectorHeatmapCard() {
       } else {
         throw new Error(ar.heatmapLoadError);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ar.heatmapLoadError);
+    } catch {
+      setSectors([]);
+      setError(ar.heatmapLoadError);
     } finally {
       setLoadingSectors(false);
     }
@@ -68,9 +69,10 @@ export function SectorHeatmapCard() {
       } else {
         throw new Error(ar.heatmapPanelError);
       }
-    } catch (err) {
+    } catch {
       if (ticket !== requestId.current) return;
-      setCompanyError(err instanceof Error ? err.message : ar.heatmapPanelError);
+      setCompanies([]);
+      setCompanyError(ar.heatmapPanelError);
     } finally {
       if (ticket === requestId.current) setLoadingCompanies(false);
     }
@@ -320,23 +322,25 @@ function CompanyTable({
                     {comp.name}
                   </td>
                   <td
-                    className={`p-3 font-bold ${comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                    className={`p-3 font-bold ${comp.live ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}
                     dir="ltr"
                   >
-                    {comp.price_change_pct >= 0 ? "+" : ""}
-                    {comp.price_change_pct.toFixed(2)}%
+                    {comp.live
+                      ? `${comp.price_change_pct >= 0 ? "+" : ""}${comp.price_change_pct.toFixed(2)}%`
+                      : ar.missingMetric}
                   </td>
                   <td
-                    className={`p-3 font-mono ${comp.net_flow > 0 ? "text-emerald-400" : comp.net_flow < 0 ? "text-rose-400" : "text-zinc-300"}`}
+                    className={`p-3 font-mono ${comp.live ? (comp.net_flow > 0 ? "text-emerald-400" : comp.net_flow < 0 ? "text-rose-400" : "text-zinc-300") : "text-zinc-500"}`}
                     dir="ltr"
                   >
-                    {formatMoney(comp.net_flow)}
+                    {comp.live ? formatMoney(comp.net_flow) : ar.missingMetric}
                   </td>
                   <td className="p-3 text-zinc-200" dir="ltr">
-                    {(comp.value_traded / 1_000_000).toLocaleString("en-US", {
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    {ar.heatmapMillion}
+                    {comp.live
+                      ? `${(comp.value_traded / 1_000_000).toLocaleString("en-US", {
+                          maximumFractionDigits: 2,
+                        })} ${ar.heatmapMillion}`
+                      : ar.missingMetric}
                   </td>
                   <td className="p-3 text-center">
                     <span className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-400">

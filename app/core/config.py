@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SAHM_API_KEY", "SAHMK_API_KEY", "sahmk_api_key"),
     )
     sahmk_rest_url: str = Field(
-        default="https://api.sahmcapital.com/v1",
+        default="https://api.sahmk.sa/api/v1",
         validation_alias=AliasChoices("SAHM_API_BASE_URL", "SAHMK_REST_URL", "sahmk_rest_url"),
     )
     sahmk_data_mode: str = "delayed"

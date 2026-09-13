@@ -14,7 +14,7 @@ from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot
 from app.models.trade import SessionFlow
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
-from app.services.sahm_data_provider import sahm_auth_headers
+from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
 from app.services.shariah import is_prohibited
 from app.services.signals import SignalEngine, SignalInputs, apply_levels
 from app.services.watchlist import WatchlistService
@@ -44,7 +44,10 @@ class ScreenerService:
             atr_stop_mult=settings.signal_atr_stop_mult,
         )
         self._liquidity_engine = liquidity_engine
-        self._rest = (settings.sahmk_rest_url or "https://api.sahmcapital.com/v1").rstrip("/")
+        self._rest = prefer_sahm_rest_url(
+            settings.sahmk_rest_url,
+            resolve_sahm_api_key(settings),
+        )
         self._mode = (settings.sahmk_data_mode or "delayed").strip().lower()
         self._limit = settings.screener_leader_limit
         self.cache = MarketCache(ttl_seconds=settings.sahmk_cache_ttl_seconds)

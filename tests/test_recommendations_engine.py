@@ -145,8 +145,12 @@ def test_recommendations_endpoint_returns_scanned_opportunities(monkeypatch: pyt
     assert all(row["entry_price"] and row["reason"] for row in payload["data"])
 
 
-def test_recommendations_endpoint_requires_sahm() -> None:
+def test_recommendations_endpoint_falls_back_without_sahm() -> None:
     app = FastAPI()
     app.include_router(market_router)
     response = TestClient(app).get("/api/v1/market/recommendations")
-    assert response.status_code == 503
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["count"] == 0
+    assert payload["data"] == []

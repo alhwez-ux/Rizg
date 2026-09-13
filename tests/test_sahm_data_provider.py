@@ -17,6 +17,7 @@ from app.services.sahm_data_provider import (
     RADAR_COLUMNS,
     SahmDataProvider,
     candles_to_radar_frame,
+    prefer_sahm_rest_url,
     resolve_sahm_api_key,
     sahm_auth_headers,
 )
@@ -356,3 +357,8 @@ def test_sahm_auth_headers_include_bearer_and_api_key() -> None:
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
+
+def test_shmk_keys_prefer_sahmk_host() -> None:
+    assert prefer_sahm_rest_url("https://api.sahmcapital.com/v1", "shmk_live_abc") == "https://api.sahmk.sa/api/v1"
+    assert prefer_sahm_rest_url("https://api.sahmk.sa/api/v1", "other-key") == "https://api.sahmk.sa/api/v1"

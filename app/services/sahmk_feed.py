@@ -15,14 +15,13 @@ from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
-from app.services.sahm_data_provider import resolve_sahm_api_key, sahm_auth_headers
+from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
 from app.services.screener import ScreenerService
 from app.services.shariah import is_prohibited
 from app.services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_REST_URL = "https://api.sahmcapital.com/v1"
 _SEEN_LIMIT = 2_000
 
 
@@ -51,7 +50,7 @@ class SahmkTradeFeed:
         self._watchlist = watchlist
         self._screener = screener
         self._api_key = resolve_sahm_api_key(settings)
-        self._rest_url = (settings.sahmk_rest_url or _DEFAULT_REST_URL).rstrip("/")
+        self._rest_url = prefer_sahm_rest_url(settings.sahmk_rest_url, self._api_key)
         self._data_mode = (settings.sahmk_data_mode or "delayed").strip().lower()
         if self._data_mode not in {"delayed", "realtime"}:
             self._data_mode = "delayed"

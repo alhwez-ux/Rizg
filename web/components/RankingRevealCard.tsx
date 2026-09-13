@@ -10,6 +10,7 @@ export function RankingRevealCard() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cached, setCached] = useState(false);
 
   const fetchRankedCompanies = async () => {
     if (isRevealed) {
@@ -22,14 +23,13 @@ export function RankingRevealCard() {
     setError(null);
     try {
       const result = await fetchRankingMatrix();
-      if (result.success) {
-        setCompanies(result.data);
-        setIsRevealed(true);
-      } else {
-        setError(ar.rankingLoadError);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ar.rankingLoadError);
+      setCompanies(result.data);
+      setCached(result.source === "cached");
+      setIsRevealed(true);
+    } catch {
+      setCompanies([]);
+      setError(ar.rankingLoadError);
+      setIsRevealed(true);
     } finally {
       setLoading(false);
     }
@@ -40,7 +40,7 @@ export function RankingRevealCard() {
       <div className="mb-5 flex flex-col items-start justify-between gap-4 border-b border-zinc-800 pb-4 md:flex-row md:items-center">
         <div>
           <h2 className="text-xl font-bold text-zinc-50">{ar.rankingTitle}</h2>
-          <p className="mt-1 text-xs text-zinc-500">{ar.rankingHint}</p>
+          <p className="mt-1 text-xs text-zinc-500">{cached ? ar.rankingCached : ar.rankingHint}</p>
         </div>
         <button
           type="button"
@@ -100,19 +100,19 @@ export function RankingRevealCard() {
                       </span>
                     </td>
                     <td
-                      className={`p-3 font-mono ${comp.profit_growth >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                      className={`p-3 font-mono ${metricTone(comp.profit_growth)}`}
                       dir="ltr"
                     >
-                      {comp.profit_growth}%
+                      {formatPct(comp.profit_growth)}
                     </td>
                     <td className="p-3 font-mono text-zinc-200" dir="ltr">
-                      {comp.dividend_yield}%
+                      {formatPct(comp.dividend_yield)}
                     </td>
                     <td className="p-3 font-mono text-zinc-200" dir="ltr">
-                      {comp.roe}%
+                      {formatPct(comp.roe)}
                     </td>
                     <td className="p-3 font-mono text-zinc-200" dir="ltr">
-                      {comp.pe_ratio}x
+                      {formatPe(comp.pe_ratio)}
                     </td>
                   </tr>
                 ))}
@@ -130,3 +130,18 @@ export function RankingRevealCard() {
 }
 
 export default RankingRevealCard;
+
+function formatPct(value: number | null): string {
+  if (value == null) return ar.missingMetric;
+  return `${value}%`;
+}
+
+function formatPe(value: number | null): string {
+  if (value == null) return ar.missingMetric;
+  return `${value}x`;
+}
+
+function metricTone(value: number | null): string {
+  if (value == null) return "text-zinc-500";
+  return value >= 0 ? "text-emerald-400" : "text-rose-400";
+}

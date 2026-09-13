@@ -28,10 +28,8 @@ async def get_live_liquidity_radar(
     """Fetch Sahm candles automatically and return the latest liquidity/trap signal."""
 
     provider: SahmDataProvider | None = getattr(request.app.state, "sahm", None)
-    if provider is None:
+    if provider is None or not provider.enabled:
         raise HTTPException(status_code=503, detail="مزود بيانات Sahm غير مهيأ")
-    if not provider.enabled:
-        raise HTTPException(status_code=503, detail="SAHM_API_KEY is missing; cannot fetch live radar")
 
     try:
         frame = await provider.fetch_candles(symbol, interval=interval)
@@ -40,14 +38,9 @@ async def get_live_liquidity_radar(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except SahmApiError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     if frame is None or frame.empty:
-        raise HTTPException(
-            status_code=404,
-            detail=f"تعذر جلب بيانات الشموع للسهم {symbol} من Sahm API",
-        )
+        raise HTTPException(status_code=404, detail=f"لا توجد شموع حية للرمز {symbol} من Sahm")
 
     capped = frame.tail(limit).reset_index(drop=True)
     engine = LiquidityRadarEngine(capped)
@@ -64,6 +57,8 @@ async def get_live_liquidity_radar(
             logger.exception("failed to send telegram radar event for %s", symbol)
 
     ticker = str(report.get("symbol") or symbol).upper()
+    if not report.get("last_price"):
+        raise HTTPException(status_code=404, detail=f"لا يوجد سعر حي للرمز {ticker} من Sahm")
     return RadarLiveResponse(
         symbol=ticker,
         success=True,

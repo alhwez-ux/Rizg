@@ -9,6 +9,7 @@ import pytest
 
 from app.core.config import Settings
 from app.routers.market import router as market_router
+from app.services.ranking_store import RankingStore
 from app.services.sahm_data_provider import SahmDataProvider
 
 
@@ -31,7 +32,7 @@ def _settings() -> Settings:
     )
 
 
-def test_ranking_matrix_uses_live_sahm_quotes() -> None:
+def test_ranking_matrix_uses_live_sahm_quotes(tmp_path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         path = str(request.url)
         if "/companies/" in path:
@@ -70,6 +71,7 @@ def test_ranking_matrix_uses_live_sahm_quotes() -> None:
     provider = SahmDataProvider(_settings(), client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     app = FastAPI()
     app.state.sahm = provider
+    app.state.ranking_store = RankingStore(tmp_path / "rankings.json")
     app.include_router(market_router)
     response = TestClient(app).get("/api/v1/market/ranking-matrix")
     assert response.status_code == 200
@@ -79,3 +81,7 @@ def test_ranking_matrix_uses_live_sahm_quotes() -> None:
     assert {"1120", "2222"} <= symbols
     assert payload["total_companies"] >= 40
     assert payload["data"][0]["rank"] == 1
+    rajhi = next(row for row in payload["data"] if row["symbol"] == "1120")
+    assert rajhi["profit_growth"] is None
+    assert rajhi["pe_ratio"] == 15.8
+    assert rajhi["roe"] == 19.0

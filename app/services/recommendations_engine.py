@@ -172,11 +172,7 @@ async def live_market_recommendations(provider: SahmDataProvider, *, use_cache: 
             error_code="sahm_api_error",
         ) from exc
     if combined is None or combined.empty:
-        raise SahmApiError(
-            "تعذر جلب بيانات الإغلاق من Sahm API",
-            status_code=404,
-            error_code="sahm_empty",
-        )
+        return []
     frames = _split_by_symbol(combined)
     quotes = await provider.fetch_quotes_for(list(frames), limit=len(frames))
     engine = MarketRecommendationsEngine(frames, names=names)
