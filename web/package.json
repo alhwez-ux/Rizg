@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "prisma generate && prisma db push && tsx prisma/seed.ts && next build",
+    "build": "node scripts/vercel-build.mjs",
     "start": "next start",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
