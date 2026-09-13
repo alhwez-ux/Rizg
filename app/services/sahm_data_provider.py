@@ -18,7 +18,15 @@ from app.services.liquidity_engine import LiquidityEngine, LiquidityRadarEngine
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_REST_URL = "https://api.sahmk.sa/api/v1"
+_DEFAULT_REST_URL = "https://api.sahmcapital.com/v1"
+_PLACEHOLDER_API_KEYS = frozenset({
+    "",
+    "your_api_key",
+    "your_api_key_here",
+    "your_sahm_api_key",
+    "changeme",
+    "ضع_مفتاح_sahm_api_الخاص_بك_هنا",
+})
 _INDEX_SYMBOLS = frozenset({"TASI", "NOMU"})
 _HISTORICAL_INTERVALS = frozenset({"1d", "1w", "1m"})
 _INTRADAY_INTERVALS = frozenset({"30m", "60m"})
@@ -86,25 +94,14 @@ class SahmDataProvider:
         rest_url: str | None = None,
     ) -> None:
         self._settings = settings or get_settings()
-        self.api_key = (
-            api_key
-            if api_key is not None
-            else self._settings.sahmk_api_key
-            or os.getenv("SAHM_API_KEY", "")
-            or os.getenv("SAHMK_API_KEY", "")
-        ).strip()
+        self.api_key = resolve_sahm_api_key(self._settings, explicit=api_key)
         self.base_url = (
             rest_url
             or os.getenv("SAHM_API_BASE_URL")
             or self._settings.sahmk_rest_url
             or _DEFAULT_REST_URL
         ).rstrip("/")
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "X-API-Key": self.api_key,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        self.headers = sahm_auth_headers(self.api_key)
         self._api_key = self.api_key
         self._rest_url = self.base_url
         self._data_mode = (self._settings.sahmk_data_mode or "delayed").strip().lower()
@@ -354,6 +351,96 @@ class SahmDataProvider:
             await asyncio.sleep(self._request_gap)
         return list(dict.fromkeys(symbols))
 
+    async def fetch_quote(self, symbol: str) -> dict[str, Any]:
+        """Live delayed/realtime quote for one TASI symbol."""
+
+        ticker = normalize_sahm_symbol(symbol)
+        try:
+            payload = await self._get(
+                f"/quote/{ticker}/",
+                {"data_mode": self._data_mode},
+            )
+        except (SahmApiError, InvalidSymbolError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    async def fetch_market_board(self) -> dict[str, Any]:
+        """TASI gainers / volume / value / summary from Sahm in one paced pass."""
+
+        params = {"index": "TASI", "limit": 50, "data_mode": self._data_mode}
+        board: dict[str, Any] = {"gainers": [], "volume": [], "value": [], "summary": {}}
+        endpoints = (
+            ("gainers", "/market/gainers/", params, "gainers"),
+            ("volume", "/market/volume/", params, "stocks"),
+            ("value", "/market/value/", params, "stocks"),
+            ("summary", "/market/summary/", {"index": "TASI", "data_mode": self._data_mode}, None),
+        )
+        for index, (key, path, query, list_key) in enumerate(endpoints):
+            if index:
+                await asyncio.sleep(self._request_gap)
+            try:
+                payload = await self._get(path, query)
+            except SahmApiError as exc:
+                logger.warning("sahm market board skipped %s: %s", key, exc.message)
+                continue
+            if key == "summary":
+                board["summary"] = payload
+                continue
+            rows = payload.get(list_key) or payload.get("data") or payload.get("results") or []
+            board[key] = rows if isinstance(rows, list) else []
+        return board
+
+    async def fetch_company_directory(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        """Full TASI company directory from Sahm (`GET /companies/`)."""
+
+        companies: list[dict[str, Any]] = []
+        offset = 0
+        limit = 500
+        for _page in range(_MAX_PAGES):
+            payload = await self._get(
+                "/companies/",
+                {"market": "TASI", "limit": limit, "offset": offset},
+            )
+            results = payload.get("results") or payload.get("companies") or payload.get("data") or []
+            if not isinstance(results, list):
+                break
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                if active_only:
+                    status = str(item.get("status") or "active").strip().lower()
+                    if status and status not in {"active", "listed", "trading"}:
+                        continue
+                companies.append(item)
+            total = int(payload.get("total") or 0)
+            offset += int(payload.get("limit") or limit)
+            if not results or (total and offset >= total) or len(results) < limit:
+                break
+            await asyncio.sleep(self._request_gap)
+        return companies
+
+    async def fetch_quotes_for(self, symbols: Iterable[str], *, limit: int = 40) -> dict[str, dict[str, Any]]:
+        """Paced live quotes for the requested TASI names."""
+
+        quotes: dict[str, dict[str, Any]] = {}
+        seen: set[str] = set()
+        for raw in symbols:
+            if len(quotes) >= max(1, limit):
+                break
+            try:
+                ticker = normalize_sahm_symbol(str(raw))
+            except InvalidSymbolError:
+                continue
+            if ticker in seen:
+                continue
+            seen.add(ticker)
+            if quotes:
+                await asyncio.sleep(self._request_gap)
+            payload = await self.fetch_quote(ticker)
+            if payload:
+                quotes[ticker] = payload
+        return quotes
+
     def feed_engine(self, engine: LiquidityEngine, candles: pd.DataFrame) -> list[Any]:
         """Pass a radar DataFrame into LiquidityEngine / LiquidityRadarEngine."""
 
@@ -364,20 +451,23 @@ class SahmDataProvider:
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0))
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(20.0, connect=10.0),
+                headers=sahm_auth_headers(self._api_key),
+            )
             self._owns_client = True
         return self._client
 
     async def _get(self, path: str, params: Mapping[str, Any]) -> dict[str, Any]:
         if not self._api_key:
             raise SahmApiError(
-                "SAHMK_API_KEY is missing; cannot fetch candles",
+                "SAHM_API_KEY is missing; cannot fetch live Sahm data",
                 status_code=503,
                 error_code="sahm_not_configured",
             )
         client = await self._ensure_client()
         url = f"{self._rest_url}{path}"
-        headers = dict(self.headers)
+        headers = sahm_auth_headers(self._api_key)
         delay = max(self._request_gap, 0.4)
         last_error: Exception | None = None
         for attempt in range(4):
@@ -463,6 +553,48 @@ def candles_to_radar_frame(
     return frame
 
 
+def _clean_api_key(raw: object) -> str:
+    key = str(raw or "").strip().strip("\"'").strip()
+    if not key or key.lower() in _PLACEHOLDER_API_KEYS:
+        return ""
+    return key
+
+
+def resolve_sahm_api_key(
+    settings: Settings | None = None,
+    *,
+    explicit: str | None = None,
+) -> str:
+    """Read SAHM_API_KEY / SAHMK_API_KEY, ignoring empty placeholder values."""
+
+    if explicit is not None:
+        return _clean_api_key(explicit)
+    candidates = (
+        settings.sahmk_api_key if settings is not None else None,
+        os.getenv("SAHM_API_KEY"),
+        os.getenv("SAHMK_API_KEY"),
+    )
+    for raw in candidates:
+        key = _clean_api_key(raw)
+        if key:
+            return key
+    return ""
+
+
+def sahm_auth_headers(api_key: str) -> dict[str, str]:
+    """Headers required on every Sahm/SAHMK REST call."""
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    key = _clean_api_key(api_key)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+        headers["X-API-Key"] = key
+    return headers
+
+
 def empty_radar_frame() -> pd.DataFrame:
     frame = pd.DataFrame({column: [] for column in RADAR_COLUMNS})
     return _apply_radar_dtypes(frame)
@@ -501,7 +633,16 @@ def _parse_candle(
     close = _as_float(row.get("close") or row.get("c") or row.get("price"))
     if stamp is None or close is None or close <= 0:
         return None
-    volume = _as_float(row.get("volume") or row.get("vol") or row.get("quantity")) or 0.0
+    volume = (
+        _as_float(
+            row.get("volume")
+            or row.get("vol")
+            or row.get("quantity")
+            or row.get("qty")
+            or row.get("traded_volume")
+        )
+        or 0.0
+    )
     if volume < 0:
         return None
     ticker = str(row.get("symbol") or symbol).strip().upper() or symbol
@@ -520,7 +661,13 @@ def _parse_candle(
         "low": low_px if low_px is not None else close,
         "close": close,
         "volume": volume,
-        "turnover": _as_float(row.get("turnover") or row.get("value")) or 0.0,
+        "turnover": _as_float(
+            row.get("turnover")
+            or row.get("value")
+            or row.get("value_traded")
+            or row.get("traded_value")
+        )
+        or 0.0,
         "trades": _as_int(row.get("number_of_trades") or row.get("trades") or row.get("trade_count")),
         "adjusted_close": adjusted if adjusted is not None else close,
         "interval": str(row.get("interval") or interval),
@@ -751,5 +898,7 @@ __all__ = [
     "candles_to_radar_frame",
     "empty_radar_frame",
     "normalize_sahm_symbol",
+    "resolve_sahm_api_key",
+    "sahm_auth_headers",
     "LiquidityRadarEngine",
 ]

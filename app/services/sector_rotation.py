@@ -212,9 +212,9 @@ def _company_record(
     live: dict[str, Any] | None,
     sample: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    source = dict(sample or {})
-    if live:
-        source.update(live)
+    source = dict(live or {})
+    if not source and sample:
+        source = dict(sample)
     change = float(source.get("price_change_pct") or 0)
     net_flow = float(source.get("net_flow") or 0)
     inflow = float(source.get("inflow") or 0)

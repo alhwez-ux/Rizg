@@ -1,16 +1,19 @@
 from functools import lru_cache
 from decimal import Decimal
+from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and `.env`."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
+        env_file=_ENV_FILE if _ENV_FILE.is_file() else ".env",
+        env_file_encoding="utf-8-sig",
         extra="ignore",
         case_sensitive=False,
         populate_by_name=True,
@@ -22,7 +25,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     host: str = "0.0.0.0"
     port: int = 8000
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "*",
+            "https://rizg.vercel.app",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
     quote_history_limit: int = Field(default=1000, ge=10, le=100_000)
     ws_heartbeat_seconds: int = Field(default=20, ge=5, le=120)
     enable_mock_feed: bool = True
@@ -32,11 +42,11 @@ class Settings(BaseSettings):
     )
     sahmk_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices("SAHMK_API_KEY", "SAHM_API_KEY", "sahmk_api_key"),
+        validation_alias=AliasChoices("SAHM_API_KEY", "SAHMK_API_KEY", "sahmk_api_key"),
     )
     sahmk_rest_url: str = Field(
-        default="https://api.sahmk.sa/api/v1",
-        validation_alias=AliasChoices("SAHMK_REST_URL", "SAHM_API_BASE_URL", "sahmk_rest_url"),
+        default="https://api.sahmcapital.com/v1",
+        validation_alias=AliasChoices("SAHM_API_BASE_URL", "SAHMK_REST_URL", "sahmk_rest_url"),
     )
     sahmk_data_mode: str = "delayed"
     sahmk_poll_seconds: float = Field(default=30, ge=5, le=600)

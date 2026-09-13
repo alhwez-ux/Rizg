@@ -66,7 +66,15 @@ def test_engine_detects_bull_trap_from_upper_wick() -> None:
 
 
 def test_live_radar_route_fetches_sahm_automatically() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/quote/" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "symbol": "4030",
+                    "data": {"price": 24.9, "volume": 1500, "value": 37350, "change_percent": 1.63},
+                },
+            )
         return httpx.Response(
             200,
             json={
@@ -96,10 +104,14 @@ def test_live_radar_route_fetches_sahm_automatically() -> None:
     assert payload["symbol"] == "4030"
     assert payload["analysis"]["symbol"] == "4030"
     assert payload["analysis"]["trade_count"] == 2
+    assert payload["analysis"]["value_traded"] == 37350
+    assert payload["analysis"]["live_quote"] is True
 
 
 def test_live_radar_route_sends_telegram_radar_event() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/quote/" in str(request.url):
+            return httpx.Response(200, json={"symbol": "4030", "data": {"price": 25.35, "volume": 2800}})
         return httpx.Response(
             200,
             json={

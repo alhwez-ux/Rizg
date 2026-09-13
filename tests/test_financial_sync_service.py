@@ -132,7 +132,50 @@ def test_live_rankings_reads_persisted_store(tmp_path) -> None:
 
 def test_manual_sync_endpoint_recalculates_matrix(tmp_path) -> None:
     store = RankingStore(tmp_path / "company_rankings.json")
-    service = FinancialSyncService(_settings(), store=store, enable_scheduler=False)
+    service = FinancialSyncService(
+        _settings(),
+        store=store,
+        enable_scheduler=False,
+        provider=lambda: [
+            {
+                "symbol": "1120",
+                "name": "الراجحي",
+                "profit_growth": 14.1,
+                "dividend_yield": 3.4,
+                "roe": 19.0,
+                "pe_ratio": 15.8,
+                "net_income": 16500,
+            },
+            {
+                "symbol": "2010",
+                "name": "سابك",
+                "profit_growth": -15.0,
+                "dividend_yield": 2.5,
+                "roe": 3.2,
+                "pe_ratio": 35.0,
+                "net_income": -500,
+            },
+            {
+                "symbol": "2222",
+                "name": "أرامكو السعودية",
+                "profit_growth": 1.2,
+                "dividend_yield": 7.0,
+                "roe": 26.0,
+                "pe_ratio": 15.0,
+                "net_income": 410000,
+            },
+            {
+                "symbol": "1180",
+                "name": "الأهلي",
+                "profit_growth": 9.8,
+                "dividend_yield": 3.5,
+                "roe": 14.2,
+                "pe_ratio": 12.1,
+                "net_income": 14000,
+            },
+        ],
+    )
+    service.sync_market_financials()
     app = FastAPI()
     app.state.ranking_store = store
     app.state.market_financial_sync = service
@@ -155,6 +198,17 @@ def test_first_sync_does_not_email_when_store_is_empty(tmp_path) -> None:
         store=RankingStore(tmp_path / "company_rankings.json"),
         enable_scheduler=False,
         email_service=email,
+        provider=lambda: [
+            {
+                "symbol": "1120",
+                "name": "الراجحي",
+                "profit_growth": 14.1,
+                "dividend_yield": 3.4,
+                "roe": 19.0,
+                "pe_ratio": 15.8,
+                "net_income": 16500,
+            }
+        ],
     )
     result = service.sync_market_financials()
     assert result["updated"] >= 1

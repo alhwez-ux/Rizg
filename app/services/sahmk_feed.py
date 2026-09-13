@@ -15,13 +15,14 @@ from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
+from app.services.sahm_data_provider import resolve_sahm_api_key, sahm_auth_headers
 from app.services.screener import ScreenerService
 from app.services.shariah import is_prohibited
 from app.services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_REST_URL = "https://api.sahmk.sa/api/v1"
+_DEFAULT_REST_URL = "https://api.sahmcapital.com/v1"
 _SEEN_LIMIT = 2_000
 
 
@@ -49,7 +50,7 @@ class SahmkTradeFeed:
         self._alerts = alerts
         self._watchlist = watchlist
         self._screener = screener
-        self._api_key = settings.sahmk_api_key.strip()
+        self._api_key = resolve_sahm_api_key(settings)
         self._rest_url = (settings.sahmk_rest_url or _DEFAULT_REST_URL).rstrip("/")
         self._data_mode = (settings.sahmk_data_mode or "delayed").strip().lower()
         if self._data_mode not in {"delayed", "realtime"}:
@@ -84,10 +85,13 @@ class SahmkTradeFeed:
         if self._running:
             return
         if not self.enabled:
-            logger.warning("SAHMK_API_KEY is missing; market feed will not start")
+            logger.warning("SAHM_API_KEY is missing; market feed will not start")
             return
         self._running = True
-        self._client = httpx.AsyncClient(timeout=20.0)
+        self._client = httpx.AsyncClient(
+            timeout=20.0,
+            headers=sahm_auth_headers(self._api_key),
+        )
         self._task = asyncio.create_task(self._run(), name="sahmk-quote-poll")
         logger.info(
             "sahmk quote feed starting watchlist=%s mode=%s watch=%.0fs market=%.0fs batch=%s",
@@ -225,16 +229,16 @@ class SahmkTradeFeed:
             self._apply_cached_quote(symbol)
             return False
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=20.0)
+            self._client = httpx.AsyncClient(
+                timeout=20.0,
+                headers=sahm_auth_headers(self._api_key),
+            )
         url = f"{self._rest_url}/quote/{symbol}/"
         try:
             response = await self._client.get(
                 url,
                 params={"data_mode": self._data_mode},
-                headers={
-                    "X-API-Key": self._api_key,
-                    "Accept": "application/json",
-                },
+                headers=sahm_auth_headers(self._api_key),
             )
         except httpx.HTTPError:
             logger.warning("sahmk quote network error for %s; using cache", symbol)

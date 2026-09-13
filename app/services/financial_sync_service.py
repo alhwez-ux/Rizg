@@ -8,33 +8,13 @@ from typing import Any
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.config import Settings, get_settings
-from app.services.company_ranker import SAMPLE_COMPANIES, CompanyRankingEngine
+from app.services.company_ranker import CompanyRankingEngine
 from app.services.email_alert_service import EmailAlertService, is_structural_change
 from app.services.ranking_store import RankingStore
 
 logger = logging.getLogger(__name__)
 
 _RIYADH = timezone(timedelta(hours=3))
-_LIVE_UPDATES: list[dict[str, Any]] = [
-    {
-        "symbol": "1120",
-        "name": "الراجحي",
-        "profit_growth": 14.1,
-        "dividend_yield": 3.4,
-        "roe": 19.0,
-        "pe_ratio": 15.8,
-        "net_income": 16500,
-    },
-    {
-        "symbol": "2222",
-        "name": "أرامكو السعودية",
-        "profit_growth": 1.2,
-        "dividend_yield": 7.0,
-        "roe": 26.0,
-        "pe_ratio": 15.0,
-        "net_income": 410000,
-    },
-]
 
 ProviderFn = Callable[[], list[dict[str, Any]]]
 
@@ -93,17 +73,7 @@ class FinancialSyncService:
 
         if self._provider is not None:
             return list(self._provider() or [])
-        stamped = datetime.now(timezone.utc).isoformat()
-        updates = {str(row["symbol"]).upper(): dict(row) for row in _LIVE_UPDATES}
-        merged: list[dict[str, Any]] = []
-        for row in SAMPLE_COMPANIES:
-            item = dict(row)
-            patch = updates.get(str(item.get("symbol") or "").upper())
-            if patch:
-                item.update(patch)
-            item["last_updated"] = stamped
-            merged.append(item)
-        return merged
+        return []
 
     def sync_market_financials(self) -> dict[str, Any]:
         """سحب، حفظ، إعادة حساب وتحديث المصفوفة فوراً."""

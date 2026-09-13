@@ -6,6 +6,7 @@ from app.core.exceptions import InvalidSymbolError, SahmApiError
 from app.models.schemas import RadarLiveResponse, TriggerTestAlertResponse
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.sahm_data_provider import SahmDataProvider
+from app.services.sahm_live_market import overlay_quote_on_report
 from app.services.telegram_alert_bot import TelegramAlertBot
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,12 @@ async def get_live_liquidity_radar(
     provider: SahmDataProvider | None = getattr(request.app.state, "sahm", None)
     if provider is None:
         raise HTTPException(status_code=503, detail="مزود بيانات Sahm غير مهيأ")
+    if not provider.enabled:
+        raise HTTPException(status_code=503, detail="SAHM_API_KEY is missing; cannot fetch live radar")
 
     try:
         frame = await provider.fetch_candles(symbol, interval=interval)
+        quote = await provider.fetch_quote(symbol)
     except InvalidSymbolError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except SahmApiError as exc:
@@ -47,7 +51,7 @@ async def get_live_liquidity_radar(
 
     capped = frame.tail(limit).reset_index(drop=True)
     engine = LiquidityRadarEngine(capped)
-    report = engine.get_latest_signal_report()
+    report = overlay_quote_on_report(engine.get_latest_signal_report(), quote)
     analysis = getattr(request.app.state, "sahm_analysis", None)
     if analysis is not None:
         await analysis.ensure_seeded(symbol, interval=interval, limit=limit)

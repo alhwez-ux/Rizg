@@ -17,6 +17,8 @@ from app.services.sahm_data_provider import (
     RADAR_COLUMNS,
     SahmDataProvider,
     candles_to_radar_frame,
+    resolve_sahm_api_key,
+    sahm_auth_headers,
 )
 
 
@@ -35,7 +37,7 @@ def _settings(**overrides: object) -> Settings:
 
 def _provider(handler, **overrides: object) -> SahmDataProvider:
     transport = httpx.MockTransport(handler)
-    client = httpx.AsyncClient(transport=transport, base_url="https://api.sahmk.sa")
+    client = httpx.AsyncClient(transport=transport, base_url="https://api.sahmcapital.com")
     return SahmDataProvider(_settings(**overrides), client=client)
 
 
@@ -50,6 +52,7 @@ def _fast_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_historical_candles_normalize_to_radar_frame() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/historical/4030/")
+        assert request.headers["Authorization"] == "Bearer test-key"
         assert request.headers["X-API-Key"] == "test-key"
         params = parse_qs(request.url.query.decode() if isinstance(request.url.query, bytes) else request.url.query)
         assert params["interval"] == ["1d"]
@@ -224,7 +227,7 @@ def test_retries_after_rate_limit() -> None:
 
 
 def test_missing_api_key() -> None:
-    provider = SahmDataProvider(_settings(sahmk_api_key=""))
+    provider = SahmDataProvider(_settings(sahmk_api_key=""), api_key="")
     with pytest.raises(SahmApiError) as exc:
         asyncio.run(provider.historical_candles("4030"))
     assert exc.value.error_code == "sahm_not_configured"
@@ -239,6 +242,8 @@ def test_invalid_symbol_rejected() -> None:
 def test_list_tasi_symbols() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert "/companies/" in request.url.path
+        assert request.headers["Authorization"] == "Bearer test-key"
+        assert request.headers["X-API-Key"] == "test-key"
         params = parse_qs(urlparse(str(request.url)).query)
         assert params["market"] == ["TASI"]
         return httpx.Response(
@@ -271,7 +276,7 @@ def test_empty_payload_keeps_radar_schema() -> None:
 def test_fetch_historical_candles_bridge_normalizes_symbol_and_limit() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/historical/1120/")
-        assert request.headers["Authorization"].startswith("Bearer ")
+        assert request.headers["Authorization"] == "Bearer test-key"
         assert request.headers["X-API-Key"] == "test-key"
         return httpx.Response(
             200,
@@ -334,3 +339,20 @@ def test_fetch_historical_candles_returns_none_on_http_error() -> None:
 def test_fetch_historical_candles_rejects_minute_bars() -> None:
     provider = _provider(lambda _request: httpx.Response(200, json={"data": []}))
     assert provider.fetch_historical_candles("4030", interval="5m") is None
+
+
+def test_resolve_sahm_api_key_strips_quotes_and_ignores_placeholders() -> None:
+    assert resolve_sahm_api_key(_settings(sahmk_api_key='"live-key"')) == "live-key"
+    assert resolve_sahm_api_key(_settings(sahmk_api_key="your_api_key")) == ""
+    assert resolve_sahm_api_key(_settings(sahmk_api_key="ضع_مفتاح_sahm_api_الخاص_بك_هنا")) == ""
+    assert resolve_sahm_api_key(_settings(sahmk_api_key=""), explicit="  shmk_live_abc  ") == "shmk_live_abc"
+
+
+def test_sahm_auth_headers_include_bearer_and_api_key() -> None:
+    headers = sahm_auth_headers("live-key")
+    assert headers["Authorization"] == "Bearer live-key"
+    assert headers["X-API-Key"] == "live-key"
+    assert sahm_auth_headers("") == {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }

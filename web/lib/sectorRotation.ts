@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api";
 import { toFiniteNumber } from "@/lib/screener";
 
 export interface SectorData {
@@ -41,10 +42,8 @@ export interface SectorCompaniesResponse {
 
 export async function fetchSectorCompanies(sector: string): Promise<SectorCompaniesResponse> {
   const encoded = encodeURIComponent(sector.trim());
-  const response = await fetch(`/api/v1/market/sector-companies/${encoded}`, {
+  const response = await apiFetch(`/api/v1/market/sector-companies/${encoded}`, {
     method: "GET",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {
@@ -78,10 +77,8 @@ function parseCompany(raw: unknown): SectorCompany {
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationResponse> {
-  const response = await fetch("/api/v1/market/sector-rotation", {
+  const response = await apiFetch("/api/v1/market/sector-rotation", {
     method: "GET",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {

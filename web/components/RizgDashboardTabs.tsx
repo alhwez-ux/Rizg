@@ -5,15 +5,17 @@ import { useCallback, useId, useState, type KeyboardEvent } from "react";
 import { AuthControls } from "@/components/AuthControls";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { RankingRevealCard } from "@/components/RankingRevealCard";
+import { RecommendationsCard } from "@/components/RecommendationsCard";
 import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "sectors" | "radar" | "ranking";
+type DashboardTab = "sectors" | "radar" | "recommendations" | "ranking";
 
 const TABS: { id: DashboardTab; label: string; icon: string }[] = [
   { id: "sectors", label: ar.tabsSectors, icon: "🌐" },
   { id: "radar", label: ar.tabsRadar, icon: "⚡" },
+  { id: "recommendations", label: ar.tabsRecommendations, icon: "🎯" },
   { id: "ranking", label: ar.tabsRanking, icon: "🏰" },
 ];
 
@@ -117,6 +119,12 @@ export function RizgDashboardTabs() {
                 />
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {activeTab === "recommendations" ? (
+          <div className="space-y-6">
+            <RecommendationsCard />
           </div>
         ) : null}
 

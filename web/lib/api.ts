@@ -1,14 +1,40 @@
-const LOCAL_API = "http://localhost:8000";
+const LOCAL_API = "http://127.0.0.1:8000";
 const PROD_API = "https://rizg-backend.onrender.com";
 
-export const API_BASE = (
-  process.env.NEXT_PUBLIC_API_URL ??
-  (process.env.NODE_ENV === "production" ? PROD_API : LOCAL_API)
-).replace(/\/$/, "");
+function configuredBackend(): string {
+  const fromEnv = (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.API_PROXY_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  return process.env.NODE_ENV === "production" ? PROD_API : LOCAL_API;
+}
+
+export const API_BASE = configuredBackend();
 
 export function apiUrl(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE}${normalized}`;
+}
+
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (init.body != null) {
+    headers["Content-Type"] = "application/json";
+  }
+  return fetch(apiUrl(path), {
+    ...init,
+    cache: init.cache ?? "no-store",
+    headers: {
+      ...headers,
+      ...(init.headers ?? {}),
+    },
+  });
 }
 
 export function wsUrlFor(symbol: string): string {

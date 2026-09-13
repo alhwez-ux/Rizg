@@ -19,6 +19,7 @@ from app.services.market_data import MarketDataService
 from app.services.screener import ScreenerService
 from app.services.sahm_analysis import SahmAnalysisService
 from app.services.sahm_data_provider import SahmDataProvider
+from app.services.sahm_live_market import live_ranking_rows
 from app.services.sahmk_feed import SahmkTradeFeed
 from app.services.email_alert_service import EmailAlertService
 from app.services.financial_sync import FinancialSyncService
@@ -69,10 +70,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     financial_sync = FinancialSyncService(settings)
     ranking_store = RankingStore()
     email_alerts = EmailAlertService(settings)
+
+    def _live_ranking_provider() -> list:
+        if not sahm.enabled:
+            return []
+        try:
+            return sahm._run_sync(live_ranking_rows(sahm))
+        except Exception:
+            return []
+
     market_financial_sync = MarketFinancialSyncService(
         settings,
         store=ranking_store,
         email_service=email_alerts,
+        provider=_live_ranking_provider,
     )
 
     app.state.store = store
@@ -130,10 +141,18 @@ def create_app() -> FastAPI:
     app.state.settings = settings
 
     app.add_middleware(RequestContextMiddleware)
-    allow_credentials = "*" not in settings.cors_origins
+    cors_origins = list(settings.cors_origins)
+    for origin in (
+        "https://rizg.vercel.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ):
+        if origin not in cors_origins:
+            cors_origins.append(origin)
+    allow_credentials = "*" not in cors_origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],

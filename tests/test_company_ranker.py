@@ -2,10 +2,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers.market import router as market_router
+from app.services.ranking_store import RankingStore
 from app.services.company_ranker import (
     CATEGORY_LOSER,
     SAMPLE_COMPANIES,
     CompanyRankingEngine,
+    MAJOR_TASI_COMPANIES,
 )
 
 
@@ -57,15 +59,26 @@ def test_sample_matrix_orders_profitability_and_dividends() -> None:
 
 
 def test_ranking_matrix_endpoint_returns_sorted_payload() -> None:
+    ranked = CompanyRankingEngine(SAMPLE_COMPANIES).get_ranked_payload()
+    store = RankingStore()
+    store.replace(ranked, "2026-09-13T00:00:00+00:00")
     app = FastAPI()
+    app.state.ranking_store = store
     app.include_router(market_router)
     response = TestClient(app).get("/api/v1/market/ranking-matrix")
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
+    assert payload["source"] == "Sahm API"
     assert payload["total_companies"] == len(payload["data"])
     assert payload["total_companies"] >= 4
     scores = [row["matrix_score"] for row in payload["data"]]
     assert scores == sorted(scores, reverse=True)
     assert payload["data"][-1]["symbol"] == "2010"
     assert payload["data"][0]["rank"] == 1
+
+
+def test_major_tasi_universe_covers_blue_chips() -> None:
+    symbols = {row["symbol"] for row in MAJOR_TASI_COMPANIES}
+    assert {"1120", "1180", "1010", "2222", "2010", "7010", "2082", "4013"} <= symbols
+    assert len(MAJOR_TASI_COMPANIES) >= 40

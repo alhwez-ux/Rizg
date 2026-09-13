@@ -162,6 +162,7 @@ class ComplianceSyncResponse(BaseModel):
 class RankingMatrixResponse(BaseModel):
     success: bool = True
     message: str | None = None
+    source: str = "Sahm API"
     total_companies: int
     synced_at: str | None = None
     data: list[dict[str, Any]]
@@ -169,6 +170,7 @@ class RankingMatrixResponse(BaseModel):
 
 class SectorRotationResponse(BaseModel):
     success: bool = True
+    source: str = "Sahm API"
     total_sectors: int
     leaders: list[dict[str, Any]]
     laggards: list[dict[str, Any]]
@@ -181,6 +183,29 @@ class SectorCompaniesResponse(BaseModel):
     sector: str
     total_companies: int
     companies: list[dict[str, Any]]
+
+
+class MarketRecommendation(BaseModel):
+    symbol: str
+    name: str
+    close_price: float
+    signal_type: str
+    signal_kind: str = "momentum"
+    confidence: str
+    confidence_score: int = 0
+    entry_price: str
+    target_price: str
+    stop_loss: str
+    reason: str
+    volume_ratio: float | None = None
+    mfi: float | None = None
+
+
+class MarketRecommendationsResponse(BaseModel):
+    success: bool = True
+    count: int
+    source: str = "Sahm API"
+    data: list[MarketRecommendation]
 
 
 class TriggerTestAlertResponse(BaseModel):

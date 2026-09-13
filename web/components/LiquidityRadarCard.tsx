@@ -4,12 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice, formatRatio } from "@/lib/liquidity";
-import {
-  parseLiveRadarPayload,
-  type LiveRadarReport,
-  type LiveRadarResponse,
-  type LiveRadarSignal,
-} from "@/lib/liveRadar";
+import { fetchLiveRadar, type LiveRadarReport, type LiveRadarResponse, type LiveRadarSignal } from "@/lib/liveRadar";
 
 export function LiquidityRadarCard({
   symbol,
@@ -28,16 +23,7 @@ export function LiquidityRadarCard({
     if (!symbol.trim()) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/v1/radar/live/${symbol}?interval=1d`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!response.ok) {
-        const detail = payload && typeof payload.detail === "string" ? payload.detail : null;
-        throw new Error(detail || ar.liveRadarEmpty);
-      }
-      const parsed = parseLiveRadarPayload(payload, symbol);
+      const parsed = await fetchLiveRadar(symbol, "1d");
       setData(parsed);
       setError(null);
     } catch (err) {

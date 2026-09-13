@@ -98,6 +98,60 @@ SAMPLE_COMPANIES: list[dict[str, Any]] = [
     },
 ]
 
+MAJOR_TASI_COMPANIES: list[dict[str, str]] = [
+    {"symbol": "2222", "name": "أرامكو السعودية", "sector": "الطاقة"},
+    {"symbol": "1120", "name": "الراجحي", "sector": "المصارف"},
+    {"symbol": "1180", "name": "الأهلي", "sector": "المصارف"},
+    {"symbol": "1010", "name": "الرياض", "sector": "المصارف"},
+    {"symbol": "1050", "name": "السعودي الفرنسي", "sector": "المصارف"},
+    {"symbol": "1060", "name": "ساب", "sector": "المصارف"},
+    {"symbol": "1080", "name": "العربي الوطني", "sector": "المصارف"},
+    {"symbol": "1150", "name": "الإنماء", "sector": "المصارف"},
+    {"symbol": "1140", "name": "البلاد", "sector": "المصارف"},
+    {"symbol": "1020", "name": "الجزيرة", "sector": "المصارف"},
+    {"symbol": "1030", "name": "استثمار", "sector": "المصارف"},
+    {"symbol": "1111", "name": "مجموعة تداول", "sector": "الخدمات المالية"},
+    {"symbol": "2010", "name": "سابك", "sector": "المواد الأساسية"},
+    {"symbol": "2020", "name": "سابك للمغذيات الزراعية", "sector": "المواد الأساسية"},
+    {"symbol": "1211", "name": "معادن", "sector": "المواد الأساسية"},
+    {"symbol": "2290", "name": "ينساب", "sector": "المواد الأساسية"},
+    {"symbol": "2310", "name": "سبكيم العالمية", "sector": "المواد الأساسية"},
+    {"symbol": "2350", "name": "كيان السعودية", "sector": "المواد الأساسية"},
+    {"symbol": "2001", "name": "كيمانول", "sector": "المواد الأساسية"},
+    {"symbol": "1320", "name": "أسمنت السعودية", "sector": "المواد الأساسية"},
+    {"symbol": "1303", "name": "أسمنت ينبع", "sector": "المواد الأساسية"},
+    {"symbol": "1321", "name": "أسمنت الجنوبية", "sector": "المواد الأساسية"},
+    {"symbol": "7010", "name": "اس تي سي", "sector": "الاتصالات"},
+    {"symbol": "7020", "name": "زين السعودية", "sector": "الاتصالات"},
+    {"symbol": "7030", "name": "موبايلي", "sector": "الاتصالات"},
+    {"symbol": "2082", "name": "أكوا باور", "sector": "المرافق"},
+    {"symbol": "5110", "name": "كهرباء السعودية", "sector": "المرافق"},
+    {"symbol": "2280", "name": "المراعي", "sector": "إنتاج الأغذية"},
+    {"symbol": "2050", "name": "صافولا", "sector": "إنتاج الأغذية"},
+    {"symbol": "2270", "name": "سدافكو", "sector": "إنتاج الأغذية"},
+    {"symbol": "4001", "name": "أسواق العثيم", "sector": "تجزئة الأغذية"},
+    {"symbol": "4003", "name": "إكسترا", "sector": "التجزئة"},
+    {"symbol": "4190", "name": "جرير", "sector": "التجزئة"},
+    {"symbol": "4161", "name": "بن داود", "sector": "تجزئة الأغذية"},
+    {"symbol": "4013", "name": "د. سليمان الحبيب", "sector": "الرعاية الصحية"},
+    {"symbol": "4005", "name": "رعاية", "sector": "الرعاية الصحية"},
+    {"symbol": "4004", "name": "دله الصحية", "sector": "الرعاية الصحية"},
+    {"symbol": "4009", "name": "المواساة", "sector": "الرعاية الصحية"},
+    {"symbol": "8210", "name": "بوبا العربية", "sector": "التأمين"},
+    {"symbol": "8010", "name": "التعاونية", "sector": "التأمين"},
+    {"symbol": "4030", "name": "البحري", "sector": "النقل"},
+    {"symbol": "4261", "name": "أديس", "sector": "الطاقة"},
+    {"symbol": "2380", "name": "بترورابغ", "sector": "الطاقة"},
+    {"symbol": "2030", "name": "المصافي", "sector": "الطاقة"},
+    {"symbol": "1830", "name": "وقت اللياقة", "sector": "الخدمات الاستهلاكية"},
+    {"symbol": "1810", "name": "سيرا", "sector": "الخدمات الاستهلاكية"},
+    {"symbol": "4260", "name": "بدجت السعودية", "sector": "النقل"},
+    {"symbol": "7203", "name": "عِلم", "sector": "البرمجيات والخدمات"},
+    {"symbol": "4321", "name": "المراكز العربية", "sector": "إدارة وتطوير العقارات"},
+    {"symbol": "4300", "name": "دار الأركان", "sector": "إدارة وتطوير العقارات"},
+    {"symbol": "4280", "name": "المملكة", "sector": "الإعلام والترفيه"},
+]
+
 
 class CompanyRankingEngine:
     def __init__(self, companies_financials: list[dict[str, Any]]):
@@ -125,6 +179,8 @@ class CompanyRankingEngine:
             by=["matrix_score", "symbol"],
             ascending=[False, True],
         ).reset_index(drop=True)
+        if "rank" in frame.columns:
+            frame = frame.drop(columns=["rank"])
         frame.insert(0, "rank", range(1, len(frame) + 1))
         self.df = frame
         return self.df
@@ -137,8 +193,8 @@ class CompanyRankingEngine:
 
 
 def _score_row(row: pd.Series) -> pd.Series:
-    net_income = _num(row, "net_income")
-    if net_income <= 0:
+    net_income = _optional_num(row, "net_income")
+    if net_income is not None and net_income <= 0:
         return pd.Series([-1000.0, CATEGORY_LOSER])
 
     growth = _clip_norm(_num(row, "profit_growth"), low=-20.0, high=40.0)
@@ -179,6 +235,22 @@ def _clip_norm(value: float, *, low: float, high: float, invert: bool = False) -
     if invert:
         ratio = 1.0 - ratio
     return ratio * 100.0
+
+
+def _optional_num(row: pd.Series, key: str) -> float | None:
+    try:
+        value = row[key]
+    except Exception:
+        return None
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(number):
+        return None
+    return number
 
 
 def _num(row: pd.Series, key: str, default: float = 0.0) -> float:

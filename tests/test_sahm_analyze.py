@@ -93,7 +93,7 @@ def test_analyze_route_fetches_sahm_candles_without_frontend_payload() -> None:
 
 def test_analyze_missing_key_returns_503() -> None:
     service = SahmAnalysisService(
-        SahmDataProvider(_settings(sahmk_api_key="")),
+        SahmDataProvider(_settings(sahmk_api_key=""), api_key=""),
         LiquidityRadarEngine(),
     )
     with _client(service) as client:

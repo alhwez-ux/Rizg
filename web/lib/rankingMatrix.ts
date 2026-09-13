@@ -1,3 +1,5 @@
+import { apiFetch } from "@/lib/api";
+
 export interface RankingRow {
   rank: number;
   symbol: string;
@@ -19,10 +21,8 @@ export interface RankingMatrixResponse {
 }
 
 export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
-  const response = await fetch("/api/v1/market/live-rankings", {
+  const response = await apiFetch("/api/v1/market/ranking-matrix", {
     method: "GET",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {
