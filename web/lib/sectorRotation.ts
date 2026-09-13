@@ -1,4 +1,5 @@
 import { companiesFromMarket, sectorsFromMarket } from "@/lib/marketEngine";
+import { loadTasiTape } from "@/lib/tadawulCloses";
 
 export interface SectorData {
   sector: string;
@@ -42,9 +43,11 @@ export interface SectorCompaniesResponse {
 }
 
 export async function fetchSectorCompanies(sector: string): Promise<SectorCompaniesResponse> {
-  return companiesFromMarket(sector);
+  const tape = await loadTasiTape();
+  return companiesFromMarket(sector, tape.rows);
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationResponse> {
-  return sectorsFromMarket();
+  const tape = await loadTasiTape();
+  return sectorsFromMarket(tape.rows, tape.source);
 }

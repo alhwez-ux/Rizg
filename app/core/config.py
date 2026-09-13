@@ -135,6 +135,32 @@ class Settings(BaseSettings):
     tasi_open_minute: int = Field(default=30, ge=0, le=59)
     tasi_close_hour: int = Field(default=15, ge=0, le=23)
     tasi_close_minute: int = Field(default=30, ge=0, le=59)
+    tadawul_daily_sync_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_ENABLED", "tadawul_daily_sync_enabled"),
+    )
+    tadawul_daily_sync_hour: int = Field(
+        default=16,
+        ge=0,
+        le=23,
+        validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_HOUR", "tadawul_daily_sync_hour"),
+    )
+    tadawul_daily_sync_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_MINUTE", "tadawul_daily_sync_minute"),
+    )
+    tadawul_daily_sync_on_startup: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TADAWUL_DAILY_SYNC_ON_STARTUP", "tadawul_daily_sync_on_startup"),
+    )
+    tadawul_daily_quote_limit: int = Field(
+        default=250,
+        ge=10,
+        le=500,
+        validation_alias=AliasChoices("TADAWUL_DAILY_QUOTE_LIMIT", "tadawul_daily_quote_limit"),
+    )
 
     @property
     def is_production(self) -> bool:

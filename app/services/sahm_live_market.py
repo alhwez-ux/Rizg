@@ -155,7 +155,19 @@ def _flatten_quote(payload: dict[str, Any] | None) -> dict[str, Any]:
     nested = payload.get("data")
     data = nested if isinstance(nested, dict) else payload
     symbol = str(data.get("symbol") or payload.get("symbol") or "").strip().upper()
-    price = _num(data.get("price") or data.get("last") or data.get("close") or data.get("last_price"))
+    price = _num(
+        data.get("price")
+        or data.get("last")
+        or data.get("close")
+        or data.get("last_price")
+        or data.get("lastPrice")
+        or data.get("last_trade")
+        or data.get("lastTradePrice")
+        or data.get("tradePrice")
+        or data.get("current_price")
+        or payload.get("price")
+        or payload.get("last_price")
+    )
     change = _num(
         data.get("change_percent")
         or data.get("changePct")
@@ -218,6 +230,7 @@ def _sector_row(symbol: str, quote: dict[str, Any], profile: dict[str, Any] | No
         "symbol": symbol,
         "name": name,
         "sector": sector,
+        "last_price": round(float(quote.get("price") or 0), 4) if quote.get("price") not in (None, "") else None,
         "price_change_pct": round(change, 4),
         "volume": round(volume, 4),
         "value_traded": round(value, 4),

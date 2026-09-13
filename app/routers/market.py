@@ -8,6 +8,7 @@ from app.models.schemas import (
     SectorCompaniesResponse,
     SectorRotationResponse,
     MarketRecommendationsResponse,
+    DailySyncStatusResponse,
     SchedulerRunResponse,
     SchedulerStatusResponse,
 )
@@ -119,6 +120,23 @@ async def run_tasi_scheduler_job(job: str, request: Request) -> SchedulerRunResp
     return SchedulerRunResponse(success=True, job=key, result=result)
 
 
+@router.get("/daily-sync", response_model=DailySyncStatusResponse)
+async def get_tadawul_daily_sync_status(request: Request) -> DailySyncStatusResponse:
+    """حالة سحب إغلاق تاسي اليومي الساعة 16:00 بتوقيت الرياض."""
+
+    sync = _tadawul_daily_sync(request)
+    return DailySyncStatusResponse.model_validate(sync.status())
+
+
+@router.post("/daily-sync/run", response_model=SchedulerRunResponse)
+async def run_tadawul_daily_sync(request: Request) -> SchedulerRunResponse:
+    """تشغيل يدوي لسحب أسعار الإغلاق اليومية وتحديث المصفوفة."""
+
+    sync = _tadawul_daily_sync(request)
+    result = await sync.run_daily_sync()
+    return SchedulerRunResponse(success=True, job="daily_close", result=result)
+
+
 async def _live_rankings_response(request: Request, *, persist: bool = True) -> RankingMatrixResponse:
     provider = _sahm(request, required=False)
     store = _ranking_store(request)
@@ -194,3 +212,10 @@ def _tasi_scheduler(request: Request):
     if scheduler is None:
         raise HTTPException(status_code=503, detail="مجدول تاسي غير مهيأ")
     return scheduler
+
+
+def _tadawul_daily_sync(request: Request):
+    sync = getattr(request.app.state, "tadawul_daily_sync", None)
+    if sync is None:
+        raise HTTPException(status_code=503, detail="خدمة السحب اليومي غير مهيأة")
+    return sync

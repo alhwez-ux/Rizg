@@ -15,6 +15,7 @@ from app.services.sector_rotation import SectorRotationEngine
 from app.services.telegram_alert_bot import TelegramAlertBot
 from app.services.telegram_bot import TelegramBot
 from app.services.tasi_scheduler import TasiMarketScheduler
+from app.services.tadawul_daily_sync import TadawulDailySync
 from app.services.tick_feed import MockTickFeed
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "TelegramAlertBot",
     "TelegramBot",
     "TasiMarketScheduler",
+    "TadawulDailySync",
 ]

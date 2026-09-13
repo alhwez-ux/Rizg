@@ -3,6 +3,8 @@ import {
   TASI_MARKET,
   companyBySymbol,
   netFlow,
+  sessionBuyRatio,
+  typicalPrice,
   valueTraded,
   type TasiCompany,
 } from "@/lib/marketData";
@@ -64,8 +66,8 @@ function scoreCompany(row: TasiCompany): { matrix_score: number; category: strin
   return { matrix_score, category: categoryFor(matrix_score) };
 }
 
-export function rankingFromMarket(): RankingMatrixResponse {
-  const data: RankingRow[] = TASI_MARKET.map((row) => {
+export function rankingFromMarket(rows: TasiCompany[] = TASI_MARKET, source = MARKET_SOURCE): RankingMatrixResponse {
+  const data: RankingRow[] = rows.map((row) => {
     const scored = scoreCompany(row);
     return {
       rank: 0,
@@ -92,14 +94,14 @@ export function rankingFromMarket(): RankingMatrixResponse {
   return {
     success: true,
     total_companies: data.length,
-    source: MARKET_SOURCE,
+    source,
     data,
   };
 }
 
-export function sectorsFromMarket(): SectorRotationResponse {
+export function sectorsFromMarket(rows: TasiCompany[] = TASI_MARKET, source = MARKET_SOURCE): SectorRotationResponse {
   const groups = new Map<string, TasiCompany[]>();
-  for (const row of TASI_MARKET) {
+  for (const row of rows) {
     const list = groups.get(row.sector) ?? [];
     list.push(row);
     groups.set(row.sector, list);
@@ -145,7 +147,7 @@ export function sectorsFromMarket(): SectorRotationResponse {
   return {
     success: true,
     total_sectors: sectors.length,
-    source: MARKET_SOURCE,
+    source,
     sectors,
   };
 }
@@ -167,9 +169,12 @@ function canonicalSector(name: string): string {
   return aliases[value] ?? value;
 }
 
-export function companiesFromMarket(sectorName: string): SectorCompaniesResponse {
+export function companiesFromMarket(
+  sectorName: string,
+  rows: TasiCompany[] = TASI_MARKET,
+): SectorCompaniesResponse {
   const wanted = canonicalSector(sectorName);
-  const companies: SectorCompany[] = TASI_MARKET.filter(
+  const companies: SectorCompany[] = rows.filter(
     (row) => canonicalSector(row.sector) === wanted,
   )
     .map((row) => {
@@ -198,13 +203,16 @@ export function companiesFromMarket(sectorName: string): SectorCompaniesResponse
   };
 }
 
-export function recommendationsFromMarket(): RecommendationsResponse {
-  const rows: MarketRecommendation[] = [];
-  for (const row of TASI_MARKET) {
+export function recommendationsFromMarket(
+  rows: TasiCompany[] = TASI_MARKET,
+  source = MARKET_SOURCE,
+): RecommendationsResponse {
+  const recs: MarketRecommendation[] = [];
+  for (const row of rows) {
     if (row.net_income <= 0) continue;
     const atr = row.close * 0.018;
     if (row.change_percent >= 0.3) {
-      rows.push({
+      recs.push({
         symbol: row.symbol,
         name: row.name,
         close_price: row.close,
@@ -216,13 +224,13 @@ export function recommendationsFromMarket(): RecommendationsResponse {
         target_price: (row.close + atr * 1.6).toFixed(2),
         stop_loss: (row.close - atr).toFixed(2),
         reason: `إغلاق ${row.close.toFixed(2)} ر.س مع تغير ${row.change_percent}% وحجم ${Math.round(row.volume).toLocaleString("en-US")} — الزخم فوق الجلسة مع سيولة ظاهرة.`,
-        volume_ratio: 1.4,
+        volume_ratio: row.volume_ratio,
         mfi: 62,
       });
       continue;
     }
     if (row.change_percent <= -0.1 && row.roe >= 12) {
-      rows.push({
+      recs.push({
         symbol: row.symbol,
         name: row.name,
         close_price: row.close,
@@ -234,35 +242,40 @@ export function recommendationsFromMarket(): RecommendationsResponse {
         target_price: (row.close + atr * 1.4).toFixed(2),
         stop_loss: (row.close - atr * 0.9).toFixed(2),
         reason: `ضغط بيعي محدود (${row.change_percent}%) مع ROE ${row.roe}% — فرصة ارتداد من إغلاق ${row.close.toFixed(2)} ر.س.`,
-        volume_ratio: 1.2,
+        volume_ratio: row.volume_ratio,
         mfi: 38,
       });
     }
   }
-  rows.sort((left, right) => right.confidence_score - left.confidence_score);
+  recs.sort((left, right) => right.confidence_score - left.confidence_score);
   return {
     success: true,
-    count: rows.length,
-    source: MARKET_SOURCE,
-    data: rows,
+    count: recs.length,
+    source,
+    data: recs,
   };
 }
 
-export function radarFromMarket(symbol: string): LiveRadarResponse | null {
-  const row = companyBySymbol(symbol);
+export function radarFromMarket(
+  symbol: string,
+  rows: TasiCompany[] = TASI_MARKET,
+  source = MARKET_SOURCE,
+): LiveRadarResponse | null {
+  const row = companyBySymbol(symbol, rows);
   if (!row) return null;
   const value = valueTraded(row);
   const flow = netFlow(row);
-  const atr = Number((row.close * 0.018).toFixed(2));
-  const vwap = Number((row.close * (1 - row.change_percent / 200)).toFixed(2));
-  const buyRatio = row.change_percent >= 0 ? 0.62 : 0.41;
-  const entry = row.change_percent >= 0.35;
+  const sessionRange = row.high > row.low ? row.high - row.low : row.close * 0.018;
+  const atr = Number(sessionRange.toFixed(2));
+  const vwap = Number(typicalPrice(row).toFixed(2));
+  const buyRatio = sessionBuyRatio(row);
+  const entry = row.change_percent >= 0.35 && row.volume_ratio >= 0.8;
   const exit = row.change_percent <= -1.2;
   const signal = entry ? "entry" : exit ? "exit" : "neutral";
   return {
     symbol: row.symbol,
     success: true,
-    source: MARKET_SOURCE,
+    source,
     analysis: {
       symbol: row.symbol,
       signal,
@@ -276,7 +289,7 @@ export function radarFromMarket(symbol: string): LiveRadarResponse | null {
       outflow: Math.max(-flow, 0),
       buy_volume: row.volume * buyRatio,
       sell_volume: row.volume * (1 - buyRatio),
-      buy_ratio: buyRatio,
+      buy_ratio: Number(buyRatio.toFixed(2)),
       sell_ratio: Number((1 - buyRatio).toFixed(2)),
       last_price: row.close,
       vwap,
@@ -289,7 +302,7 @@ export function radarFromMarket(symbol: string): LiveRadarResponse | null {
       trade_count: Math.max(12, Math.round(row.volume / 80_000)),
       reasons: [
         `إغلاق ${row.close.toFixed(2)} ر.س على ${row.name} (${row.change_percent}%)`,
-        `قيمة التداول ${(value / 1_000_000).toFixed(1)} مليون ر.س — حجم ${Math.round(row.volume).toLocaleString("en-US")}`,
+        `قيمة التداول ${(value / 1_000_000).toFixed(1)} مليون ر.س — حجم ${Math.round(row.volume).toLocaleString("en-US")} (${row.volume_ratio.toFixed(2)}× متوسط 20 يوماً)`,
       ],
     },
   };

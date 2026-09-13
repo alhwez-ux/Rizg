@@ -176,14 +176,20 @@ function AlertTicker({ alerts }: { alerts: MarketAlert[] }) {
   const loop = alerts.length ? `${headline}  •  ${headline}` : headline;
 
   return (
-    <div className="fixed inset-x-0 top-0 z-40 border-b border-zinc-800 bg-zinc-950/90 text-xs text-zinc-300" dir="rtl">
+    <div
+      className="group/ticker fixed inset-x-0 top-0 z-40 border-b border-zinc-800 bg-zinc-950/90 text-xs text-zinc-300"
+      dir="rtl"
+    >
       <div className="flex items-center justify-between gap-3 overflow-hidden px-4 py-2">
         <div className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold text-sky-400">
           <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
           {ar.notifyTicker}
         </div>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div dir="ltr" className="w-max animate-ticker whitespace-nowrap text-zinc-200 hover:[animation-play-state:paused]">
+          <div
+            dir="ltr"
+            className="w-max animate-ticker whitespace-nowrap text-zinc-200 group-hover/ticker:[animation-play-state:paused] motion-reduce:animate-none"
+          >
             {loop}
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { recommendationsFromMarket } from "@/lib/marketEngine";
+import { loadTasiTape } from "@/lib/tadawulCloses";
 
 export type RecommendationKind = "bounce" | "momentum";
 
@@ -26,5 +27,6 @@ export interface RecommendationsResponse {
 }
 
 export async function fetchMarketRecommendations(): Promise<RecommendationsResponse> {
-  return recommendationsFromMarket();
+  const tape = await loadTasiTape();
+  return recommendationsFromMarket(tape.rows, tape.source);
 }

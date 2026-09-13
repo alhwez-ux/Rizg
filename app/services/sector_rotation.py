@@ -188,6 +188,7 @@ def _company_record(
     change = _first_metric(live_row.get("price_change_pct"))
     volume = _first_metric(live_row.get("volume"))
     value = _first_metric(live_row.get("value_traded"))
+    price = _first_metric(live_row.get("last_price"), live_row.get("price"), live_row.get("close"))
     net_flow = _first_metric(live_row.get("net_flow"))
     if net_flow == 0 and value and change:
         net_flow = value * (change / 100.0)
@@ -206,6 +207,7 @@ def _company_record(
         "symbol": symbol,
         "name": name,
         "sector": sector,
+        "last_price": round(price, 4) if price else None,
         "price_change_pct": round(change, 4),
         "volume": round(volume, 4),
         "value_traded": round(value, 4),

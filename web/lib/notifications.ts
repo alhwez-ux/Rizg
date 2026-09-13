@@ -1,5 +1,6 @@
-import { TASI_MARKET, MARKET_AS_OF, valueTraded } from "@/lib/marketData";
+import { TASI_MARKET, MARKET_AS_OF, valueTraded, type TasiCompany } from "@/lib/marketData";
 import { radarFromMarket, recommendationsFromMarket } from "@/lib/marketEngine";
+import { loadTasiTape } from "@/lib/tadawulCloses";
 import { fetchSchedulerStatus } from "@/lib/tasiScheduler";
 
 export type AlertKind = "trap" | "inflow" | "opportunity";
@@ -43,10 +44,13 @@ function alertBase(
   return { id, kind, type: noticeType(kind), symbol, name, title, message, at, time: noticeTime(at) };
 }
 
-export function collectMarketAlerts(): MarketAlert[] {
+export function collectMarketAlerts(
+  companies: TasiCompany[] = TASI_MARKET,
+  asOf = MARKET_AS_OF,
+): MarketAlert[] {
   const alerts: MarketAlert[] = [];
-  for (const company of TASI_MARKET) {
-    const radar = radarFromMarket(company.symbol);
+  for (const company of companies) {
+    const radar = radarFromMarket(company.symbol, companies);
     const report = radar?.analysis;
     if (!report) continue;
     const volume = Math.round(company.volume).toLocaleString("en-US");
@@ -60,6 +64,7 @@ export function collectMarketAlerts(): MarketAlert[] {
           company.name,
           "فخ هبوط محتمل (Bear Trap)",
           `${company.name} (${company.symbol}) يتراجع ${company.change_percent}% مع حجم ${volume} وقيمة ${value} مليون ر.س.`,
+          asOf,
         ),
       );
       continue;
@@ -73,11 +78,12 @@ export function collectMarketAlerts(): MarketAlert[] {
           company.name,
           "تدفق سيولة مؤسسي",
           `رصد حجم تداول عالي ودخول سيولة إيجابية على ${company.name} (${company.symbol}) مع تغير +${company.change_percent}%.`,
+          asOf,
         ),
       );
     }
   }
-  for (const row of recommendationsFromMarket().data) {
+  for (const row of recommendationsFromMarket(companies).data) {
     if (alerts.some((item) => item.symbol === row.symbol)) continue;
     alerts.push(
       alertBase(
@@ -87,6 +93,7 @@ export function collectMarketAlerts(): MarketAlert[] {
         row.name,
         row.signal_type,
         row.reason,
+        asOf,
       ),
     );
   }
@@ -95,7 +102,8 @@ export function collectMarketAlerts(): MarketAlert[] {
 }
 
 export async function collectLiveAlerts(): Promise<MarketAlert[]> {
-  const base = collectMarketAlerts();
+  const tape = await loadTasiTape();
+  const base = collectMarketAlerts(tape.rows, tape.asOf);
   const scheduler = await fetchSchedulerStatus();
   const scan = scheduler?.last?.scan;
   if (!scan?.alerts) return base;

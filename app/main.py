@@ -28,6 +28,7 @@ from app.services.ranking_store import RankingStore
 from app.services.telegram_bot import TelegramBot
 from app.services.tick_feed import MockTickFeed
 from app.services.tasi_scheduler import TasiMarketScheduler
+from app.services.tadawul_daily_sync import TadawulDailySync
 from app.services.watchlist import WatchlistService
 
 
@@ -94,6 +95,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         watchlist=watchlist,
         enable_scheduler=settings.tasi_scheduler_enabled,
     )
+    tadawul_daily_sync = TadawulDailySync(
+        settings,
+        sahm=sahm,
+        ranking_store=ranking_store,
+        telegram=telegram,
+        enable_scheduler=settings.tadawul_daily_sync_enabled,
+    )
 
     app.state.store = store
     app.state.broadcaster = broadcaster
@@ -115,6 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.sync_service = market_financial_sync
     app.state.email_alerts = email_alerts
     app.state.tasi_scheduler = tasi_scheduler
+    app.state.tadawul_daily_sync = tadawul_daily_sync
 
     if live_feed.enabled:
         await live_feed.start()
@@ -126,11 +135,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     market_financial_sync.sync_market_financials()
     tasi_scheduler.bind_loop(asyncio.get_running_loop())
     tasi_scheduler.start()
+    tadawul_daily_sync.bind_loop(asyncio.get_running_loop())
+    tadawul_daily_sync.start()
+    tadawul_daily_sync.schedule_startup_catch_up()
 
     yield
 
     market_financial_sync.shutdown()
     tasi_scheduler.shutdown()
+    tadawul_daily_sync.shutdown()
     await live_feed.stop()
     await mock_feed.stop()
     await sahm.aclose()

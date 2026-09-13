@@ -237,6 +237,22 @@ class SchedulerRunResponse(BaseModel):
     result: dict[str, Any]
 
 
+class DailySyncStatusResponse(BaseModel):
+    success: bool = True
+    enabled: bool
+    running: bool
+    timezone: str
+    clock: str
+    hour: int
+    minute: int
+    phase: str
+    phase_label: str
+    as_of: str | None = None
+    symbols: int = 0
+    jobs: list[SchedulerJobStatus] = Field(default_factory=list)
+    last: dict[str, Any] = Field(default_factory=dict)
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str

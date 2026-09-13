@@ -1,4 +1,5 @@
 import { rankingFromMarket } from "@/lib/marketEngine";
+import { loadTasiTape } from "@/lib/tadawulCloses";
 
 export interface RankingRow {
   rank: number;
@@ -25,5 +26,6 @@ export interface RankingMatrixResponse {
 }
 
 export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
-  return rankingFromMarket();
+  const tape = await loadTasiTape();
+  return rankingFromMarket(tape.rows, tape.source);
 }

@@ -1,4 +1,5 @@
 import { radarFromMarket } from "@/lib/marketEngine";
+import { loadTasiTape } from "@/lib/tadawulCloses";
 import { toFiniteNumber } from "@/lib/screener";
 
 export type LiveRadarSignal = "entry" | "exit" | "trap" | "neutral";
@@ -43,7 +44,8 @@ export interface LiveRadarResponse {
 }
 
 export async function fetchLiveRadar(symbol: string, _interval = "1d"): Promise<LiveRadarResponse | null> {
-  return radarFromMarket(symbol);
+  const tape = await loadTasiTape();
+  return radarFromMarket(symbol, tape.rows, tape.source);
 }
 
 export function parseLiveRadarPayload(
