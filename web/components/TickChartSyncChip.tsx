@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ar } from "@/lib/ar";
-import { fetchTickChartStatus, type TickChartStatus } from "@/lib/tickchartStatus";
+import {
+  fetchTickChartStatus,
+  followTickChartSymbol,
+  refreshTickChartLive,
+  uploadTickChartFile,
+  type TickChartStatus,
+} from "@/lib/tickchartStatus";
 
-export function TickChartSyncChip() {
+export function TickChartSyncChip({
+  onFollow,
+}: {
+  onFollow?: (company: { symbol: string; name: string }) => void;
+}) {
   const [status, setStatus] = useState<TickChartStatus | null>(null);
+  const [symbol, setSymbol] = useState("");
+  const [busy, setBusy] = useState<"follow" | "refresh" | "upload" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -24,20 +38,118 @@ export function TickChartSyncChip() {
     };
   }, []);
 
-  const live = Boolean(status?.connected || status?.autosync_watching);
-  const label = status?.last_file
-    ? `${ar.tickchartSyncLive} · ${status.last_file}`
-    : live
-      ? ar.tickchartSyncWatching
-      : ar.tickchartSyncIdle;
-  const tone = live
-    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-    : "border-zinc-700 bg-zinc-900 text-zinc-400";
+  const live = Boolean(status?.connected || status?.trades_live || status?.depth_live);
+  const label = live ? ar.tickchartSyncLive : ar.tickchartSyncIdle;
+
+  const follow = async () => {
+    const ticker = symbol.trim();
+    if (!ticker) return;
+    setBusy("follow");
+    setMessage(null);
+    try {
+      const result = await followTickChartSymbol(ticker);
+      setSymbol("");
+      onFollow?.({ symbol: result.symbol, name: result.name });
+      setMessage(`${ar.tickchartFollowed} ${result.name}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : ar.tickchartFollowError);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const refresh = async () => {
+    setBusy("refresh");
+    setMessage(null);
+    try {
+      await refreshTickChartLive();
+      const next = await fetchTickChartStatus();
+      setStatus(next);
+      setMessage(ar.tickchartRefreshed);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : ar.tickchartRefreshError);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const upload = async (file: File) => {
+    setBusy("upload");
+    setMessage(null);
+    try {
+      const ingested = await uploadTickChartFile(file);
+      setMessage(`${ar.tickchartUploaded} ${ingested}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : ar.tickchartUploadError);
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   return (
-    <div className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold ${tone}`} title={ar.tickchartSyncHint}>
-      <span className={`h-2 w-2 rounded-full ${live ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
-      {label}
+    <div className="flex w-full flex-col gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div
+          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
+            live
+              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+              : "border-zinc-700 bg-zinc-900 text-zinc-400"
+          }`}
+          title={ar.tickchartSyncHint}
+        >
+          <span className={`h-2 w-2 rounded-full ${live ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
+          {label}
+        </div>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={busy !== null}
+          className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-50"
+        >
+          {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          value={symbol}
+          onChange={(event) => setSymbol(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void follow();
+            }
+          }}
+          inputMode="numeric"
+          maxLength={4}
+          placeholder={ar.tickchartSymbolPlaceholder}
+          className="min-h-11 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none ring-sky-500/40 placeholder:text-zinc-500 focus:ring-2"
+          aria-label={ar.tickchartSymbolPlaceholder}
+        />
+        <button
+          type="button"
+          onClick={() => void follow()}
+          disabled={busy !== null || !symbol.trim()}
+          className="min-h-11 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:opacity-50"
+        >
+          {busy === "follow" ? ar.tickchartFollowing : ar.tickchartFollow}
+        </button>
+        <label className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-zinc-700 px-4 text-sm font-semibold text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300">
+          {busy === "upload" ? ar.tickchartUploading : ar.tickchartUpload}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.json,.txt,.tsv,text/csv,application/json"
+            className="hidden"
+            onChange={(event) => {
+              const next = event.target.files?.[0];
+              if (next) void upload(next);
+            }}
+          />
+        </label>
+      </div>
+      {message ? <p className="text-xs text-zinc-400">{message}</p> : null}
     </div>
   );
 }

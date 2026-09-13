@@ -107,6 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if tickchart.enabled:
         await tickchart.start()
+    if tickchart_autosync.enabled:
         await tickchart_autosync.start()
     elif settings.enable_mock_feed and not settings.tickchart_enabled:
         await mock_feed.start()

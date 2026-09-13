@@ -85,6 +85,32 @@ def test_autosync_status_on_tickchart_endpoint(tmp_path: Path) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["enabled"] is True
-    assert body["autosync_enabled"] is True
     assert body["source"] == "TickChart"
-    assert str(tmp_path) in body["autosync_dirs"]
+    assert body["mode"] == "cloud"
+
+
+def test_browser_upload_ingests_csv_without_local_folder() -> None:
+    feed = _feed()
+    app = FastAPI()
+    app.state.tickchart = feed
+    app.include_router(tickchart_router)
+    response = TestClient(app).post(
+        "/api/v1/tickchart/upload",
+        files={"file": ("2222.csv", "Time,Price,Volume\n10:00:01,25.70,200\n", "text/csv")},
+    )
+    assert response.status_code == 200
+    assert response.json()["ingested"] == 1
+    assert feed.radar_report("2222")["last_price"] == 25.7
+
+
+def test_follow_and_refresh_are_cloud_endpoints() -> None:
+    feed = _feed()
+    app = FastAPI()
+    app.state.tickchart = feed
+    app.include_router(tickchart_router)
+    followed = TestClient(app).post("/api/v1/tickchart/follow", json={"symbol": "1120"})
+    assert followed.status_code == 200
+    assert followed.json()["symbol"] == "1120"
+    refreshed = TestClient(app).post("/api/v1/tickchart/refresh", json={})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["success"] is True

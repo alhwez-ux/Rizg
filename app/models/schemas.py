@@ -140,6 +140,7 @@ class TickChartStatusResponse(BaseModel):
     depth_live: bool = False
     symbols: list[str] = Field(default_factory=list)
     source: str = "TickChart"
+    mode: str = "cloud"
     autosync_enabled: bool = False
     autosync_watching: bool = False
     autosync_dirs: list[str] = Field(default_factory=list)
@@ -147,6 +148,16 @@ class TickChartStatusResponse(BaseModel):
     last_file: str | None = None
     last_ingested: int = 0
     last_sync_at: str | None = None
+
+
+class TickChartFollowBody(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=8)
+
+
+class TickChartUploadText(BaseModel):
+    filename: str = "upload.csv"
+    content: str
+    symbol: str | None = None
 
 
 class ComplianceSyncItem(BaseModel):

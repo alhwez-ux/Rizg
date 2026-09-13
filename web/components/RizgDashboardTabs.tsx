@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useId, type KeyboardEvent } from "react";
+import { Suspense, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
@@ -49,6 +49,13 @@ function DashboardShell() {
   const selectedSector = searchParams.get("sector");
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
+  const radarCards = useMemo(() => {
+    const extra =
+      radarSymbol && !MARKET_RADAR.some((item) => item.symbol === radarSymbol)
+        ? [{ symbol: radarSymbol, symbolName: radarName || radarSymbol }]
+        : [];
+    return [...extra, ...MARKET_RADAR];
+  }, [radarName, radarSymbol]);
 
   const replaceQuery = useCallback(
     (patch: Record<string, string | null>) => {
@@ -102,11 +109,17 @@ function DashboardShell() {
           </h1>
           <p className="mt-1 text-xs text-zinc-400">{ar.tabsWelcome}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <NotificationCenter />
-          <TickChartSyncChip />
-          <TasiSchedulerChip />
-          <AuthControls />
+        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <NotificationCenter />
+            <TasiSchedulerChip />
+            <AuthControls />
+          </div>
+          <TickChartSyncChip
+            onFollow={(company) =>
+              replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null })
+            }
+          />
         </div>
       </div>
 
@@ -171,7 +184,7 @@ function DashboardShell() {
               <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
             </div>
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {MARKET_RADAR.map((item) => (
+              {radarCards.map((item) => (
                 <LiquidityRadarCard
                   key={item.symbol}
                   symbol={item.symbol}

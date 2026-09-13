@@ -82,7 +82,7 @@ class ProhibitedSymbolError(AppError):
 class TickChartNotConfiguredError(AppError):
     def __init__(self) -> None:
         super().__init__(
-            "مزود تكرتشارت غير مهيأ. فعّل TICKCHART_ENABLED أو ضع مجلد التصدير في TICKCHART_EXPORT_DIR.",
+            "مزود تكرتشارت غير مهيأ. فعّل TICKCHART_ENABLED.",
             status_code=503,
             error_code="tickchart_not_configured",
         )

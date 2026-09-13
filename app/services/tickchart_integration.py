@@ -107,19 +107,22 @@ class TickChartFeed:
         self._subscribed: set[str] = set()
         self._tapes: dict[str, SymbolTape] = {}
         self._autosync: Any = None
+        self._last_cloud_ingest: str | None = None
+        self._last_cloud_count: int = 0
 
     @property
     def enabled(self) -> bool:
-        if not self._settings.tickchart_enabled:
-            return False
-        if self._api_key:
-            return True
-        return bool(getattr(self._settings, "tickchart_autosync_enabled", True))
+        return bool(self._settings.tickchart_enabled)
 
     @property
     def connected(self) -> bool:
         autosync = getattr(self, "_autosync", None)
-        return self._trades_live or self._depth_live or bool(autosync and getattr(autosync, "connected", False))
+        return (
+            self._trades_live
+            or self._depth_live
+            or bool(self._last_cloud_ingest)
+            or bool(autosync and getattr(autosync, "connected", False))
+        )
 
     def bind_autosync(self, autosync: Any) -> None:
         self._autosync = autosync
@@ -132,10 +135,19 @@ class TickChartFeed:
             "depth_live": self._depth_live,
             "symbols": self._active_symbols(),
             "source": "TickChart",
+            "mode": "cloud",
+            "last_ingested": self._last_cloud_count,
+            "last_sync_at": self._last_cloud_ingest,
         }
         autosync = getattr(self, "_autosync", None)
         if autosync is not None and hasattr(autosync, "status"):
-            payload.update(autosync.status())
+            extra = autosync.status()
+            if extra.get("last_sync_at") and not payload.get("last_sync_at"):
+                payload["last_sync_at"] = extra.get("last_sync_at")
+            if extra.get("last_ingested"):
+                payload["last_ingested"] = extra.get("last_ingested")
+            payload["autosync_enabled"] = extra.get("autosync_enabled", False)
+            payload["autosync_watching"] = extra.get("autosync_watching", False)
         return payload
 
     async def start(self) -> None:
@@ -167,7 +179,7 @@ class TickChartFeed:
                 _redact_url(self._depth_ws),
             )
         else:
-            logger.info("TickChart ingest ready via local export folder / POST /ingest")
+            logger.info("TickChart cloud ingest ready (browser upload / live stream)")
 
     async def stop(self) -> None:
         self._running = False
@@ -232,6 +244,9 @@ class TickChartFeed:
             "bids" in payload or "asks" in payload or isinstance(payload.get("order_book"), dict)
         ):
             ingested += 1 if await self._ingest_depth(payload) else 0
+        if ingested:
+            self._last_cloud_count += ingested
+            self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
         return ingested
 
     async def hydrate_symbol(self, symbol: str) -> int:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import asyncio
 import csv
 import io
@@ -65,9 +66,7 @@ class TickChartAutoSync:
 
     @property
     def enabled(self) -> bool:
-        return bool(getattr(self._settings, "tickchart_autosync_enabled", True)) and bool(
-            getattr(self._settings, "tickchart_enabled", True)
-        )
+        return folder_watch_allowed(self._settings) and bool(self._dirs)
 
     @property
     def watching(self) -> bool:
@@ -190,30 +189,35 @@ class TickChartAutoSync:
         return len(self._iter_files())
 
 
+def folder_watch_allowed(settings: Settings | None = None) -> bool:
+    cfg = settings or get_settings()
+    if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or cfg.is_production:
+        return False
+    if not bool(getattr(cfg, "tickchart_autosync_enabled", False)):
+        return False
+    if not bool(getattr(cfg, "tickchart_enabled", True)):
+        return False
+    configured = str(getattr(cfg, "tickchart_export_dir", "") or "").strip()
+    return bool(configured) and Path(configured).expanduser().is_absolute()
+
+
 def discover_export_dirs(settings: Settings | None = None) -> list[Path]:
     cfg = settings or get_settings()
-    configured = str(getattr(cfg, "tickchart_export_dir", "") or "").strip()
-    primary = Path(configured).expanduser() if configured else Path.cwd() / _DEFAULT_RELATIVE
-    folders = [primary]
-    home = Path.home()
-    for extra in (
-        home / "Documents" / "TickerChart",
-        home / "Documents" / "TickChart",
-        home / "Documents" / "Tickchart",
-        home / "Desktop" / "TickerChart",
-        home / "Desktop" / "TickChart",
-    ):
-        if extra.is_dir() and extra.resolve() not in {item.resolve() for item in folders}:
-            folders.append(extra)
-    return folders
+    if not folder_watch_allowed(cfg):
+        return []
+    primary = Path(str(cfg.tickchart_export_dir).strip()).expanduser()
+    return [primary]
 
 
 def parse_export_file(path: Path) -> list[dict[str, Any]]:
-    raw = _read_text(path)
+    return parse_export_text(_read_text(path), path.name)
+
+
+def parse_export_text(raw: str, filename: str = "") -> list[dict[str, Any]]:
     if not raw.strip():
         return []
-    hint = _symbol_from_name(path.name)
-    suffix = path.suffix.lower()
+    hint = _symbol_from_name(filename)
+    suffix = Path(filename).suffix.lower()
     if suffix == ".json" or raw.lstrip().startswith(("{", "[")):
         return _parse_json(raw, hint)
     return _parse_table(raw, hint)
