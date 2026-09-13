@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 
 export type RecommendationKind = "bounce" | "momentum";
+export type RecommendationScanMode = "live" | "end_of_day";
 
 export interface MarketRecommendation {
   symbol: string;
@@ -16,12 +17,17 @@ export interface MarketRecommendation {
   reason: string;
   volume_ratio: number | null;
   mfi: number | null;
+  scan_mode?: RecommendationScanMode | string | null;
+  horizon?: string | null;
 }
 
 export interface RecommendationsResponse {
   success: boolean;
   count: number;
   source: string;
+  scan_mode?: RecommendationScanMode | string;
+  session_phase?: string;
+  session_label?: string;
   data: MarketRecommendation[];
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 import pandas as pd
@@ -11,6 +12,7 @@ from app.core.config import Settings
 from app.core.middleware import register_exception_handlers
 from app.routers.radar import router as radar_router
 from app.routers.tickchart import router as tickchart_router
+from app.services.last_quotes import LastQuoteBook
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.tickchart_integration import TickChartFeed
 
@@ -77,7 +79,7 @@ class _Broadcaster:
         return set()
 
 
-def _tickchart_feed(**overrides: object) -> TickChartFeed:
+def _tickchart_feed(tmp_path: Path | None = None, **overrides: object) -> TickChartFeed:
     payload: dict[str, object] = {
         "tickchart_api_key": "test-key",
         "sahmk_api_key": "test-key",
@@ -88,11 +90,19 @@ def _tickchart_feed(**overrides: object) -> TickChartFeed:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"events": [], "bids": [], "asks": []}))
     )
-    return TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, client=client)
+    quotes_path = (tmp_path / "quotes.json") if tmp_path is not None else Path("data/.radar_test_quotes.json")
+    return TickChartFeed(
+        LiquidityRadarEngine(),
+        _Broadcaster(),
+        settings,
+        client=client,
+        quotes=LastQuoteBook(quotes_path),
+    )
 
 
-def test_live_radar_route_uses_tickchart_ticks() -> None:
-    feed = _tickchart_feed()
+def test_live_radar_route_uses_tickchart_ticks(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _tickchart_feed(tmp_path)
     app = FastAPI()
     register_exception_handlers(app)
     app.state.tickchart = feed
@@ -131,11 +141,12 @@ def test_live_radar_route_uses_tickchart_ticks() -> None:
     assert payload["symbol"] == "4030"
     assert payload["analysis"]["last_price"] == 24.9
     assert payload["analysis"]["live_quote"] is True
+    assert payload["analysis"]["quote_mode"] == "live"
     assert payload["analysis"]["bid"] == 24.88
     assert payload["analysis"]["ask"] == 24.92
 
 
-def test_live_radar_route_sends_telegram_radar_event() -> None:
+def test_live_radar_route_sends_telegram_radar_event(tmp_path: Path, monkeypatch) -> None:
     class _Telegram:
         def __init__(self) -> None:
             self.reports: list[dict[str, object]] = []
@@ -144,7 +155,8 @@ def test_live_radar_route_sends_telegram_radar_event() -> None:
             self.reports.append(report)
             return True
 
-    feed = _tickchart_feed()
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _tickchart_feed(tmp_path)
     telegram = _Telegram()
     app = FastAPI()
     register_exception_handlers(app)
@@ -180,22 +192,48 @@ def test_live_radar_route_sends_telegram_radar_event() -> None:
     assert telegram.reports[0]["last_price"]
 
 
-def test_live_radar_route_404_when_tickchart_has_no_ticks() -> None:
-    feed = _tickchart_feed()
+def test_live_radar_route_waiting_when_tickchart_has_no_ticks(tmp_path: Path) -> None:
+    feed = _tickchart_feed(tmp_path)
     app = FastAPI()
     register_exception_handlers(app)
     app.state.tickchart = feed
     app.include_router(radar_router)
     with TestClient(app) as client:
         response = client.get("/api/v1/radar/live/4030")
-    assert response.status_code == 404
-    assert "تكرتشارت" in response.json()["message"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["analysis"]["quote_mode"] == "waiting"
+    assert payload["analysis"]["live_quote"] is False
+    assert payload["analysis"]["last_price"] is None
+    assert any("انتظار" in reason for reason in payload["analysis"]["reasons"])
 
 
-def test_live_radar_route_503_when_tickchart_disabled() -> None:
+def test_live_radar_route_last_close_from_ranking_store(tmp_path: Path) -> None:
+    class _Store:
+        def snapshot(self):
+            return [{"symbol": "4030", "last_price": 24.5, "name": "البحري"}]
+
+    feed = _tickchart_feed(tmp_path)
+    feed.bind_ranking_store(_Store())
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.state.tickchart = feed
+    app.include_router(radar_router)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/radar/live/4030")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis"]["last_price"] == 24.5
+    assert payload["analysis"]["quote_mode"] == "last_close"
+    assert payload["analysis"]["live_quote"] is False
+
+
+def test_live_radar_route_503_when_tickchart_disabled(tmp_path: Path) -> None:
     app = FastAPI()
     register_exception_handlers(app)
     app.state.tickchart = _tickchart_feed(
+        tmp_path,
         tickchart_api_key="",
         sahmk_api_key="",
         tickchart_enabled=False,

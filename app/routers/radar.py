@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.core.exceptions import TickChartNoTickError, TickChartNotConfiguredError
+from app.core.exceptions import TickChartNotConfiguredError
 from app.models.schemas import RadarLiveResponse, TriggerTestAlertResponse
 from app.services.telegram_alert_bot import TelegramAlertBot
 
@@ -31,15 +31,13 @@ async def get_live_liquidity_radar(
 
     ticker = symbol.strip().upper()
     report = await feed.ensure_radar(ticker)
-    if not report.get("last_price"):
-        raise TickChartNoTickError(ticker)
-
-    telegram = getattr(request.app.state, "telegram", None)
-    if telegram is not None:
-        try:
-            await telegram.send_radar_event(report)
-        except Exception:
-            logger.exception("failed to send telegram radar event for %s", ticker)
+    if report.get("live_quote"):
+        telegram = getattr(request.app.state, "telegram", None)
+        if telegram is not None:
+            try:
+                await telegram.send_radar_event(report)
+            except Exception:
+                logger.exception("failed to send telegram radar event for %s", ticker)
 
     return RadarLiveResponse(
         symbol=str(report.get("symbol") or ticker),

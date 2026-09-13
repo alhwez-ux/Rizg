@@ -20,6 +20,8 @@ export function RecommendationsCard() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
+  const [scanMode, setScanMode] = useState<"live" | "end_of_day">("live");
+  const [sessionLabel, setSessionLabel] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKind>("all");
   const [sortKey, setSortKey] = useState<SortKey>("confidence");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
@@ -33,6 +35,8 @@ export function RecommendationsCard() {
       const data = result.data;
       setRows(data);
       setCached(result.source === "cached");
+      setScanMode(result.scan_mode === "end_of_day" ? "end_of_day" : "live");
+      setSessionLabel(result.session_label || null);
       setLoaded(true);
       setSelected((current) => {
         if (!current) return null;
@@ -80,19 +84,29 @@ export function RecommendationsCard() {
     setSortDir(key === "symbol" ? "asc" : "desc");
   };
 
+  const eod = scanMode === "end_of_day";
+
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">
       <div className="mb-5 flex flex-col items-start justify-between gap-4 border-b border-zinc-800 pb-4 md:flex-row md:items-center">
         <div>
           <h2 className="flex items-center gap-2 text-xl font-bold text-zinc-50">
             <span aria-hidden="true">🎯</span>
-            {ar.recoTitle}
+            {eod ? ar.recoTitleEod : ar.recoTitle}
           </h2>
-          <p className="mt-1 text-xs text-zinc-500">{cached ? ar.recoCached : ar.recoHint}</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {cached ? ar.recoCached : eod ? ar.recoHintEod : ar.recoHint}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
-            {ar.recoLive}
+          <span
+            className={`rounded-xl border px-3 py-1 text-xs font-semibold ${
+              eod
+                ? "border-zinc-700 bg-zinc-900 text-zinc-300"
+                : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+            }`}
+          >
+            {eod ? sessionLabel || ar.recoClosed : ar.recoLive}
           </span>
           <button
             type="button"
@@ -102,7 +116,7 @@ export function RecommendationsCard() {
             disabled={loading}
             className="rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-900/20 transition hover:from-sky-500 hover:to-teal-500 disabled:opacity-50"
           >
-            {loading ? ar.recoLoading : loaded ? ar.recoRefresh : ar.recoScan}
+            {loading ? ar.recoLoading : loaded ? ar.recoRefresh : eod ? ar.recoScanEod : ar.recoScan}
           </button>
         </div>
       </div>
@@ -133,13 +147,15 @@ export function RecommendationsCard() {
       ) : null}
 
       {loading && !loaded ? (
-        <p className="animate-pulse py-8 text-center text-sm text-zinc-400">{ar.recoLoadingDetail}</p>
+        <p className="animate-pulse py-8 text-center text-sm text-zinc-400">
+          {eod ? ar.recoLoadingEod : ar.recoLoadingDetail}
+        </p>
       ) : error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : !loaded ? (
         <p className="py-8 text-center text-sm text-zinc-500">{ar.recoIdle}</p>
       ) : visible.length === 0 ? (
-        <p className="py-8 text-center text-sm text-zinc-500">{ar.recoEmpty}</p>
+        <p className="py-8 text-center text-sm text-zinc-500">{eod ? ar.recoEmptyEod : ar.recoEmpty}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-start">
@@ -148,7 +164,7 @@ export function RecommendationsCard() {
                 <SortHeader label={ar.recoColSymbol} active={sortKey === "symbol"} onClick={() => toggleSort("symbol")} />
                 <th className="p-3 font-medium">{ar.tableColCompany}</th>
                 <th className="p-3 font-medium">{ar.recoColSignal}</th>
-                <SortHeader label={ar.recoColClose} active={sortKey === "close"} onClick={() => toggleSort("close")} />
+                <SortHeader label={eod ? ar.recoColCloseEod : ar.recoColClose} active={sortKey === "close"} onClick={() => toggleSort("close")} />
                 <th className="p-3 font-medium">{ar.recoColEntry}</th>
                 <th className="p-3 font-medium">{ar.target}</th>
                 <th className="p-3 font-medium">{ar.stopLoss}</th>
@@ -189,6 +205,11 @@ export function RecommendationsCard() {
                       >
                         {row.signal_type}
                       </span>
+                      {eod || row.horizon === "next_session" ? (
+                        <span className="ms-2 rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400">
+                          {ar.recoHorizon}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="p-3 font-bold" dir="ltr">
                       {formatPrice(row.close_price)}

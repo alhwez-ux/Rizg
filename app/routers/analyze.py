@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Request
 
-from app.core.exceptions import TickChartNoTickError, TickChartNotConfiguredError
+from app.core.exceptions import TickChartNotConfiguredError
 from app.models.schemas import AnalyzeResponse, MarketLevelsOut
 from app.models.trade import SessionFlow
 
@@ -26,9 +26,6 @@ async def analyze_symbol(
 
     ticker = symbol.strip().upper()
     report = await feed.ensure_radar(ticker)
-    if not report.get("last_price"):
-        raise TickChartNoTickError(ticker)
-
     trades = int(report.get("trade_count") or 0)
     session = SessionFlow(
         symbol=ticker,

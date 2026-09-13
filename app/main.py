@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     market_data = MarketDataService(store, liquidity, broadcaster)
     financial_sync = FinancialSyncService(settings)
     ranking_store = RankingStore()
+    tickchart.bind_ranking_store(ranking_store)
     email_alerts = EmailAlertService(settings)
     market_financial_sync = MarketFinancialSyncService(
         settings,

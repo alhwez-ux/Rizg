@@ -51,10 +51,15 @@ async def get_companies_by_sector(sector_name: str, request: Request) -> SectorC
 async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
     feed = getattr(request.app.state, "tickchart", None)
     rows = feed.opportunities() if feed is not None else []
+    phase = session_phase(now_riyadh())
+    scan_mode = "live" if phase == "open" else "end_of_day"
     return MarketRecommendationsResponse(
         success=True,
         count=len(rows),
         source="TickChart",
+        scan_mode=scan_mode,
+        session_phase=phase,
+        session_label=phase_label(phase),
         data=rows,
     )
 

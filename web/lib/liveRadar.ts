@@ -40,6 +40,9 @@ export interface LiveRadarReport {
   bid_size?: number | null;
   ask_size?: number | null;
   book_pressure?: number | null;
+  quote_mode?: "live" | "last_close" | "waiting";
+  session_phase?: string;
+  session_label?: string;
   live_quote?: boolean;
   mfi?: number | null;
   institutional_mfi?: number | null;
@@ -63,6 +66,40 @@ export async function fetchLiveRadar(symbol: string, _interval = "1d"): Promise<
   const response = await apiFetch(`/api/v1/radar/live/${encodeURIComponent(ticker)}`);
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {
+    if (response.status === 404) {
+      return {
+        symbol: ticker,
+        success: true,
+        source: "TickChart",
+        analysis: {
+          symbol: ticker,
+          signal: "neutral",
+          entry: false,
+          exit: false,
+          trap: null,
+          flow_verified: false,
+          score: 0,
+          net_flow: 0,
+          inflow: 0,
+          outflow: 0,
+          buy_volume: 0,
+          sell_volume: 0,
+          buy_ratio: null,
+          sell_ratio: null,
+          last_price: null,
+          vwap: null,
+          atr: null,
+          suggested_entry: null,
+          suggested_exit: null,
+          target_price: null,
+          stop_loss: null,
+          change_percent: null,
+          trade_count: 0,
+          reasons: ["في انتظار بيانات الجلسة"],
+          quote_mode: "waiting",
+        },
+      };
+    }
     throw new Error(readApiError(payload, "تعذر جلب رادار السيولة من تكرتشارت"));
   }
   return parseLiveRadarPayload(payload, ticker);
@@ -139,6 +176,16 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     ask_size: toFiniteNumber(row.ask_size),
     book_pressure: toFiniteNumber(row.book_pressure),
     live_quote: Boolean(row.live_quote),
+    quote_mode:
+      row.quote_mode === "live" || row.quote_mode === "last_close" || row.quote_mode === "waiting"
+        ? row.quote_mode
+        : row.live_quote
+          ? "live"
+          : row.last_price
+            ? "last_close"
+            : "waiting",
+    session_phase: row.session_phase ? String(row.session_phase) : undefined,
+    session_label: row.session_label ? String(row.session_label) : undefined,
     mfi: toFiniteNumber(row.mfi),
     institutional_mfi: toFiniteNumber(row.institutional_mfi),
     retail_mfi: toFiniteNumber(row.retail_mfi),

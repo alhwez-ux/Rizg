@@ -232,12 +232,17 @@ class MarketRecommendation(BaseModel):
     reason: str
     volume_ratio: float | None = None
     mfi: float | None = None
+    scan_mode: str | None = None
+    horizon: str | None = None
 
 
 class MarketRecommendationsResponse(BaseModel):
     success: bool = True
     count: int
     source: str = "TickChart"
+    scan_mode: str = "live"
+    session_phase: str | None = None
+    session_label: str | None = None
     data: list[MarketRecommendation]
 
 

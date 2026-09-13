@@ -19,6 +19,7 @@ web/.next/
 web/out/
 
 data/company_rankings.json
+data/tickchart_last_quotes.json
 data/tasi_daily_tape.json
 .pytest_cache/
 *.tsbuildinfo

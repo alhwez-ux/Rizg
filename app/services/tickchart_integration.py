@@ -21,7 +21,9 @@ from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.screener import ScreenerService
 from app.services.shariah import company_name_for, is_prohibited, sector_for
+from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 from app.services.tickchart_tape import SymbolTape, parse_book_levels
+from app.services.last_quotes import LastQuoteBook
 from app.services.watchlist import WatchlistService
 
 DEFAULT_TICKCHART_SYMBOLS = [
@@ -76,6 +78,7 @@ class TickChartFeed:
         watchlist: WatchlistService | None = None,
         screener: ScreenerService | None = None,
         client: httpx.AsyncClient | None = None,
+        quotes: LastQuoteBook | None = None,
     ) -> None:
         self._engine = engine
         self._manager = manager
@@ -109,6 +112,8 @@ class TickChartFeed:
         self._autosync: Any = None
         self._last_cloud_ingest: str | None = None
         self._last_cloud_count: int = 0
+        self._quotes = quotes or LastQuoteBook()
+        self._ranking: Any = None
 
     @property
     def enabled(self) -> bool:
@@ -123,6 +128,24 @@ class TickChartFeed:
             or bool(self._last_cloud_ingest)
             or bool(autosync and getattr(autosync, "connected", False))
         )
+
+    def bind_ranking_store(self, store: Any) -> None:
+        self._ranking = store
+
+    def _ranking_price(self, symbol: str) -> float | None:
+        store = self._ranking
+        if store is None or not hasattr(store, "snapshot"):
+            return None
+        ticker = symbol.strip().upper()
+        for row in store.snapshot() or []:
+            if str(row.get("symbol") or "").strip().upper() != ticker:
+                continue
+            try:
+                price = float(row.get("last_price"))
+            except (TypeError, ValueError):
+                return None
+            return price if price > 0 else None
+        return None
 
     def bind_autosync(self, autosync: Any) -> None:
         self._autosync = autosync
@@ -298,6 +321,27 @@ class TickChartFeed:
         if bid is not None and ask is not None:
             spread = round(float(ask) - float(bid), 6)
         last_price = report.get("last_price") or live.get("last_price")
+        live_tick = last_price is not None
+        if last_price is None:
+            last_price = self._quotes.price(ticker)
+        if last_price is None:
+            last_price = self._ranking_price(ticker)
+        phase = session_phase(now_riyadh())
+        if live_tick and phase == "open":
+            quote_mode = "live"
+        elif last_price is not None:
+            quote_mode = "last_close"
+        else:
+            quote_mode = "waiting"
+        reasons = list(report.get("reasons") or [])
+        if quote_mode == "last_close":
+            note = "آخر سعر مسجّل — في انتظار بيانات الجلسة"
+            if note not in reasons:
+                reasons.insert(0, note)
+        elif quote_mode == "waiting":
+            note = "في انتظار بيانات الجلسة"
+            if note not in reasons:
+                reasons.insert(0, note)
         report.update(
             {
                 "symbol": ticker,
@@ -322,7 +366,11 @@ class TickChartFeed:
                 "levels": live.get("levels"),
                 "session_volume": live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume),
                 "session_value": live.get("session_value"),
-                "live_quote": last_price is not None,
+                "live_quote": quote_mode == "live",
+                "quote_mode": quote_mode,
+                "session_phase": phase,
+                "session_label": phase_label(phase),
+                "reasons": reasons,
                 "source": "TickChart",
             }
         )
@@ -331,9 +379,6 @@ class TickChartFeed:
     def market_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for symbol in self._active_symbols():
-            session = self._engine.session_snapshot(symbol)
-            if session.last_price is None and not self._tapes.get(symbol):
-                continue
             report = self.radar_report(symbol)
             if not report.get("last_price"):
                 continue
@@ -355,16 +400,22 @@ class TickChartFeed:
                     "retail_mfi": report.get("retail_mfi"),
                     "trap": report.get("trap"),
                     "signal": report.get("signal"),
-                    "live": True,
+                    "live": report.get("quote_mode") == "live",
+                    "quote_mode": report.get("quote_mode"),
                 }
             )
         return rows
 
     def opportunities(self) -> list[dict[str, Any]]:
+        if session_phase(now_riyadh()) == "open":
+            return self._live_opportunities()
+        return self._eod_opportunities()
+
+    def _live_opportunities(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for report in (self.radar_report(symbol) for symbol in self._active_symbols()):
+        for report in (self.radar_report(symbol) for symbol in self._universe_symbols()):
             last = report.get("last_price")
-            if not last:
+            if not last or report.get("quote_mode") != "live":
                 continue
             trap = report.get("trap") or {}
             kind = str(trap.get("kind") or "")
@@ -412,10 +463,78 @@ class TickChartFeed:
                     "reason": reason,
                     "volume_ratio": report.get("volume_ratio"),
                     "mfi": report.get("institutional_mfi") or report.get("mfi"),
+                    "scan_mode": "live",
+                    "horizon": "intraday",
                 }
             )
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
         return rows
+
+    def _eod_opportunities(self) -> list[dict[str, Any]]:
+        from app.services.eod_scan import scan_end_of_day
+
+        return scan_end_of_day(self._close_snapshots())
+
+    def _close_snapshots(self) -> list[dict[str, Any]]:
+        snapshots: list[dict[str, Any]] = []
+        for symbol in self._universe_symbols():
+            report = self.radar_report(symbol)
+            last = report.get("last_price")
+            if not last:
+                continue
+            levels = self._engine.levels_snapshot(symbol)
+            tape = self._tape(symbol)
+            prices = list(tape.prices)
+            ranking = self._ranking_row(symbol) or {}
+            snapshots.append(
+                {
+                    "symbol": symbol,
+                    "name": report.get("name") or ranking.get("name") or symbol,
+                    "last_price": last,
+                    "close_price": last,
+                    "session_volume": report.get("session_volume") or ranking.get("volume") or 0,
+                    "volume": ranking.get("volume") or report.get("session_volume") or 0,
+                    "volume_ratio": report.get("volume_ratio"),
+                    "change_percent": report.get("change_percent"),
+                    "institutional_mfi": report.get("institutional_mfi"),
+                    "mfi": report.get("mfi") or ranking.get("mfi"),
+                    "net_flow": report.get("net_flow") or 0,
+                    "atr": report.get("atr"),
+                    "session_high": _json_number(levels.session_high)
+                    or (float(max(prices)) if prices else last),
+                    "session_low": _json_number(levels.session_low)
+                    or (float(min(prices)) if prices else last),
+                    "trap": report.get("trap"),
+                }
+            )
+        return snapshots
+
+    def _ranking_row(self, symbol: str) -> dict[str, Any] | None:
+        store = self._ranking
+        if store is None or not hasattr(store, "snapshot"):
+            return None
+        ticker = symbol.strip().upper()
+        for row in store.snapshot() or []:
+            if str(row.get("symbol") or "").strip().upper() == ticker:
+                return dict(row)
+        return None
+
+    def _universe_symbols(self) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+        sources: list[str] = list(self._active_symbols())
+        if self._ranking is not None and hasattr(self._ranking, "snapshot"):
+            for row in self._ranking.snapshot() or []:
+                sources.append(str(row.get("symbol") or ""))
+        for row in self._quotes.snapshot():
+            sources.append(str(row.get("symbol") or ""))
+        for symbol in sources:
+            ticker = str(symbol).strip().upper()
+            if not ticker or ticker in seen:
+                continue
+            seen.add(ticker)
+            ordered.append(ticker)
+        return ordered
 
     def alerts(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
@@ -677,6 +796,7 @@ class TickChartFeed:
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)
             self._last_trade_time[symbol] = timestamp.isoformat()
+            self._quotes.remember(symbol, price, volume=volume)
             return True
         except asyncio.CancelledError:
             raise

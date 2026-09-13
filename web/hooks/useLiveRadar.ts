@@ -20,14 +20,10 @@ export function useLiveRadar(symbol: string, interval = "1d") {
     try {
       const payload = await fetchLiveRadar(ticker, interval);
       if (!alive.current) return;
-      if (payload?.analysis.last_price) {
+      if (payload) {
         hasData.current = true;
         setData(payload);
         setError(null);
-      } else {
-        hasData.current = false;
-        setData(null);
-        setError("تعذر جلب رادار السيولة من تكرتشارت");
       }
     } catch (err) {
       if (!alive.current) return;

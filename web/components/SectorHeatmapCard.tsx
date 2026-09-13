@@ -45,6 +45,13 @@ export function SectorHeatmapCard({
     () => sectors.filter((row) => row.net_flow > 0).sort((left, right) => right.net_flow - left.net_flow),
     [sectors],
   );
+  const visibleSectors = useMemo(
+    () =>
+      inflowSectors.length > 0
+        ? inflowSectors
+        : [...sectors].sort((left, right) => right.net_flow - left.net_flow),
+    [inflowSectors, sectors],
+  );
 
   const loadSectors = useCallback(async (silent = false) => {
     if (!silent) setLoadingSectors(true);
@@ -202,17 +209,17 @@ export function SectorHeatmapCard({
           </button>
         ) : (
           <span className="rounded-xl bg-zinc-900 px-3 py-1 text-xs font-semibold text-zinc-300">
-            {ar.heatmapLive} · {inflowSectors.length}
+            {ar.heatmapLive} · {visibleSectors.length}
           </span>
         )}
       </div>
 
       {!activeSector ? (
-        inflowSectors.length === 0 ? (
+        visibleSectors.length === 0 ? (
           <p className="text-center text-sm text-zinc-500">{ar.heatmapInflowEmpty}</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {inflowSectors.map((sec) => (
+            {visibleSectors.map((sec) => (
               <SectorTile
                 key={sec.sector}
                 sector={sec}

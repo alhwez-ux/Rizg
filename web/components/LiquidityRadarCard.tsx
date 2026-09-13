@@ -18,11 +18,17 @@ export function LiquidityRadarCard({
   symbol: string;
   symbolName?: string;
 }) {
-  const { data, error, loading, refresh } = useLiveRadar(symbol);
+  const { data, loading, refresh } = useLiveRadar(symbol);
   const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
   const report = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
   const title = (symbolName || "").trim();
-  const live = status === "live";
+  const quoteMode = report?.quote_mode ?? (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
+  const live = quoteMode === "live" && status === "live";
+  const statusLabel = live
+    ? ar.liveRadarLive
+    : quoteMode === "last_close"
+      ? ar.liveRadarLastClose
+      : ar.liveRadarWaiting;
 
   return (
     <article className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow sm:p-6">
@@ -45,7 +51,7 @@ export function LiquidityRadarCard({
                 : "border-zinc-700 bg-zinc-900 text-zinc-400"
             }`}
           >
-            {live ? ar.liveRadarLive : status === "offline" ? ar.offline : ar.connecting}
+            {statusLabel}
           </span>
           {report ? <SignalPill report={report} /> : null}
           <button
@@ -62,14 +68,10 @@ export function LiquidityRadarCard({
 
       {loading && !report ? (
         <p className="mt-5 text-sm text-zinc-500">{ar.liveRadarLoading}</p>
-      ) : error && !report ? (
-        <p className="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-          {error || ar.liveRadarEmpty}
-        </p>
       ) : report ? (
         <ReportBody report={report} source={data?.source} />
       ) : (
-        <p className="mt-5 text-sm text-zinc-500">{ar.liveRadarEmpty}</p>
+        <p className="mt-5 text-sm text-zinc-500">{ar.liveRadarWaiting}</p>
       )}
     </article>
   );
@@ -93,7 +95,10 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
           value={formatMoney(report.net_flow)}
           tone={positive ? "up" : negative ? "down" : "flat"}
         />
-        <Metric label={ar.lastPrice} value={formatPrice(report.last_price)} />
+        <Metric
+          label={report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice}
+          value={formatPrice(report.last_price)}
+        />
         <Metric
           label={ar.regime}
           value={formatPercent(report.change_percent)}
@@ -198,7 +203,16 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
         </ul>
       ) : null}
 
-      <p className="text-[11px] text-zinc-600">{source === "cached" ? ar.liveRadarCached : ar.liveRadarSource}</p>
+      <p className="text-[11px] text-zinc-600">
+        {report.session_label ? `${report.session_label} · ` : ""}
+        {report.quote_mode === "last_close"
+          ? ar.liveRadarLastCloseHint
+          : report.quote_mode === "waiting"
+            ? ar.liveRadarWaiting
+            : source === "cached"
+              ? ar.liveRadarCached
+              : ar.liveRadarSource}
+      </p>
     </div>
   );
 }

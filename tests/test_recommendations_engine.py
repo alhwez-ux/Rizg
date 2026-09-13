@@ -133,11 +133,68 @@ def test_recommendations_endpoint_returns_scanned_opportunities() -> None:
     payload = response.json()
     assert payload["success"] is True
     assert payload["source"] == "TickChart"
+    assert payload["scan_mode"] in {"live", "end_of_day"}
+    assert payload["session_phase"]
     assert payload["count"] == len(payload["data"])
     assert payload["count"] >= 2
     symbols = {row["symbol"] for row in payload["data"]}
     assert {"1120", "2222"} <= symbols
     assert all(row["entry_price"] and row["reason"] for row in payload["data"])
+
+
+def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_path) -> None:
+    from pathlib import Path
+
+    import httpx
+
+    from app.core.config import Settings
+    from app.services.last_quotes import LastQuoteBook
+    from app.services.liquidity_engine import LiquidityRadarEngine
+    from app.services.tickchart_integration import TickChartFeed
+
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "closed")
+
+    class _Store:
+        def snapshot(self):
+            return [
+                {"symbol": "1120", "name": "الراجحي", "last_price": 96.4, "volume": 8_200_000},
+                {"symbol": "1180", "name": "الأهلي", "last_price": 38.1, "volume": 900_000},
+                {"symbol": "1010", "name": "الرياض", "last_price": 27.4, "volume": 800_000},
+            ]
+
+    class _Broadcaster:
+        async def broadcast(self, symbol: str, message: dict) -> None:
+            return None
+
+        def subscribed_symbols(self) -> set[str]:
+            return set()
+
+    settings = Settings(_env_file=None, tickchart_api_key="test-key", sahmk_api_key="test-key", enable_mock_feed=False)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"events": [], "bids": [], "asks": []}))
+    )
+    feed = TickChartFeed(
+        LiquidityRadarEngine(),
+        _Broadcaster(),
+        settings,
+        client=client,
+        quotes=LastQuoteBook(Path(tmp_path) / "quotes.json"),
+    )
+    feed.bind_ranking_store(_Store())
+    app = FastAPI()
+    app.state.tickchart = feed
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scan_mode"] == "end_of_day"
+    assert payload["session_label"] == "السوق مغلق"
+    assert payload["count"] >= 1
+    symbols = {row["symbol"] for row in payload["data"]}
+    assert "1120" in symbols
+    assert all(row.get("horizon") == "next_session" for row in payload["data"])
+    assert all("إغلاق" in row["reason"] or "الغد" in row["reason"] for row in payload["data"])
 
 
 def test_recommendations_endpoint_falls_back_without_sahm() -> None:
