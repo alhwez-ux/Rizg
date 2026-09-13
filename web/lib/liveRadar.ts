@@ -1,5 +1,4 @@
-import { apiFetch } from "@/lib/api";
-import { readLiveCache, writeLiveCache } from "@/lib/liveCache";
+import { radarFromMarket } from "@/lib/marketEngine";
 import { toFiniteNumber } from "@/lib/screener";
 
 export type LiveRadarSignal = "entry" | "exit" | "trap" | "neutral";
@@ -43,33 +42,8 @@ export interface LiveRadarResponse {
   analysis: LiveRadarReport;
 }
 
-function cacheKey(symbol: string, interval: string): string {
-  return `radar:${symbol.trim().toUpperCase()}:${interval}`;
-}
-
-export async function fetchLiveRadar(
-  symbol: string,
-  interval = "1d",
-): Promise<LiveRadarResponse | null> {
-  const ticker = symbol.trim();
-  const cached = readLiveCache<LiveRadarResponse>(cacheKey(ticker, interval));
-  try {
-    const response = await apiFetch(`/api/v1/radar/live/${encodeURIComponent(ticker)}?interval=${interval}`, {
-      method: "GET",
-    });
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!response.ok) {
-      return cached ? { ...cached, source: "cached" } : null;
-    }
-    const parsed = parseLiveRadarPayload(payload, ticker);
-    if (!parsed.analysis.last_price) {
-      return cached ? { ...cached, source: "cached" } : null;
-    }
-    writeLiveCache(cacheKey(ticker, interval), parsed);
-    return parsed;
-  } catch {
-    return cached ? { ...cached, source: "cached" } : null;
-  }
+export async function fetchLiveRadar(symbol: string, _interval = "1d"): Promise<LiveRadarResponse | null> {
+  return radarFromMarket(symbol);
 }
 
 export function parseLiveRadarPayload(
@@ -83,7 +57,7 @@ export function parseLiveRadarPayload(
   return {
     symbol: String(payload?.symbol ?? fallbackSymbol),
     success: Boolean(payload?.success ?? true),
-    source: String(payload?.source ?? "Sahm API"),
+    source: String(payload?.source ?? "تاسي"),
     analysis,
   };
 }

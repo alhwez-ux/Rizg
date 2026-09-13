@@ -68,6 +68,8 @@ export function RankingRevealCard() {
                 <tr className="border-b border-zinc-800 text-xs text-zinc-500">
                   <th className="p-3 font-medium">{ar.tableColCompany}</th>
                   <th className="p-3 font-medium">{ar.rankingColCategory}</th>
+                  <th className="p-3 font-medium">{ar.rankingColClose}</th>
+                  <th className="p-3 font-medium">{ar.rankingColVolume}</th>
                   <th className="p-3 font-medium">{ar.rankingColGrowth}</th>
                   <th className="p-3 font-medium">{ar.rankingColDividend}</th>
                   <th className="p-3 font-medium">ROE</th>
@@ -98,6 +100,12 @@ export function RankingRevealCard() {
                       >
                         {comp.category}
                       </span>
+                    </td>
+                    <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
+                      {formatPrice(comp.last_price)}
+                    </td>
+                    <td className="p-3 font-mono text-zinc-200" dir="ltr">
+                      {formatVolume(comp.volume)}
                     </td>
                     <td
                       className={`p-3 font-mono ${metricTone(comp.profit_growth)}`}
@@ -139,6 +147,16 @@ function formatPct(value: number | null): string {
 function formatPe(value: number | null): string {
   if (value == null) return ar.missingMetric;
   return `${value}x`;
+}
+
+function formatPrice(value: number | null): string {
+  if (value == null) return ar.missingMetric;
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatVolume(value: number | null): string {
+  if (value == null) return ar.missingMetric;
+  return Math.round(value).toLocaleString("en-US");
 }
 
 function metricTone(value: number | null): string {

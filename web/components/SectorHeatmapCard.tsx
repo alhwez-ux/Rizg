@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { ar } from "@/lib/ar";
@@ -12,20 +12,39 @@ import {
   type SectorData,
 } from "@/lib/sectorRotation";
 
-export function SectorHeatmapCard() {
+export function SectorHeatmapCard({
+  selectedSector = null,
+  radarSymbol = null,
+  radarName = null,
+  onSelectSector,
+  onOpenRadar,
+}: {
+  selectedSector?: string | null;
+  radarSymbol?: string | null;
+  radarName?: string | null;
+  onSelectSector?: (sector: string | null) => void;
+  onOpenRadar?: (company: { symbol: string; name: string } | null) => void;
+}) {
   const [sectors, setSectors] = useState<SectorData[]>([]);
-  const [selectedSector, setSelectedSector] = useState<string | null>(null);
+  const [localSector, setLocalSector] = useState<string | null>(null);
   const [companies, setCompanies] = useState<SectorCompany[]>([]);
   const [loadingSectors, setLoadingSectors] = useState(true);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [companyError, setCompanyError] = useState<string | null>(null);
-  const [activeSymbolForRadar, setActiveSymbolForRadar] = useState<{
-    symbol: string;
-    name: string;
-  } | null>(null);
+  const [localRadar, setLocalRadar] = useState<{ symbol: string; name: string } | null>(null);
   const requestId = useRef(0);
   const radarRef = useRef<HTMLDivElement | null>(null);
+  const activeSector = onSelectSector ? selectedSector : localSector;
+  const activeSymbolForRadar = onOpenRadar
+    ? radarSymbol
+      ? { symbol: radarSymbol, name: radarName || radarSymbol }
+      : null
+    : localRadar;
+  const inflowSectors = useMemo(
+    () => sectors.filter((row) => row.net_flow > 0).sort((left, right) => right.net_flow - left.net_flow),
+    [sectors],
+  );
 
   const loadSectors = useCallback(async (silent = false) => {
     if (!silent) setLoadingSectors(true);
@@ -53,18 +72,14 @@ export function SectorHeatmapCard() {
     return () => window.clearInterval(interval);
   }, [loadSectors]);
 
-  const handleSectorClick = async (sectorName: string) => {
+  const loadCompanies = useCallback(async (sectorName: string) => {
     const ticket = ++requestId.current;
-    setSelectedSector(sectorName);
-    setActiveSymbolForRadar(null);
     setLoadingCompanies(true);
     setCompanyError(null);
-    setCompanies([]);
     try {
       const result = await fetchSectorCompanies(sectorName);
       if (ticket !== requestId.current) return;
       if (result.success) {
-        setSelectedSector(result.sector || sectorName);
         setCompanies(result.companies);
       } else {
         throw new Error(ar.heatmapPanelError);
@@ -76,24 +91,60 @@ export function SectorHeatmapCard() {
     } finally {
       if (ticket === requestId.current) setLoadingCompanies(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!activeSector) {
+      requestId.current += 1;
+      setCompanies([]);
+      setCompanyError(null);
+      setLoadingCompanies(false);
+      return;
+    }
+    void loadCompanies(activeSector);
+  }, [activeSector, loadCompanies]);
+
+  const handleSectorClick = (sectorName: string) => {
+    if (onSelectSector) {
+      onSelectSector(sectorName);
+      return;
+    }
+    setLocalRadar(null);
+    setLocalSector(sectorName);
   };
 
   const handleBack = useCallback(() => {
+    if (onSelectSector) {
+      onSelectSector(null);
+      return;
+    }
     requestId.current += 1;
-    setSelectedSector(null);
+    setLocalSector(null);
     setCompanies([]);
     setCompanyError(null);
     setLoadingCompanies(false);
-    setActiveSymbolForRadar(null);
-  }, []);
+    setLocalRadar(null);
+  }, [onSelectSector]);
 
   const handleBackToCompanies = useCallback(() => {
-    setActiveSymbolForRadar(null);
-  }, []);
+    if (onOpenRadar) {
+      onOpenRadar(null);
+      return;
+    }
+    setLocalRadar(null);
+  }, [onOpenRadar]);
 
-  const openRadar = useCallback((company: SectorCompany) => {
-    setActiveSymbolForRadar({ symbol: company.symbol, name: company.name });
-  }, []);
+  const openRadar = useCallback(
+    (company: SectorCompany) => {
+      const next = { symbol: company.symbol, name: company.name };
+      if (onOpenRadar) {
+        onOpenRadar(next);
+        return;
+      }
+      setLocalRadar(next);
+    },
+    [onOpenRadar],
+  );
 
   useEffect(() => {
     if (!activeSymbolForRadar) return;
@@ -101,7 +152,7 @@ export function SectorHeatmapCard() {
   }, [activeSymbolForRadar]);
 
   useEffect(() => {
-    if (!selectedSector) return;
+    if (!activeSector) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (activeSymbolForRadar) {
@@ -112,7 +163,7 @@ export function SectorHeatmapCard() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeSymbolForRadar, handleBack, handleBackToCompanies, selectedSector]);
+  }, [activeSector, activeSymbolForRadar, handleBack, handleBackToCompanies]);
 
   if (loadingSectors && sectors.length === 0) {
     return (
@@ -137,7 +188,7 @@ export function SectorHeatmapCard() {
           <h2 className="text-xl font-bold text-zinc-50">{ar.heatmapTitle}</h2>
           <p className="mt-1 text-xs text-zinc-500">{ar.heatmapHint}</p>
         </div>
-        {selectedSector ? (
+        {activeSector ? (
           <button
             type="button"
             onClick={handleBack}
@@ -147,23 +198,21 @@ export function SectorHeatmapCard() {
           </button>
         ) : (
           <span className="rounded-xl bg-zinc-900 px-3 py-1 text-xs font-semibold text-zinc-300">
-            {ar.heatmapLive}
+            {ar.heatmapLive} · {inflowSectors.length}
           </span>
         )}
       </div>
 
-      {!selectedSector ? (
-        sectors.length === 0 ? (
-          <p className="text-center text-sm text-zinc-500">{ar.heatmapEmpty}</p>
+      {!activeSector ? (
+        inflowSectors.length === 0 ? (
+          <p className="text-center text-sm text-zinc-500">{ar.heatmapInflowEmpty}</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {sectors.map((sec) => (
+            {inflowSectors.map((sec) => (
               <SectorTile
                 key={sec.sector}
                 sector={sec}
-                onSelect={() => {
-                  void handleSectorClick(sec.sector);
-                }}
+                onSelect={() => handleSectorClick(sec.sector)}
               />
             ))}
           </div>
@@ -187,7 +236,7 @@ export function SectorHeatmapCard() {
         </div>
       ) : (
         <CompanyTable
-          sector={selectedSector}
+          sector={activeSector}
           companies={companies}
           loading={loadingCompanies}
           error={companyError}
@@ -205,28 +254,26 @@ function SectorTile({
   sector: SectorData;
   onSelect: () => void;
 }) {
-  const isPositive = sector.sector_momentum_score > 0;
-  const cardBg = isPositive
-    ? "bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/80 hover:bg-emerald-950/30"
-    : "bg-rose-950/20 border-rose-500/30 hover:border-rose-500/80 hover:bg-rose-950/30";
-  const badgeBg = isPositive
-    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-    : "border-rose-500/20 bg-rose-500/10 text-rose-400";
-
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`flex cursor-pointer flex-col justify-between rounded-2xl border p-5 text-start shadow-lg transition-all ${cardBg}`}
+      className="flex cursor-pointer flex-col justify-between rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 text-start shadow-lg transition-all hover:border-emerald-500/80 hover:bg-emerald-950/30"
     >
       <div>
         <div className="mb-3 flex items-start justify-between gap-2">
           <h3 className="text-lg font-bold text-zinc-100">{sector.sector}</h3>
-          <span className={`rounded-xl border px-2.5 py-1 text-[11px] font-semibold ${badgeBg}`}>
-            {sector.status}
+          <span className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-400">
+            {ar.heatmapLive}
           </span>
         </div>
         <div className="my-3 space-y-2 text-xs text-zinc-300">
+          <div className="flex justify-between gap-3">
+            <span className="text-zinc-400">{ar.heatmapColNetFlow}</span>
+            <span className="font-bold text-emerald-400" dir="ltr">
+              {formatMoney(sector.net_flow)}
+            </span>
+          </div>
           <div className="flex justify-between gap-3">
             <span className="text-zinc-400">{ar.heatmapAvgChange}</span>
             <span
@@ -244,6 +291,12 @@ function SectorTile({
                 maximumFractionDigits: 1,
               })}{" "}
               {ar.heatmapMillion}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-zinc-400">{ar.heatmapColVolume}</span>
+            <span className="font-semibold text-zinc-200" dir="ltr">
+              {Math.round(sector.total_volume).toLocaleString("en-US")}
             </span>
           </div>
         </div>
@@ -290,12 +343,14 @@ function CompanyTable({
         <p className="py-8 text-center text-sm text-zinc-500">{ar.heatmapPanelEmpty}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[780px] border-collapse text-start">
+          <table className="w-full min-w-[900px] border-collapse text-start">
             <thead>
               <tr className="border-b border-zinc-800 text-xs text-zinc-400">
                 <th className="p-3 font-medium">{ar.heatmapColSymbol}</th>
                 <th className="p-3 font-medium">{ar.heatmapColCompany}</th>
+                <th className="p-3 font-medium">{ar.heatmapColClose}</th>
                 <th className="p-3 font-medium">{ar.heatmapColChange}</th>
+                <th className="p-3 font-medium">{ar.heatmapColVolume}</th>
                 <th className="p-3 font-medium">{ar.heatmapColNetFlow}</th>
                 <th className="p-3 font-medium">{ar.heatmapColValue}</th>
                 <th className="p-3 text-center font-medium">{ar.heatmapColAction}</th>
@@ -321,6 +376,9 @@ function CompanyTable({
                   <td className="p-3 font-bold text-zinc-100 transition-colors group-hover:text-sky-400">
                     {comp.name}
                   </td>
+                  <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
+                    {comp.live ? comp.last_price.toFixed(2) : ar.missingMetric}
+                  </td>
                   <td
                     className={`p-3 font-bold ${comp.live ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}
                     dir="ltr"
@@ -328,6 +386,9 @@ function CompanyTable({
                     {comp.live
                       ? `${comp.price_change_pct >= 0 ? "+" : ""}${comp.price_change_pct.toFixed(2)}%`
                       : ar.missingMetric}
+                  </td>
+                  <td className="p-3 font-mono text-zinc-200" dir="ltr">
+                    {comp.live ? Math.round(comp.volume).toLocaleString("en-US") : ar.missingMetric}
                   </td>
                   <td
                     className={`p-3 font-mono ${comp.live ? (comp.net_flow > 0 ? "text-emerald-400" : comp.net_flow < 0 ? "text-rose-400" : "text-zinc-300") : "text-zinc-500"}`}

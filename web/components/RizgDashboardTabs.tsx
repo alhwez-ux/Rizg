@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useId, useState, type KeyboardEvent } from "react";
+import { Suspense, useCallback, useId, type KeyboardEvent } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
@@ -8,6 +9,7 @@ import { RankingRevealCard } from "@/components/RankingRevealCard";
 import { RecommendationsCard } from "@/components/RecommendationsCard";
 import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
+import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
 
 type DashboardTab = "sectors" | "radar" | "recommendations" | "ranking";
@@ -20,13 +22,54 @@ const TABS: { id: DashboardTab; label: string; icon: string }[] = [
 ];
 
 const MARKET_RADAR = [
-  { symbol: "1120", symbolName: "مصرف الراجحي" },
+  { symbol: "1120", symbolName: "الراجحي" },
   { symbol: "2222", symbolName: "أرامكو السعودية" },
+  { symbol: "2010", symbolName: "سابك" },
+  { symbol: "7010", symbolName: "الاتصالات السعودية" },
+  { symbol: "1150", symbolName: "الإنماء" },
 ] as const;
 
-export function RizgDashboardTabs() {
-  const [activeTab, setActiveTab] = useState<DashboardTab>("sectors");
+function parseTab(value: string | null): DashboardTab {
+  if (value === "radar" || value === "recommendations" || value === "ranking" || value === "sectors") {
+    return value;
+  }
+  return "sectors";
+}
+
+function DashboardShell() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+          const { tone } = useTasiTone();
   const tablistId = useId();
+  const activeTab = parseTab(searchParams.get("tab"));
+  const selectedSector = searchParams.get("sector");
+  const radarSymbol = searchParams.get("symbol");
+  const radarName = searchParams.get("name");
+
+  const replaceQuery = useCallback(
+    (patch: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (!value) params.delete(key);
+        else params.set(key, value);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname || "/", { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const setActiveTab = useCallback(
+    (id: DashboardTab) => {
+      if (id === "sectors") {
+        replaceQuery({ tab: "sectors", symbol: null, name: null });
+        return;
+      }
+      replaceQuery({ tab: id, sector: null, symbol: null, name: null });
+    },
+    [replaceQuery],
+  );
 
   const onTabKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -43,14 +86,14 @@ export function RizgDashboardTabs() {
       setActiveTab(TABS[next].id);
       document.getElementById(`${tablistId}-${TABS[next].id}`)?.focus();
     },
-    [tablistId],
+    [setActiveTab, tablistId],
   );
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 text-zinc-100 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow backdrop-blur-md sm:p-6 md:flex-row md:items-center">
         <div>
-          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" />
+          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" tone={tone} />
           <h1 className="mt-3 bg-gradient-to-l from-sky-400 to-teal-400 bg-clip-text text-2xl font-black text-transparent">
             {ar.tabsTitle}
           </h1>
@@ -102,7 +145,22 @@ export function RizgDashboardTabs() {
         aria-labelledby={`${tablistId}-${activeTab}`}
         className="animate-fadeIn"
       >
-        {activeTab === "sectors" ? <SectorHeatmapCard /> : null}
+        {activeTab === "sectors" ? (
+          <SectorHeatmapCard
+            selectedSector={selectedSector}
+            radarSymbol={radarSymbol}
+            radarName={radarName}
+            onSelectSector={(sector) => replaceQuery({ tab: "sectors", sector, symbol: null, name: null })}
+            onOpenRadar={(company) =>
+              replaceQuery({
+                tab: "sectors",
+                sector: selectedSector,
+                symbol: company?.symbol ?? null,
+                name: company?.name ?? null,
+              })
+            }
+          />
+        ) : null}
 
         {activeTab === "radar" ? (
           <div className="space-y-4">
@@ -110,7 +168,7 @@ export function RizgDashboardTabs() {
               <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
               <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
             </div>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {MARKET_RADAR.map((item) => (
                 <LiquidityRadarCard
                   key={item.symbol}
@@ -131,6 +189,18 @@ export function RizgDashboardTabs() {
         {activeTab === "ranking" ? <RankingRevealCard /> : null}
       </div>
     </section>
+  );
+}
+
+export function RizgDashboardTabs() {
+  return (
+    <Suspense
+      fallback={
+        <section className="mx-auto max-w-7xl px-4 py-10 text-sm text-zinc-500">{ar.heatmapLoading}</section>
+      }
+    >
+      <DashboardShell />
+    </Suspense>
   );
 }
 

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 
+import { tasiTapeChange } from "@/lib/marketData";
 import { toneFromChange, type MarketTone } from "@/lib/market-tone";
 
 const POLL_MS = 30_000;
 
-export function useTasiTone(screenerChange: number | null | undefined): {
+export function useTasiTone(screenerChange?: number | null): {
   tone: MarketTone;
   changePercent: number | null;
 } {
@@ -38,6 +39,6 @@ export function useTasiTone(screenerChange: number | null | undefined): {
     };
   }, [screenerChange]);
 
-  const changePercent = screenerChange ?? fallback;
+  const changePercent = screenerChange ?? fallback ?? tasiTapeChange();
   return { tone: toneFromChange(changePercent), changePercent };
 }

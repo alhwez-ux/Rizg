@@ -9,10 +9,12 @@ const STALE_COOKIES = [
   "rizg_session_v3",
   "rizg_session_v4",
   "rizg_session_v5",
+  "rizg_session_v6",
   "rizg_pin_cfg",
   "rizg_pin_cfg_v3",
   "rizg_pin_cfg_v4",
   "rizg_pin_cfg_v5",
+  "rizg_pin_cfg_v6",
 ];
 
 function withNoStore(response: NextResponse, auth: string): NextResponse {
@@ -61,7 +63,8 @@ export async function middleware(request: NextRequest) {
 
   const login = request.nextUrl.clone();
   login.pathname = "/login";
-  login.searchParams.set("next", pathname);
+  const next = `${pathname}${request.nextUrl.search}`;
+  login.searchParams.set("next", next.startsWith("/") ? next : pathname);
   login.searchParams.set("v", AUTH_VERSION);
   const redirect = withNoStore(NextResponse.redirect(login), token ? "invalid" : "missing");
   clearStale(request, redirect);
