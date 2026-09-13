@@ -1,6 +1,12 @@
+import { existsSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 process.env.DATABASE_URL ||= "file:./dev.db";
+
+// Prisma 6 errors when DATABASE_URL exists in both `.env` (Vercel) and `prisma/.env`.
+if (existsSync("prisma/.env")) {
+  unlinkSync("prisma/.env");
+}
 
 const steps = [
   ["prisma", ["generate"]],
