@@ -291,12 +291,13 @@ def _false_entry_reason(
     if change >= MAX_DAILY_CHANGE:
         return "limit_chase"
     candle_range = max(high - low, 1e-9)
-    if candle_range / close > max_range_pct:
-        return "wide_range"
-    if (high - close) / candle_range >= MAX_UPPER_WICK:
-        return "upper_wick"
-    if (close - low) / candle_range < MIN_CLOSE_IN_RANGE:
-        return "weak_close"
+    if candle_range / close >= 0.002:
+        if candle_range / close > max_range_pct:
+            return "wide_range"
+        if (high - close) / candle_range >= MAX_UPPER_WICK:
+            return "upper_wick"
+        if (close - low) / candle_range < MIN_CLOSE_IN_RANGE:
+            return "weak_close"
     if sma > 0 and (close - sma) / sma * 100 > MAX_EXTENSION_PCT:
         return "overextended"
     if atr > 0 and close - resistance > atr * 8:

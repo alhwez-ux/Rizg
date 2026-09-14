@@ -66,6 +66,7 @@ async def get_market_recommendations(request: Request) -> MarketRecommendationsR
         scan_mode="live" if live else "end_of_day",
         session_phase=phase,
         session_label=phase_label(phase),
+        scan_build="eod-tape-1",
         data=rows,
     )
 

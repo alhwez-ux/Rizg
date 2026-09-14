@@ -111,10 +111,34 @@ def test_parse_spark_bars_keeps_main_market_sessions_before_today() -> None:
     assert all(row["symbol"] != "9510" for row in quotes)
 
 
-def test_main_market_symbols_filters_nomu() -> None:
+def test_bundled_tape_seeds_main_market_close_book(tmp_path: Path) -> None:
+    book = LastQuoteBook(tmp_path / "empty.json")
+    assert book.price("2222") is None
+    seeded = book.seed_bundled_tape()
+    assert seeded >= 200
+    assert book.price("2222")
+    assert len(book.close_history("2222")) >= 10
+    assert book.price("9510") is None
     assert main_market_symbols(["2222", "9510", "2222.SR", "TASI", "1120"]) == ["2222", "1120"]
     assert "2222" in listed_main_market_symbols()
     assert "9510" not in listed_main_market_symbols()
+
+
+def test_close_recommendations_scan_bundled_tape(tmp_path: Path) -> None:
+    quotes = LastQuoteBook(tmp_path / "tape.json")
+    quotes.seed_bundled_tape()
+    settings = Settings(
+        _env_file=None,
+        tickchart_enabled=True,
+        tickchart_autosync_enabled=False,
+        tickchart_api_key="",
+        sahmk_api_key="",
+        enable_mock_feed=False,
+    )
+    feed = TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, quotes=quotes)
+    rows = feed.close_recommendations()
+    assert rows
+    assert all(row.get("scan_mode") == "end_of_day" for row in rows)
 
 
 def test_history_endpoint_imports_main_market_bars_only(tmp_path: Path, monkeypatch) -> None:

@@ -591,7 +591,14 @@ class TickChartFeed:
 
         from app.services.eod_scan import scan_end_of_day
 
+        self.ensure_close_book()
         return scan_end_of_day(self._close_snapshots())
+
+    def ensure_close_book(self) -> None:
+        """Guarantee a main-market close book exists before scanning (bundled tape)."""
+
+        if not self._quotes.snapshot():
+            self._quotes.seed_bundled_tape()
 
     def import_close_history(self, bars: list[dict[str, Any]]) -> int:
         """Store prior-session closes for the 10-day end-of-day scan."""
@@ -600,16 +607,16 @@ class TickChartFeed:
         return self._quotes.merge_history(main)
 
     def hydrate_main_market_history(self, *, sessions: int = 10) -> dict[str, Any]:
-        """Fill last close + 10 prior sessions from public daily bars when the book is empty."""
+        """Refresh last close + 10 prior sessions from public daily bars; tape is the fallback."""
 
         from app.services.session_history import fetch_main_market_closes, listed_main_market_symbols
 
-        ready, total = self.close_history_coverage(need=sessions + 1)
-        if ready >= 40 and total >= 40:
-            return {"imported": 0, "quotes": 0, "ready": ready, "symbols": total, "skipped": True}
+        self.ensure_close_book()
         bars, quotes = fetch_main_market_closes(listed_main_market_symbols(), sessions=sessions)
-        imported = self.import_close_history(bars)
+        imported = self.import_close_history(bars) if bars else 0
         applied = self._quotes.apply_closes(quotes) if quotes else 0
+        if imported == 0 and applied == 0:
+            applied = self._quotes.seed_bundled_tape()
         ready, total = self.close_history_coverage(need=sessions + 1)
         logger.info("TASI main-market close history ready=%s/%s imported=%s quotes=%s", ready, total, imported, applied)
         return {"imported": imported, "quotes": applied, "ready": ready, "symbols": total, "skipped": False}
@@ -695,7 +702,8 @@ class TickChartFeed:
 
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
-        for symbol in self._universe_symbols():
+        ordered = self.main_market_symbols() or self._universe_symbols()
+        for symbol in ordered:
             if not is_tasi_main_symbol(symbol):
                 continue
             report = self.radar_report(symbol)

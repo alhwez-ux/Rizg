@@ -12,6 +12,7 @@ from app.models.screener import is_tasi_main_symbol
 from app.services.tasi_clock import now_riyadh
 
 _DEFAULT_PATH = Path("data/tickchart_last_quotes.json")
+_BUNDLED_TAPE = Path(__file__).resolve().parents[1] / "data" / "tasi_close_tape.json"
 _HISTORY_LIMIT = 40
 
 
@@ -22,6 +23,8 @@ class LastQuoteBook:
         self._quotes: dict[str, dict[str, Any]] = {}
         self._history: dict[str, list[dict[str, Any]]] = {}
         self._load()
+        if path is None and not self._quotes:
+            self.seed_bundled_tape()
 
     def remember(self, symbol: str, price: Any, *, volume: Any = None, session_date: date | None = None) -> None:
         self.apply_closes(
@@ -138,6 +141,41 @@ class LastQuoteBook:
                 self._history[ticker] = ordered[-_HISTORY_LIMIT:]
             if applied:
                 self._save()
+        return applied
+
+    def seed_bundled_tape(self, path: Path | None = None) -> int:
+        """Load the shipped TASI close book when the live file is empty (Render/boot)."""
+
+        tape_path = path or _BUNDLED_TAPE
+        if not tape_path.exists():
+            return 0
+        try:
+            payload = json.loads(tape_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return 0
+        quotes = payload.get("quotes") if isinstance(payload, dict) else None
+        history = payload.get("history") if isinstance(payload, dict) else None
+        if not isinstance(quotes, dict):
+            return 0
+        rows: list[dict[str, Any]] = []
+        bars: list[dict[str, Any]] = []
+        for raw_symbol, item in quotes.items():
+            ticker = str(raw_symbol or "").strip().upper()
+            if not is_tasi_main_symbol(ticker) or not isinstance(item, dict):
+                continue
+            row = dict(item)
+            row["symbol"] = ticker
+            rows.append(row)
+        if isinstance(history, dict):
+            for raw_symbol, series in history.items():
+                ticker = str(raw_symbol or "").strip().upper()
+                if not is_tasi_main_symbol(ticker) or not isinstance(series, list):
+                    continue
+                for bar in series:
+                    if isinstance(bar, dict):
+                        bars.append({**bar, "symbol": ticker})
+        applied = self.apply_closes(rows) if rows else 0
+        self.merge_history(bars, keep_today=True)
         return applied
 
     def _load(self) -> None:
