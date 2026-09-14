@@ -81,4 +81,39 @@ def test_eod_scan_blocks_false_breakout_wicks_and_limit_chases() -> None:
 def test_eod_scan_skips_symbols_without_history_or_close() -> None:
     assert evaluate_close_setup({"symbol": "2010", "volume": 5_000_000}) is None
     assert evaluate_close_setup({"symbol": "2010", "last_price": 90.0, "volume": 5_000_000}) is None
+    assert evaluate_close_setup({"symbol": "9510", "last_price": 12.0, "prev_close": 11.0, "session_volume": 2_000_000}) is None
     assert scan_end_of_day([{"symbol": "2010", "volume": 5_000_000}]) == []
+
+
+def test_eod_scan_uses_today_session_when_history_is_short() -> None:
+    rows = scan_end_of_day(
+        [
+            {
+                "symbol": "2380",
+                "last_price": 18.29,
+                "prev_close": 17.62,
+                "session_open": 17.62,
+                "session_high": 18.35,
+                "session_low": 17.20,
+                "session_volume": 13_238_697,
+                "change_percent": 3.80,
+                "net_flow": 59_092_631,
+                "liquidity_flow": 1.69,
+            },
+            {
+                "symbol": "2222",
+                "last_price": 25.66,
+                "prev_close": 25.72,
+                "session_open": 25.70,
+                "session_high": 25.82,
+                "session_low": 25.52,
+                "session_volume": 5_671_859,
+                "change_percent": -0.23,
+                "net_flow": -17_624_308,
+            },
+        ]
+    )
+    symbols = {row["symbol"] for row in rows}
+    assert "2380" in symbols
+    assert "2222" not in symbols
+    assert rows[0]["scan_mode"] == "end_of_day"

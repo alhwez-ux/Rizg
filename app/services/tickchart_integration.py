@@ -15,6 +15,7 @@ import httpx
 import websockets
 
 from app.core.config import Settings
+from app.models.screener import is_tasi_main_symbol
 from app.models.trade import LiquidityStreamMessage
 from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
@@ -589,6 +590,20 @@ class TickChartFeed:
 
         return scan_end_of_day(self._close_snapshots())
 
+    def import_close_history(self, bars: list[dict[str, Any]]) -> int:
+        """Store prior-session closes for the 10-day end-of-day scan."""
+
+        main = [row for row in bars if is_tasi_main_symbol(str(row.get("symbol") or ""))]
+        return self._quotes.merge_history(main)
+
+    def main_market_symbols(self) -> list[str]:
+        return [symbol for symbol in self._universe_symbols() if is_tasi_main_symbol(symbol)]
+
+    def close_history_coverage(self, *, need: int = 11) -> tuple[int, int]:
+        symbols = self.main_market_symbols()
+        ready = sum(1 for symbol in symbols if len(self._quotes.close_history(symbol)) >= need)
+        return ready, len(symbols)
+
     def _live_opportunities(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for report in (self.radar_report(symbol) for symbol in self._universe_symbols()):
@@ -653,6 +668,8 @@ class TickChartFeed:
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
         for symbol in self._universe_symbols():
+            if not is_tasi_main_symbol(symbol):
+                continue
             report = self.radar_report(symbol)
             last = report.get("last_price")
             if not last:
@@ -664,6 +681,7 @@ class TickChartFeed:
             history = self._quotes.close_history(symbol)
             closes = [float(bar["close"]) for bar in history if bar.get("close")]
             volumes = [float(bar.get("volume") or 0) for bar in history]
+            stored = self._quotes.get(symbol) or {}
             snapshots.append(
                 {
                     "symbol": symbol,
@@ -672,18 +690,23 @@ class TickChartFeed:
                     "close_price": last,
                     "closes": closes,
                     "volumes": volumes,
-                    "session_volume": report.get("session_volume") or ranking.get("volume") or 0,
-                    "volume": ranking.get("volume") or report.get("session_volume") or 0,
+                    "session_volume": report.get("session_volume") or stored.get("volume") or ranking.get("volume") or 0,
+                    "volume": stored.get("volume") or ranking.get("volume") or report.get("session_volume") or 0,
                     "volume_ratio": report.get("volume_ratio"),
-                    "change_percent": report.get("change_percent"),
+                    "change_percent": report.get("change_percent") or stored.get("change_percent"),
                     "institutional_mfi": report.get("institutional_mfi"),
                     "mfi": report.get("mfi") or ranking.get("mfi"),
-                    "net_flow": report.get("net_flow") or 0,
+                    "net_flow": report.get("net_flow") or stored.get("net_flow") or 0,
                     "atr": report.get("atr"),
-                    "session_high": _json_number(levels.session_high)
+                    "prev_close": stored.get("prev_close"),
+                    "session_open": stored.get("open"),
+                    "session_high": stored.get("high")
+                    or _json_number(levels.session_high)
                     or (float(max(prices)) if prices else last),
-                    "session_low": _json_number(levels.session_low)
+                    "session_low": stored.get("low")
+                    or _json_number(levels.session_low)
                     or (float(min(prices)) if prices else last),
+                    "liquidity_flow": stored.get("liquidity_flow"),
                     "trap": report.get("trap"),
                     "book_pressure": report.get("book_pressure"),
                     "bid_size": report.get("bid_size"),
@@ -990,6 +1013,11 @@ class TickChartFeed:
                 "value_traded": payload.get("value_traded"),
                 "change_percent": payload.get("change_percent"),
                 "net_flow": payload.get("net_flow"),
+                "prev_close": payload.get("prev_close"),
+                "high": payload.get("high"),
+                "low": payload.get("low"),
+                "open": payload.get("open"),
+                "liquidity_flow": payload.get("liquidity_flow"),
             }
             if session_volume not in (None, ""):
                 self._quotes.apply_closes([extras], accumulate_volume=False)

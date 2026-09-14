@@ -143,6 +143,23 @@ def test_parse_uniticker_market_watch_snapshot(tmp_path: Path) -> None:
     assert depth[0]["best_ask"] == "25.68"
 
 
+def test_parse_uniticker_headerless_clipboard_dump(tmp_path: Path) -> None:
+    path = tmp_path / "tasi_watch.txt"
+    path.write_text(
+        "3\t0\t0\t4\tالسعودية\tTASI\tتاسي\t10,878.46\t-1\t13.89\t0.13\t-\t-\t-\t-\t175,930,585\t4,185,715,433\t397,489\t10,862.52\t10,906.23\t10,838.78\t10,864.57\t1.011\t22,835,876\t50.28\n"
+        "3\t0\t0\t0\tالسعودية\t2030\tالمصافي\t58.95\t0\t5.35\t9.98\t224,094\t58.95\t59.00\t1,746\t721,081\t40,707,578\t4,515\t53.60\t58.95\t53.20\t53.60\t0.981\t-382,594\t49.53\n"
+        "3\t0\t0\t0\tالسعودية\t2222\tأرامكو السعودية\t25.66\t0\t-0.06\t-0.23\t72,240\t25.66\t25.68\t205\t5,671,859\t145,606,258\t13,697\t25.70\t25.82\t25.52\t25.72\t0.784\t-17,624,308\t43.95\n",
+        encoding="utf-8",
+    )
+    payloads = parse_export_file(path)
+    quotes = {item["symbol"]: item for item in payloads if item.get("type") == "quote"}
+    assert "TASI" not in quotes
+    assert quotes["2222"]["price"] == "25.66"
+    assert quotes["2030"]["price"] == "58.95"
+    assert quotes["2222"]["session_volume"] == "5671859"
+    assert quotes["2222"]["net_flow"] == "-17624308"
+
+
 def test_autosync_ingests_export_into_radar(tmp_path: Path) -> None:
     feed = _feed()
     sync = TickChartAutoSync(feed, feed._settings, watch_dirs=[tmp_path])

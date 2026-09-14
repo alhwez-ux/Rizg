@@ -146,6 +146,41 @@ async def ingest_tickchart_payload(
     return TickChartIngestResponse(success=True, ingested=ingested)
 
 
+@router.post("/history")
+async def import_tickchart_close_history(
+    request: Request,
+    payload: dict[str, Any] | None = None,
+    x_tickchart_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Import prior TASI main-market daily closes for the 10-session EOD scan."""
+
+    import asyncio
+
+    from app.services.session_history import fetch_prior_session_bars, main_market_symbols
+
+    feed = _require_feed(request)
+    _check_ingest_token(request, x_tickchart_token, authorization)
+    body = payload if isinstance(payload, dict) else {}
+    bars = [row for row in (body.get("bars") or []) if isinstance(row, dict)]
+    sessions = max(1, min(int(body.get("sessions") or 10), 40))
+    if body.get("fetch"):
+        symbols = main_market_symbols(feed.main_market_symbols())
+        fetched = await asyncio.to_thread(fetch_prior_session_bars, symbols, sessions=sessions)
+        bars.extend(fetched)
+    imported = feed.import_close_history(bars)
+    ready, total = feed.close_history_coverage(need=sessions + 1)
+    return {
+        "success": True,
+        "imported": imported,
+        "source": "TickChart",
+        "market": "TASI_MAIN",
+        "sessions": sessions,
+        "symbols": total,
+        "ready": ready,
+    }
+
+
 def _require_feed(request: Request):
     feed = getattr(request.app.state, "tickchart", None)
     if feed is None or not getattr(feed, "enabled", False):

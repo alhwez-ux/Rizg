@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _SYMBOL_RE = re.compile(r"^\d{4}$")
+_MAIN_MARKET_RE = re.compile(r"^[1-8]\d{3}$")
 
 
 def normalize_tasi_symbol(value: str) -> str:
@@ -15,6 +16,13 @@ def normalize_tasi_symbol(value: str) -> str:
     if not _SYMBOL_RE.fullmatch(symbol):
         raise ValueError(symbol)
     return symbol
+
+
+def is_tasi_main_symbol(value: str) -> bool:
+    """True for Tadawul main-market equities (1xxx–8xxx), not Nomu/ETF 9xxx."""
+
+    ticker = str(value or "").strip().translate(_ARABIC_DIGITS).upper()
+    return bool(_MAIN_MARKET_RE.fullmatch(ticker))
 
 
 class WatchlistItemIn(BaseModel):

@@ -303,7 +303,87 @@ def parse_export_text(raw: str, filename: str = "") -> list[dict[str, Any]]:
     suffix = Path(filename).suffix.lower()
     if suffix == ".json" or raw.lstrip().startswith(("{", "[")):
         return _parse_json(raw, hint)
+    uniticker = _parse_uniticker_grid(raw) if _is_uniticker_dump(raw) else []
+    if uniticker:
+        return uniticker
     return _parse_table(raw, hint)
+
+
+_UNITICKER_MARKETS = frozenset({"السعودية", "saudi"})
+# Columns after السوق: رمز، اسم، آخر، اتجاه، تغير، تغير%، حجم طلب، طلب، عرض، حجم عرض، حجم، قيمة، صفقات، افتتاح، أعلى، أدنى، إغلاق سابق، تدفق، صافي، نسبة
+_UNITICKER_AFTER_MARKET = (
+    "symbol",
+    "name",
+    "price",
+    "direction",
+    "change",
+    "change_percent",
+    "bid_size",
+    "bid",
+    "ask",
+    "ask_size",
+    "quantity",
+    "value",
+    "trades",
+    "open",
+    "high",
+    "low",
+    "prev_close",
+    "liquidity_flow",
+    "net_flow",
+    "liquidity_pct",
+)
+
+
+def _is_uniticker_dump(raw: str) -> bool:
+    matched = 0
+    for line in raw.splitlines():
+        cells = [cell.strip() for cell in line.split("\t")]
+        if len(cells) < 10:
+            continue
+        market_at = next((index for index, cell in enumerate(cells) if cell in _UNITICKER_MARKETS), None)
+        if market_at is None:
+            continue
+        if market_at == 0:
+            return False
+        if market_at >= 3 and cells[0].replace(".", "", 1).isdigit():
+            matched += 1
+            if matched >= 2:
+                return True
+    return False
+
+
+def _parse_uniticker_grid(raw: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        record = _uniticker_record(line)
+        if record:
+            records.append(record)
+    if len(records) < 2:
+        return []
+    return _rows_to_payloads(records, None)
+
+
+def _uniticker_record(line: str) -> dict[str, Any] | None:
+    cells = [cell.strip() for cell in line.split("\t")]
+    if len(cells) < 8:
+        return None
+    market_at = next((index for index, cell in enumerate(cells) if cell in _UNITICKER_MARKETS), None)
+    if market_at is None:
+        return None
+    rest = cells[market_at + 1 :]
+    if len(rest) < 3:
+        return None
+    record: dict[str, Any] = {}
+    for index, field in enumerate(_UNITICKER_AFTER_MARKET):
+        if index >= len(rest):
+            break
+        value = rest[index]
+        if value:
+            record[field] = value
+    if not record.get("symbol") or not record.get("price"):
+        return None
+    return record
 
 
 def _parse_append(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
@@ -322,6 +402,9 @@ def _parse_append(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
         text = text[: last_break + 1]
         chunk = chunk[: last_break + 1]
     hint = _symbol_from_name(path.name)
+    uniticker = _parse_uniticker_grid(text)
+    if uniticker:
+        return uniticker, offset + len(chunk)
     header = _header_from_file(path)
     payloads = _parse_table(text, hint, header=header, has_header=False)
     return payloads, offset + len(chunk)

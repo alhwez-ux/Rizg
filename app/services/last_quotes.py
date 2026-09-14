@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.models.screener import is_tasi_main_symbol
 from app.services.tasi_clock import now_riyadh
 
 _DEFAULT_PATH = Path("data/tickchart_last_quotes.json")
@@ -55,13 +56,13 @@ class LastQuoteBook:
                 }
                 if qty and qty > 0:
                     row["volume"] = qty
-                for key in ("value_traded", "change_percent", "net_flow"):
+                for key in ("value_traded", "change_percent", "net_flow", "prev_close", "high", "low", "open", "liquidity_flow"):
                     value = extras.get(key)
                     if value is not None:
                         row[key] = value
                 previous = self._quotes.get(ticker) or {}
                 if not accumulate_volume:
-                    for key in ("volume", "value_traded", "change_percent", "net_flow"):
+                    for key in ("volume", "value_traded", "change_percent", "net_flow", "prev_close", "high", "low", "open", "liquidity_flow"):
                         if row.get(key) is None and previous.get(key) is not None:
                             row[key] = previous[key]
                 self._quotes[ticker] = row
@@ -104,6 +105,41 @@ class LastQuoteBook:
         with self._guard:
             return [dict(row) for row in self._history.get(ticker) or []]
 
+    def merge_history(self, bars: list[dict[str, Any]], *, keep_today: bool = True) -> int:
+        """Merge dated close/volume bars without replacing today's live quote."""
+
+        today = now_riyadh().date().isoformat()
+        applied = 0
+        with self._guard:
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for item in bars:
+                ticker = str(item.get("symbol") or "").strip().upper()
+                if not is_tasi_main_symbol(ticker):
+                    continue
+                close = _positive(item.get("close") or item.get("last_price") or item.get("price"))
+                day_raw = item.get("date") or item.get("session_date")
+                day = day_raw.isoformat() if isinstance(day_raw, date) else str(day_raw or "").strip()[:10]
+                if not ticker or close is None or len(day) < 10:
+                    continue
+                if keep_today and day >= today:
+                    continue
+                volume = _positive(item.get("volume") or item.get("session_volume")) or 0.0
+                grouped.setdefault(ticker, []).append({"date": day, "close": close, "volume": volume})
+            for ticker, incoming in grouped.items():
+                current = {
+                    str(row.get("date")): dict(row)
+                    for row in self._history.get(ticker) or []
+                    if isinstance(row, dict) and row.get("date")
+                }
+                for bar in incoming:
+                    current[bar["date"]] = bar
+                    applied += 1
+                ordered = sorted(current.values(), key=lambda row: str(row.get("date") or ""))
+                self._history[ticker] = ordered[-_HISTORY_LIMIT:]
+            if applied:
+                self._save()
+        return applied
+
     def _load(self) -> None:
         if not self._path.exists():
             return
@@ -136,6 +172,11 @@ def _close_row(item: dict[str, Any]) -> tuple[str, float | None, dict[str, Any]]
         "value_traded": _positive(item.get("value_traded") or item.get("session_value")),
         "change_percent": _number(item.get("change_percent") or item.get("price_change_pct")),
         "net_flow": _number(item.get("net_flow")),
+        "prev_close": _positive(item.get("prev_close")),
+        "high": _positive(item.get("high") or item.get("session_high")),
+        "low": _positive(item.get("low") or item.get("session_low")),
+        "open": _positive(item.get("open") or item.get("session_open")),
+        "liquidity_flow": _number(item.get("liquidity_flow")),
         "session_date": item.get("session_date"),
     }
     return ticker, price, extras

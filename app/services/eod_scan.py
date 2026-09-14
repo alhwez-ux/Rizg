@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from app.models.screener import is_tasi_main_symbol
 from app.services.shariah import company_name_for, is_prohibited
 
 SIGNAL_EOD_MOMENTUM = "توصية إغلاق — اختراق 🚀"
@@ -37,11 +38,11 @@ def scan_end_of_day(snapshots: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float = 0.0) -> dict[str, Any] | None:
     del typical_volume
     symbol = str(snapshot.get("symbol") or "").strip().upper()
-    if not symbol or is_prohibited(symbol):
+    if not symbol or not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
         return None
     closes, volumes = _close_volume_series(snapshot)
     if len(closes) < LOOKBACK + 1:
-        return None
+        return _evaluate_session_close(snapshot)
     close = closes[-1]
     volume = volumes[-1]
     prior_closes = closes[-(LOOKBACK + 1) : -1]
@@ -137,6 +138,97 @@ def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float =
     }
 
 
+def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Close pick from today's UniTicker session when 10-day history is not stored yet."""
+
+    symbol = str(snapshot.get("symbol") or "").strip().upper()
+    close = _positive(_number(snapshot.get("last_price") or snapshot.get("close_price")))
+    prev = _positive(_number(snapshot.get("prev_close")))
+    volume = _positive(_number(snapshot.get("session_volume") or snapshot.get("volume"))) or 0.0
+    if not symbol or close is None or prev is None or volume <= 0:
+        return None
+    if close <= prev:
+        return None
+    change = _number(snapshot.get("change_percent"))
+    if change is None and prev > 0:
+        change = ((close - prev) / prev) * 100
+    change = change or 0.0
+    if change <= MIN_BREAKOUT_PCT:
+        return None
+    high = _positive(_number(snapshot.get("session_high"))) or close
+    low = _positive(_number(snapshot.get("session_low"))) or min(close, prev)
+    opened = _positive(_number(snapshot.get("session_open") or snapshot.get("open"))) or prev
+    mfi = _number(snapshot.get("institutional_mfi") or snapshot.get("mfi")) or 50.0
+    net_flow = _number(snapshot.get("net_flow")) or 0.0
+    trap = snapshot.get("trap") if isinstance(snapshot.get("trap"), Mapping) else {}
+    trap_kind = str(trap.get("kind") or "")
+    atr = max(close * 0.012, abs(high - low), 0.05)
+    sma = (prev + close) / 2
+    if close < opened:
+        return None
+    if not _liquidity_ok(snapshot, net_flow=net_flow, mfi=mfi, trap_kind=trap_kind):
+        return None
+    blocked = _false_entry_reason(
+        snapshot,
+        close=close,
+        high=high,
+        low=low,
+        change=change,
+        sma=sma,
+        atr=atr,
+        resistance=prev,
+        vol_ratio=max(_number(snapshot.get("liquidity_flow")) or 1.0, 1.0),
+        mfi=mfi,
+        trap_kind=trap_kind,
+        max_range_pct=0.095,
+    )
+    if blocked:
+        return None
+    shakeout = low < close * 0.985 and low < prev
+    kind = KIND_BOUNCE if shakeout else KIND_MOMENTUM
+    signal = SIGNAL_EOD_BOUNCE if shakeout else SIGNAL_EOD_MOMENTUM
+    target = close + max(atr * 1.6, close * 0.03)
+    stop = min(close - atr, prev * 0.997, low * 0.995)
+    if stop >= close or target <= close:
+        return None
+    reward = (target - close) / max(close - stop, 1e-9)
+    if reward < MIN_REWARD_RATIO:
+        return None
+    score = _confidence(
+        close=close,
+        resistance=prev,
+        vol_ratio=1.6,
+        net_flow=net_flow,
+        mfi=mfi,
+        sma=sma,
+        macd=close > prev,
+        shakeout=shakeout,
+    )
+    name = str(snapshot.get("name") or company_name_for(symbol) or symbol)
+    return {
+        "symbol": symbol,
+        "name": name,
+        "close_price": round(close, 2),
+        "signal_type": signal,
+        "signal_kind": kind,
+        "confidence": f"{score}%",
+        "confidence_score": score,
+        "entry": True,
+        "entry_price": f"{close:.2f}",
+        "target_price": f"{target:.2f}",
+        "stop_loss": f"{stop:.2f}",
+        "reason": (
+            f"إغلاق جلسة اليوم {close:.2f} فوق إغلاق أمس {prev:.2f} "
+            f"({change:.2f}%) مع سيولة غير تصريفية — ارتقاب جلسة الغد."
+        ),
+        "entry_rule": "إغلاق اليوم أعلى من الإغلاق السابق مع تدفق غير سلبي واستقرار قرب أعلى الجلسة",
+        "volume_ratio": round(float(_number(snapshot.get("liquidity_flow")) or 1.0), 2),
+        "mfi": round(mfi, 1),
+        "scan_mode": "end_of_day",
+        "horizon": "next_session",
+    }
+
+
 def _breakout_ok(close: float, resistance: float, atr: float) -> bool:
     if close <= resistance:
         return False
@@ -190,13 +282,14 @@ def _false_entry_reason(
     vol_ratio: float,
     mfi: float,
     trap_kind: str,
+    max_range_pct: float = 0.06,
 ) -> str | None:
     if trap_kind in {"bull_trap", "silent_distribution"}:
         return "trap"
     if change >= MAX_DAILY_CHANGE:
         return "limit_chase"
     candle_range = max(high - low, 1e-9)
-    if candle_range / close > 0.06:
+    if candle_range / close > max_range_pct:
         return "wide_range"
     if (high - close) / candle_range >= MAX_UPPER_WICK:
         return "upper_wick"
