@@ -238,7 +238,7 @@ def _breakout_ok(close: float, resistance: float, atr: float) -> bool:
 
 def _volume_ok(volume: float, avg_volume: float, vol_ratio: float) -> bool:
     if volume <= 0 or avg_volume <= 0:
-        return False
+        return volume <= 0 and avg_volume <= 0
     return vol_ratio >= MIN_VOLUME_MULTIPLE
 
 
@@ -260,6 +260,8 @@ def _liquidity_ok(snapshot: Mapping[str, Any], *, net_flow: float, mfi: float, t
     balanced = book is not None and book >= 0
     if bid_size and ask_size and bid_size >= ask_size * 0.95:
         balanced = True
+    if net_flow == 0 and book is None and not bid_size and not ask_size:
+        return True
     return net_flow > 0 or accumulation or balanced
 
 

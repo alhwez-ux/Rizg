@@ -117,3 +117,21 @@ def test_eod_scan_uses_today_session_when_history_is_short() -> None:
     assert "2380" in symbols
     assert "2222" not in symbols
     assert rows[0]["scan_mode"] == "end_of_day"
+
+
+def test_eod_scan_allows_breakout_when_volume_and_flow_are_unknown() -> None:
+    prior = _prior_closes(30.0)
+    row = {
+        "symbol": "7200",
+        "last_price": 30.0,
+        "closes": [*prior, 30.0],
+        "volumes": [0.0] * 11,
+        "session_volume": 0,
+        "session_low": 29.82,
+        "session_high": 30.06,
+        "change_percent": 1.2,
+        "net_flow": 0,
+        "mfi": 50,
+    }
+    rows = scan_end_of_day([row])
+    assert "7200" in {item["symbol"] for item in rows}
