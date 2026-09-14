@@ -143,6 +143,8 @@ def test_recommendations_endpoint_returns_scanned_opportunities() -> None:
 
 
 def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_path) -> None:
+    import asyncio
+    from datetime import date, timedelta
     from pathlib import Path
 
     import httpx
@@ -157,11 +159,7 @@ def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_pa
 
     class _Store:
         def snapshot(self):
-            return [
-                {"symbol": "1120", "name": "الراجحي", "last_price": 96.4, "volume": 8_200_000},
-                {"symbol": "1180", "name": "الأهلي", "last_price": 38.1, "volume": 900_000},
-                {"symbol": "1010", "name": "الرياض", "last_price": 27.4, "volume": 800_000},
-            ]
+            return [{"symbol": "1120", "name": "الراجحي", "last_price": 96.4, "volume": 8_200_000}]
 
     class _Broadcaster:
         async def broadcast(self, symbol: str, message: dict) -> None:
@@ -169,6 +167,11 @@ def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_pa
 
         def subscribed_symbols(self) -> set[str]:
             return set()
+
+    quotes = LastQuoteBook(Path(tmp_path) / "quotes.json")
+    start = date(2026, 8, 20)
+    for index in range(10):
+        quotes.remember("1120", 94.8 + index * 0.12, volume=1_000_000, session_date=start + timedelta(days=index))
 
     settings = Settings(_env_file=None, tickchart_api_key="test-key", sahmk_api_key="test-key", enable_mock_feed=False)
     client = httpx.AsyncClient(
@@ -179,9 +182,20 @@ def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_pa
         _Broadcaster(),
         settings,
         client=client,
-        quotes=LastQuoteBook(Path(tmp_path) / "quotes.json"),
+        quotes=quotes,
     )
     feed.bind_ranking_store(_Store())
+    asyncio.run(
+        feed.ingest_message(
+            {
+                "ticks": [
+                    {"symbol": "1120", "price": 95.9, "quantity": 400000, "event_time": "2026-09-13T10:00:01+03:00"},
+                    {"symbol": "1120", "price": 96.2, "quantity": 600000, "event_time": "2026-09-13T10:00:02+03:00"},
+                    {"symbol": "1120", "price": 96.4, "quantity": 1200000, "event_time": "2026-09-13T10:00:03+03:00"},
+                ]
+            }
+        )
+    )
     app = FastAPI()
     app.state.tickchart = feed
     app.include_router(market_router)
@@ -193,6 +207,7 @@ def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_pa
     assert payload["count"] >= 1
     symbols = {row["symbol"] for row in payload["data"]}
     assert "1120" in symbols
+    assert all(row.get("entry") is True for row in payload["data"])
     assert all(row.get("horizon") == "next_session" for row in payload["data"])
     assert all("إغلاق" in row["reason"] or "الغد" in row["reason"] for row in payload["data"])
 

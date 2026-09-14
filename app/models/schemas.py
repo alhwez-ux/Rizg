@@ -234,13 +234,15 @@ class MarketRecommendation(BaseModel):
     mfi: float | None = None
     scan_mode: str | None = None
     horizon: str | None = None
+    entry: bool = False
+    entry_rule: str | None = None
 
 
 class MarketRecommendationsResponse(BaseModel):
     success: bool = True
     count: int
     source: str = "TickChart"
-    scan_mode: str = "live"
+    scan_mode: str = "end_of_day"
     session_phase: str | None = None
     session_label: str | None = None
     data: list[MarketRecommendation]

@@ -49,15 +49,13 @@ async def get_companies_by_sector(sector_name: str, request: Request) -> SectorC
 
 @router.get("/recommendations", response_model=MarketRecommendationsResponse)
 async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
-    feed = getattr(request.app.state, "tickchart", None)
-    rows = feed.opportunities() if feed is not None else []
+    rows = _close_recommendation_rows(request)
     phase = session_phase(now_riyadh())
-    scan_mode = "live" if phase == "open" else "end_of_day"
     return MarketRecommendationsResponse(
         success=True,
         count=len(rows),
         source="TickChart",
-        scan_mode=scan_mode,
+        scan_mode="end_of_day",
         session_phase=phase,
         session_label=phase_label(phase),
         data=rows,
@@ -166,6 +164,19 @@ def _tickchart_rows(request: Request) -> list[dict]:
     if feed is None:
         return []
     return feed.market_rows()
+
+
+def _close_recommendation_rows(request: Request) -> list[dict]:
+    feed = getattr(request.app.state, "tickchart", None)
+    if feed is None:
+        return []
+    closer = getattr(feed, "close_recommendations", None)
+    if callable(closer):
+        return closer()
+    opportunities = getattr(feed, "opportunities", None)
+    if callable(opportunities):
+        return opportunities()
+    return []
 
 
 def _ranking_store(request: Request) -> RankingStore:

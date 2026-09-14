@@ -409,7 +409,14 @@ class TickChartFeed:
     def opportunities(self) -> list[dict[str, Any]]:
         if session_phase(now_riyadh()) == "open":
             return self._live_opportunities()
-        return self._eod_opportunities()
+        return self.close_recommendations()
+
+    def close_recommendations(self) -> list[dict[str, Any]]:
+        """Always scan last close + closing volume for next-session entries."""
+
+        from app.services.eod_scan import scan_end_of_day
+
+        return scan_end_of_day(self._close_snapshots())
 
     def _live_opportunities(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -470,11 +477,6 @@ class TickChartFeed:
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
         return rows
 
-    def _eod_opportunities(self) -> list[dict[str, Any]]:
-        from app.services.eod_scan import scan_end_of_day
-
-        return scan_end_of_day(self._close_snapshots())
-
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
         for symbol in self._universe_symbols():
@@ -486,12 +488,17 @@ class TickChartFeed:
             tape = self._tape(symbol)
             prices = list(tape.prices)
             ranking = self._ranking_row(symbol) or {}
+            history = self._quotes.close_history(symbol)
+            closes = [float(bar["close"]) for bar in history if bar.get("close")]
+            volumes = [float(bar.get("volume") or 0) for bar in history]
             snapshots.append(
                 {
                     "symbol": symbol,
                     "name": report.get("name") or ranking.get("name") or symbol,
                     "last_price": last,
                     "close_price": last,
+                    "closes": closes,
+                    "volumes": volumes,
                     "session_volume": report.get("session_volume") or ranking.get("volume") or 0,
                     "volume": ranking.get("volume") or report.get("session_volume") or 0,
                     "volume_ratio": report.get("volume_ratio"),
@@ -505,6 +512,12 @@ class TickChartFeed:
                     "session_low": _json_number(levels.session_low)
                     or (float(min(prices)) if prices else last),
                     "trap": report.get("trap"),
+                    "book_pressure": report.get("book_pressure"),
+                    "bid_size": report.get("bid_size"),
+                    "ask_size": report.get("ask_size"),
+                    "spread": report.get("spread"),
+                    "bid_wall": report.get("bid_wall"),
+                    "ask_wall": report.get("ask_wall"),
                 }
             )
         return snapshots

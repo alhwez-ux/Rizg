@@ -19,6 +19,8 @@ export interface MarketRecommendation {
   mfi: number | null;
   scan_mode?: RecommendationScanMode | string | null;
   horizon?: string | null;
+  entry?: boolean;
+  entry_rule?: string | null;
 }
 
 export interface RecommendationsResponse {
@@ -35,7 +37,7 @@ export async function fetchMarketRecommendations(): Promise<RecommendationsRespo
   const response = await apiFetch("/api/v1/market/recommendations");
   const payload = (await response.json().catch(() => null)) as RecommendationsResponse | null;
   if (!response.ok || !payload) {
-    throw new Error("تعذر جلب توصيات تكرتشارت اللحظية");
+    throw new Error("تعذر جلب توصيات الإغلاق");
   }
   return payload;
 }

@@ -236,7 +236,8 @@ class TasiMarketScheduler:
         recs = 0
         feed = self._tickchart
         if feed is not None:
-            recs = len(feed.opportunities())
+            closer = getattr(feed, "close_recommendations", None)
+            recs = len(closer() if callable(closer) else feed.opportunities())
         payload = {
             "job": "close",
             "ran_at": current.isoformat(),

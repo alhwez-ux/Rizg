@@ -4,6 +4,7 @@ import { Suspense, useCallback, useId, useMemo, type KeyboardEvent } from "react
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
+import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { RankingRevealCard } from "@/components/RankingRevealCard";
 import { RecommendationsCard } from "@/components/RecommendationsCard";
@@ -142,12 +143,20 @@ function DashboardShell() {
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
               className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
-                selected
-                  ? "bg-sky-600 text-white shadow-lg shadow-sky-900/30"
-                  : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                tab.id === "recommendations"
+                  ? selected
+                    ? "bg-emerald-100 text-emerald-900 shadow-lg shadow-emerald-900/20"
+                    : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 hover:text-emerald-100"
+                  : selected
+                    ? "bg-sky-600 text-white shadow-lg shadow-sky-900/30"
+                    : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               }`}
             >
-              <span aria-hidden="true">{tab.icon}</span>
+              {tab.id === "recommendations" ? (
+                <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
+              ) : (
+                <span aria-hidden="true">{tab.icon}</span>
+              )}
               {tab.label}
             </button>
           );
