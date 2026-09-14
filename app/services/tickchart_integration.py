@@ -114,6 +114,7 @@ class TickChartFeed:
         self._last_cloud_count: int = 0
         self._quotes = quotes or LastQuoteBook()
         self._ranking: Any = None
+        self._desktop_live = False
 
     @property
     def enabled(self) -> bool:
@@ -125,9 +126,13 @@ class TickChartFeed:
         return (
             self._trades_live
             or self._depth_live
+            or self._desktop_live
             or bool(self._last_cloud_ingest)
             or bool(autosync and getattr(autosync, "connected", False))
         )
+
+    def mark_desktop_live(self) -> None:
+        self._desktop_live = True
 
     def bind_ranking_store(self, store: Any) -> None:
         self._ranking = store
@@ -153,7 +158,7 @@ class TickChartFeed:
 
     def status(self) -> dict[str, Any]:
         last_quotes = self._quotes.snapshot()
-        if self._trades_live or self._depth_live:
+        if self._trades_live or self._depth_live or self._desktop_live:
             quote_mode = "live"
         elif last_quotes:
             quote_mode = "last_close"
@@ -181,6 +186,9 @@ class TickChartFeed:
                 payload["last_ingested"] = extra.get("last_ingested")
             payload["autosync_enabled"] = extra.get("autosync_enabled", False)
             payload["autosync_watching"] = extra.get("autosync_watching", False)
+            payload["autosync_dirs"] = extra.get("autosync_dirs") or []
+            payload["autosync_files"] = extra.get("autosync_files") or 0
+            payload["last_file"] = extra.get("last_file")
         return payload
 
     async def start(self) -> None:
@@ -269,7 +277,7 @@ class TickChartFeed:
                 ingested += await self.ingest_message(row)
 
         msg_type = str(payload.get("type") or payload.get("channel") or "").lower()
-        if msg_type in {"trade", "tick", "print"} or (
+        if msg_type in {"trade", "tick", "print", "quote", "last"} or (
             payload.get("price") is not None and payload.get("symbol") and "bids" not in payload
         ):
             ingested += 1 if await self._ingest_trade(payload) else 0
@@ -377,16 +385,13 @@ class TickChartFeed:
         try:
             board = await asyncio.wait_for(provider.fetch_market_board(), timeout=10.0)
             movers = _merge_board(board)
-            wanted = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
-            for symbol, quote in movers.items():
-                if wanted and symbol not in wanted:
-                    continue
+            for quote in movers.values():
                 closes.append(quote)
             missing = [symbol for symbol in symbols if not self._quotes.price(symbol)]
-            if missing:
+            if missing and len(closes) < 6:
                 extra = await asyncio.wait_for(
-                    provider.fetch_quotes_for(missing[:12], limit=12),
-                    timeout=12.0,
+                    provider.fetch_quotes_for(missing[:8], limit=8),
+                    timeout=10.0,
                 )
                 for symbol, payload in extra.items():
                     closes.append(_flatten_quote(payload) or {"symbol": symbol, **payload})
@@ -493,7 +498,7 @@ class TickChartFeed:
         if not session_volume:
             session_volume = stored.get("volume") or ranking.get("volume")
         session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
-        net_flow = report.get("net_flow") or 0
+        net_flow = report.get("net_flow") or stored.get("net_flow") or 0
         if not net_flow and session_value and change:
             net_flow = float(session_value) * (float(change) / 100.0)
         report.update(
@@ -977,7 +982,20 @@ class TickChartFeed:
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)
             self._last_trade_time[symbol] = timestamp.isoformat()
-            self._quotes.remember(symbol, price, volume=volume)
+            session_volume = payload.get("session_volume")
+            extras = {
+                "symbol": symbol,
+                "last_price": price,
+                "volume": session_volume if session_volume not in (None, "") else volume,
+                "value_traded": payload.get("value_traded"),
+                "change_percent": payload.get("change_percent"),
+                "net_flow": payload.get("net_flow"),
+            }
+            if session_volume not in (None, ""):
+                self._quotes.apply_closes([extras], accumulate_volume=False)
+            else:
+                self._quotes.remember(symbol, price, volume=volume)
+            self.mark_desktop_live()
             return True
         except asyncio.CancelledError:
             raise
@@ -1041,8 +1059,8 @@ def parse_tick(payload: dict[str, Any]) -> tuple[str, Decimal, Decimal, datetime
         data.get("volume", data.get("size", data.get("qty", data.get("trade_quantity")))),
     )
     try:
-        price = Decimal(str(price_raw))
-        volume = Decimal(str(qty_raw))
+        price = Decimal(_numeric_text(price_raw))
+        volume = Decimal(_numeric_text(qty_raw if qty_raw not in (None, "") else 0))
     except (InvalidOperation, TypeError, ValueError):
         return None
     if price <= 0 or volume < 0:
@@ -1135,10 +1153,14 @@ def _json_number(value: Any) -> float | None:
     if value is None:
         return None
     try:
-        number = float(value)
+        number = float(_numeric_text(value) if not isinstance(value, (int, float, Decimal)) else value)
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _numeric_text(value: Any) -> str:
+    return str(value).strip().replace(",", "").replace("،", "").replace("%", "")
 
 
 def _parse_time(value: Any) -> datetime:

@@ -214,7 +214,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TICKCHART_BLOCK_VALUE", "tickchart_block_value"),
     )
     tickchart_autosync_enabled: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("TICKCHART_AUTOSYNC_ENABLED", "tickchart_autosync_enabled"),
     )
     tickchart_export_dir: str = Field(

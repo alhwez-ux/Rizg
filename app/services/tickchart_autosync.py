@@ -24,14 +24,26 @@ _SYMBOL_IN_NAME = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 _DEFAULT_RELATIVE = Path("data/tickchart_live")
 _HEADER_ALIASES: dict[str, frozenset[str]] = {
     "symbol": frozenset({"symbol", "ticker", "code", "sym", "الرمز", "سهم", "الشركة"}),
-    "price": frozenset({"price", "last", "lastprice", "close", "cl", "السعر", "إغلاق", "الاغلاق", "اخرسعر"}),
+    "price": frozenset(
+        {"price", "last", "lastprice", "lasttradeprice", "close", "cl", "السعر", "إغلاق", "الاغلاق", "اخرسعر", "آخر", "اخر"}
+    ),
     "quantity": frozenset({"quantity", "qty", "volume", "size", "vol", "الحجم", "الكمية", "كمية"}),
     "time": frozenset({"time", "timestamp", "datetime", "date", "eventtime", "الوقت", "التاريخ"}),
-    "side": frozenset({"side", "bs", "buysell", "type", "الاتجاه", "نوع"}),
-    "bid": frozenset({"bid", "bestbid", "طلب", "افضلطلب"}),
-    "ask": frozenset({"ask", "bestask", "عرض", "افضلعرض"}),
-    "bid_size": frozenset({"bidsize", "bidqty", "bidquantity", "حجمالطلب"}),
-    "ask_size": frozenset({"asksize", "askqty", "askquantity", "حجمالعرض"}),
+    "side": frozenset({"side", "bs", "buysell", "نوع"}),
+    "bid": frozenset({"bid", "bestbid", "طلب", "الطلب", "افضلطلب"}),
+    "ask": frozenset({"ask", "bestask", "عرض", "العرض", "افضلعرض"}),
+    "bid_size": frozenset({"bidsize", "bidqty", "bidquantity", "حجمالطلب", "حجمأفضلالطلب", "حجمافضلالطلب"}),
+    "ask_size": frozenset({"asksize", "askqty", "askquantity", "حجمالعرض", "حجمأفضلالعرض", "حجمافضلالعرض"}),
+    "value": frozenset({"value", "value_traded", "turnover", "القيمة", "القيمه"}),
+    "change_percent": frozenset({"changepercent", "pchange", "التغير", "تغير"}),
+    "open": frozenset({"open", "افتتاح", "إفتتاح", "الإفتتاح", "الافتتاح"}),
+    "high": frozenset({"high", "أعلى", "الاعلى", "الأعلى"}),
+    "low": frozenset({"low", "أدنى", "الادنى", "الأدنى"}),
+    "prev_close": frozenset({"prevclose", "previousclose", "pclose", "الإغلاقالسابق", "الاغلاقالسابق"}),
+    "net_flow": frozenset({"netflow", "صافيالسيولة", "صافيالسيوله"}),
+    "liquidity_flow": frozenset({"liquidityflow", "تدفقالسيولة", "تدفقالسيوله"}),
+    "liquidity_pct": frozenset({"liquiditypct", "نسبةالسيولة", "نسبةالسيوله"}),
+    "trades": frozenset({"trades", "الصفقات"}),
 }
 
 
@@ -121,6 +133,9 @@ class TickChartAutoSync:
             self._ingested += ingested
             self._last_file = path.name
             self._last_at = datetime.now(timezone.utc).isoformat()
+            mark = getattr(self._feed, "mark_desktop_live", None)
+            if callable(mark):
+                mark()
         return ingested
 
     async def _run(self) -> None:
@@ -163,6 +178,9 @@ class TickChartAutoSync:
                 self._ingested += ingested
                 self._last_file = path.name
                 self._last_at = datetime.now(timezone.utc).isoformat()
+                mark = getattr(self._feed, "mark_desktop_live", None)
+                if callable(mark):
+                    mark()
                 logger.info("TickChart autosync ingested %s prints from %s", ingested, path.name)
 
     def _iter_files(self) -> list[Path]:
@@ -193,20 +211,85 @@ def folder_watch_allowed(settings: Settings | None = None) -> bool:
     cfg = settings or get_settings()
     if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID") or cfg.is_production:
         return False
-    if not bool(getattr(cfg, "tickchart_autosync_enabled", False)):
-        return False
     if not bool(getattr(cfg, "tickchart_enabled", True)):
         return False
-    configured = str(getattr(cfg, "tickchart_export_dir", "") or "").strip()
-    return bool(configured) and Path(configured).expanduser().is_absolute()
+    return bool(getattr(cfg, "tickchart_autosync_enabled", True))
 
 
 def discover_export_dirs(settings: Settings | None = None) -> list[Path]:
     cfg = settings or get_settings()
     if not folder_watch_allowed(cfg):
         return []
-    primary = Path(str(cfg.tickchart_export_dir).strip()).expanduser()
-    return [primary]
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return
+        key = str(resolved).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(resolved)
+
+    configured = str(getattr(cfg, "tickchart_export_dir", "") or "").strip()
+    if configured:
+        path = Path(configured)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        _add(path)
+    _add(Path.cwd() / "data" / "tickchart_live")
+    home = Path.home()
+    for candidate in (
+        home / "Documents" / "TickerChart",
+        home / "Documents" / "TickerChartLive",
+        home / "Documents" / "TickChart",
+        home / "Documents" / "LiveMetaStock",
+        home / "Desktop" / "TickerChart",
+        home / "Desktop" / "TickerChartLive",
+        Path("C:/TickerChartLive/Export"),
+        Path("C:/TickerChart/Export"),
+    ):
+        if candidate.is_dir():
+            _add(candidate)
+    for root in _uniticker_tclive_roots():
+        if not root.is_dir():
+            continue
+        writable = _is_user_uniticker_root(root)
+        export = root / "Export"
+        if writable or export.is_dir():
+            _add(export)
+        tmp = root / "TMP"
+        if tmp.is_dir():
+            _add(tmp)
+    return found
+
+
+def _uniticker_tclive_roots() -> list[Path]:
+    roots: list[Path] = []
+    local = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    if local:
+        roots.append(Path(local) / "UniTicker" / "TCLive")
+    for env_name, fallback in (
+        ("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ("ProgramFiles", r"C:\Program Files"),
+    ):
+        base = str(os.environ.get(env_name) or fallback).strip()
+        if base:
+            roots.append(Path(base) / "UniTicker" / "TCLive")
+    return roots
+
+
+def _is_user_uniticker_root(root: Path) -> bool:
+    local = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    if not local:
+        return False
+    try:
+        return root.resolve() == (Path(local) / "UniTicker" / "TCLive").resolve()
+    except OSError:
+        return False
 
 
 def parse_export_file(path: Path) -> list[dict[str, Any]]:
@@ -304,47 +387,84 @@ def _parse_table(raw: str, hint: str | None, *, header: list[str] | None = None,
 
 def _rows_to_payloads(rows: list[dict[str, Any]], hint: str | None) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
-    bids: list[dict[str, Any]] = []
-    asks: list[dict[str, Any]] = []
-    symbol = hint
+    book_bids: list[dict[str, Any]] = []
+    book_asks: list[dict[str, Any]] = []
+    book_symbol = hint
     for row in rows:
         ticker = str(row.get("symbol") or hint or "").strip().upper()
-        if ticker:
-            symbol = ticker
-        bid = row.get("bid")
-        ask = row.get("ask")
-        if bid not in (None, "") or ask not in (None, ""):
-            if bid not in (None, ""):
-                bids.append({"price": bid, "quantity": row.get("bid_size") or row.get("quantity") or 0})
-            if ask not in (None, ""):
-                asks.append({"price": ask, "quantity": row.get("ask_size") or row.get("quantity") or 0})
+        ticker = ticker.split(".", 1)[0]
+        if ticker and not re.fullmatch(r"\d{4}", ticker):
             continue
-        price = row.get("price")
-        qty = row.get("quantity")
-        if price in (None, "") or qty in (None, "") or not ticker:
-            continue
-        payloads.append(
-            {
-                "type": "trade",
+        bid = _clean_number(row.get("bid"))
+        ask = _clean_number(row.get("ask"))
+        price = _clean_number(row.get("price"))
+        qty = _clean_number(row.get("quantity"))
+        if ticker and price is not None:
+            snapshot = bid is not None or ask is not None or qty is None
+            payload: dict[str, Any] = {
+                "type": "quote" if snapshot else "trade",
                 "symbol": ticker,
                 "price": price,
-                "quantity": qty,
+                "quantity": 0 if snapshot else qty,
                 "side": row.get("side"),
                 "event_time": row.get("time"),
             }
-        )
-    if symbol and (bids or asks):
+            if qty is not None:
+                payload["session_volume"] = qty
+            value = _clean_number(row.get("value"))
+            if value is not None:
+                payload["value_traded"] = value
+            change = _clean_number(row.get("change_percent"))
+            if change is not None:
+                payload["change_percent"] = change
+            for extra_key in ("open", "high", "low", "prev_close", "net_flow", "liquidity_flow", "liquidity_pct", "trades"):
+                extra = _clean_number(row.get(extra_key))
+                if extra is not None:
+                    payload[extra_key] = extra
+            payloads.append(payload)
+            if bid is not None or ask is not None:
+                payloads.append(
+                    {
+                        "type": "depth_snapshot",
+                        "symbol": ticker,
+                        "bids": [{"price": bid, "quantity": _clean_number(row.get("bid_size")) or 0}] if bid is not None else [],
+                        "asks": [{"price": ask, "quantity": _clean_number(row.get("ask_size")) or 0}] if ask is not None else [],
+                        "best_bid": bid,
+                        "best_ask": ask,
+                    }
+                )
+            continue
+        if bid is not None or ask is not None:
+            book_symbol = ticker or book_symbol
+            if bid is not None:
+                book_bids.append({"price": bid, "quantity": _clean_number(row.get("bid_size") or row.get("quantity")) or 0})
+            if ask is not None:
+                book_asks.append({"price": ask, "quantity": _clean_number(row.get("ask_size") or row.get("quantity")) or 0})
+    if book_symbol and (book_bids or book_asks):
         payloads.append(
             {
                 "type": "depth_snapshot",
-                "symbol": symbol,
-                "bids": bids,
-                "asks": asks,
-                "best_bid": bids[0]["price"] if bids else None,
-                "best_ask": asks[0]["price"] if asks else None,
+                "symbol": book_symbol,
+                "bids": book_bids,
+                "asks": book_asks,
+                "best_bid": book_bids[0]["price"] if book_bids else None,
+                "best_ask": book_asks[0]["price"] if book_asks else None,
             }
         )
     return payloads
+
+
+def _clean_number(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    token = str(value).strip().replace(",", "").replace("،", "").replace("%", "")
+    if token in {"", "-", "—"}:
+        return None
+    try:
+        float(token)
+    except ValueError:
+        return None
+    return token
 
 
 def _looks_numeric(row: list[str]) -> bool:

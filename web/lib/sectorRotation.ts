@@ -16,6 +16,7 @@ export interface SectorRotationResponse {
   success: boolean;
   total_sectors: number;
   source?: string;
+  quote_mode?: "live" | "last_close" | "waiting" | string;
   sectors: SectorData[];
 }
 

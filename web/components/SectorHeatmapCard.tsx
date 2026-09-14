@@ -11,6 +11,7 @@ import {
   type SectorCompany,
   type SectorData,
 } from "@/lib/sectorRotation";
+import { SESSION_REFRESHED_EVENT, refreshTickChartLive } from "@/lib/tickchartStatus";
 
 export function SectorHeatmapCard({
   selectedSector = null,
@@ -33,6 +34,7 @@ export function SectorHeatmapCard({
   const [error, setError] = useState<string | null>(null);
   const [companyError, setCompanyError] = useState<string | null>(null);
   const [localRadar, setLocalRadar] = useState<{ symbol: string; name: string } | null>(null);
+  const [tapeMode, setTapeMode] = useState<string>("waiting");
   const requestId = useRef(0);
   const radarRef = useRef<HTMLDivElement | null>(null);
   const activeSector = onSelectSector ? selectedSector : localSector;
@@ -59,6 +61,7 @@ export function SectorHeatmapCard({
       const result = await fetchSectorRotation();
       if (result.success) {
         setSectors(result.sectors);
+        setTapeMode(result.quote_mode || (result.sectors.length ? "last_close" : "waiting"));
         setError(null);
       } else {
         throw new Error(ar.heatmapLoadError);
@@ -72,11 +75,28 @@ export function SectorHeatmapCard({
   }, []);
 
   useEffect(() => {
-    void loadSectors();
+    let alive = true;
+    const boot = async () => {
+      try {
+        await refreshTickChartLive();
+      } catch {
+        /* heatmap still loads last-close / sample tape */
+      }
+      if (alive) await loadSectors();
+    };
+    void boot();
     const interval = window.setInterval(() => {
       void loadSectors(true);
     }, 2_000);
-    return () => window.clearInterval(interval);
+    const onRefresh = () => {
+      void loadSectors(true);
+    };
+    window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
+    };
   }, [loadSectors]);
 
   const loadCompanies = useCallback(async (sectorName: string, silent = false) => {
@@ -209,7 +229,7 @@ export function SectorHeatmapCard({
           </button>
         ) : (
           <span className="rounded-xl bg-zinc-900 px-3 py-1 text-xs font-semibold text-zinc-300">
-            {ar.heatmapLive} · {visibleSectors.length}
+            {tapeMode === "last_close" ? ar.liveRadarLastClose : ar.heatmapLive} · {visibleSectors.length}
           </span>
         )}
       </div>
@@ -388,27 +408,27 @@ function CompanyTable({
                     {comp.name}
                   </td>
                   <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
-                    {comp.live && comp.last_price != null ? comp.last_price.toFixed(2) : ar.missingMetric}
+                    {comp.last_price != null ? comp.last_price.toFixed(2) : ar.missingMetric}
                   </td>
                   <td
-                    className={`p-3 font-bold ${comp.live ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}
+                    className={`p-3 font-bold ${comp.last_price != null ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}
                     dir="ltr"
                   >
-                    {comp.live
+                    {comp.last_price != null
                       ? `${comp.price_change_pct >= 0 ? "+" : ""}${comp.price_change_pct.toFixed(2)}%`
                       : ar.missingMetric}
                   </td>
                   <td className="p-3 font-mono text-zinc-200" dir="ltr">
-                    {comp.live ? Math.round(comp.volume).toLocaleString("en-US") : ar.missingMetric}
+                    {comp.volume ? Math.round(comp.volume).toLocaleString("en-US") : ar.missingMetric}
                   </td>
                   <td
-                    className={`p-3 font-mono ${comp.live ? (comp.net_flow > 0 ? "text-emerald-400" : comp.net_flow < 0 ? "text-rose-400" : "text-zinc-300") : "text-zinc-500"}`}
+                    className={`p-3 font-mono ${comp.net_flow > 0 ? "text-emerald-400" : comp.net_flow < 0 ? "text-rose-400" : "text-zinc-300"}`}
                     dir="ltr"
                   >
-                    {comp.live ? formatMoney(comp.net_flow) : ar.missingMetric}
+                    {comp.last_price != null || comp.net_flow ? formatMoney(comp.net_flow) : ar.missingMetric}
                   </td>
                   <td className="p-3 text-zinc-200" dir="ltr">
-                    {comp.live
+                    {comp.value_traded
                       ? `${(comp.value_traded / 1_000_000).toLocaleString("en-US", {
                           maximumFractionDigits: 2,
                         })} ${ar.heatmapMillion}`

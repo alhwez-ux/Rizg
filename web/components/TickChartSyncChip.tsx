@@ -28,7 +28,23 @@ export function TickChartSyncChip({
       const next = await fetchTickChartStatus();
       if (alive) setStatus(next);
     };
-    void load();
+    const bootstrap = async () => {
+      try {
+        const pulled = await refreshTickChartLive();
+        if (!alive) return;
+        const next = await fetchTickChartStatus();
+        setStatus(next);
+        if (pulled.count > 0) {
+          setMessage(`${ar.tickchartRefreshed} (${pulled.count})`);
+        }
+      } catch (err) {
+        if (alive) {
+          setMessage(err instanceof Error ? err.message : ar.tickchartRefreshError);
+          await load();
+        }
+      }
+    };
+    void bootstrap();
     const timer = window.setInterval(() => {
       void load();
     }, 2_000);
@@ -38,8 +54,16 @@ export function TickChartSyncChip({
     };
   }, []);
 
-  const live = Boolean(status?.connected || status?.trades_live || status?.depth_live);
-  const label = live ? ar.tickchartSyncLive : ar.tickchartSyncIdle;
+  const live = Boolean(status?.connected || status?.trades_live || status?.depth_live || status?.quote_mode === "live");
+  const local = Boolean(status?.autosync_watching);
+  const lastClose = !live && (status?.quote_mode === "last_close" || Number(status?.last_quotes || 0) > 0);
+  const label = live
+    ? ar.tickchartSyncLive
+    : local
+      ? ar.tickchartSyncLocal
+      : lastClose
+        ? ar.tickchartSyncLastClose
+        : ar.tickchartSyncIdle;
 
   const follow = async () => {
     const ticker = symbol.trim();
@@ -62,10 +86,10 @@ export function TickChartSyncChip({
     setBusy("refresh");
     setMessage(null);
     try {
-      await refreshTickChartLive();
+      const pulled = await refreshTickChartLive();
       const next = await fetchTickChartStatus();
       setStatus(next);
-      setMessage(ar.tickchartRefreshed);
+      setMessage(pulled.count > 0 ? `${ar.tickchartRefreshed} (${pulled.count})` : ar.tickchartRefreshed);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : ar.tickchartRefreshError);
     } finally {
@@ -94,21 +118,21 @@ export function TickChartSyncChip({
           className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
             live
               ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-              : "border-zinc-700 bg-zinc-900 text-zinc-400"
+              : local
+                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : lastClose
+                ? "border-sky-500/20 bg-sky-500/10 text-sky-300"
+                : "border-zinc-700 bg-zinc-900 text-zinc-400"
           }`}
           title={ar.tickchartSyncHint}
         >
-          <span className={`h-2 w-2 rounded-full ${live ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
+          <span
+            className={`h-2 w-2 rounded-full ${
+              live || local ? "animate-pulse bg-emerald-400" : lastClose ? "bg-sky-400" : "bg-zinc-500"
+            }`}
+          />
           {label}
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={busy !== null}
-          className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-50"
-        >
-          {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
-        </button>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -148,6 +172,14 @@ export function TickChartSyncChip({
             }}
           />
         </label>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={busy !== null}
+          className="min-h-11 rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
+        >
+          {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
+        </button>
       </div>
       {message ? <p className="text-xs text-zinc-400">{message}</p> : null}
     </div>

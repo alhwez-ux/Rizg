@@ -1,5 +1,7 @@
 import { apiFetch, apiUrl } from "@/lib/api";
 
+export const SESSION_REFRESHED_EVENT = "rizg-session-refreshed";
+
 export interface TickChartStatus {
   enabled: boolean;
   connected: boolean;
@@ -9,10 +11,28 @@ export interface TickChartStatus {
   autosync_enabled: boolean;
   autosync_watching: boolean;
   autosync_files: number;
+  autosync_dirs?: string[];
   last_file: string | null;
   last_ingested: number;
   last_sync_at: string | null;
   source: string;
+  quote_mode?: "live" | "last_close" | "waiting" | string;
+  last_quotes?: number;
+}
+
+export interface SessionRefreshResult {
+  success: boolean;
+  count: number;
+  quote_mode?: string;
+  live?: number;
+  last_close?: number;
+}
+
+let refreshInflight: Promise<SessionRefreshResult> | null = null;
+
+function notifySessionRefreshed() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SESSION_REFRESHED_EVENT));
 }
 
 export async function fetchTickChartStatus(): Promise<TickChartStatus | null> {
@@ -26,10 +46,37 @@ export async function fetchTickChartStatus(): Promise<TickChartStatus | null> {
   }
 }
 
-export async function refreshTickChartLive(): Promise<void> {
-  const response = await apiFetch("/api/v1/tickchart/refresh", { method: "POST", body: "{}" });
-  if (!response.ok) {
-    throw new Error("تعذر تحديث رادار تكرتشارت");
+export async function refreshTickChartLive(): Promise<SessionRefreshResult> {
+  if (refreshInflight) return refreshInflight;
+  refreshInflight = pullSessionTape().finally(() => {
+    refreshInflight = null;
+  });
+  return refreshInflight;
+}
+
+async function pullSessionTape(): Promise<SessionRefreshResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const response = await apiFetch("/api/v1/tickchart/refresh", {
+      method: "POST",
+      body: "{}",
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => null)) as SessionRefreshResult | null;
+    if (!response.ok) {
+      throw new Error("تعذر تحديث رادار تكرتشارت");
+    }
+    notifySessionRefreshed();
+    return {
+      success: Boolean(payload?.success ?? true),
+      count: Number(payload?.count || 0),
+      quote_mode: payload?.quote_mode,
+      live: payload?.live,
+      last_close: payload?.last_close,
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

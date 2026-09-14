@@ -62,6 +62,87 @@ def test_parse_depth_csv(tmp_path: Path) -> None:
     assert payloads[0]["asks"][0]["price"] == "90.20"
 
 
+def test_parse_uniticker_market_watch_snapshot(tmp_path: Path) -> None:
+    path = tmp_path / "tasi_watch.tsv"
+    path.write_text(
+        "\t".join(
+            [
+                "السوق",
+                "الرمز",
+                "الاسم",
+                "آخر",
+                "الطلب",
+                "العرض",
+                "الحجم",
+                "القيمة",
+                "الصفقات",
+                "إفتتاح",
+                "أعلى",
+                "أدنى",
+                "الإغلاق السابق",
+                "تدفق السيولة",
+                "صافي السيولة",
+                "نسبة السيولة %",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "السعودية",
+                "TASI",
+                "تاسي",
+                "10,862.92",
+                "-",
+                "-",
+                "73,872,604",
+                "1,729,683,178",
+                "173,899",
+                "10,906.23",
+                "10,838.78",
+                "10,864.57",
+                "10,864.57",
+                "1.09",
+                "73,581,069",
+                "52.16",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "السعودية",
+                "2222",
+                "أرامكو السعودية",
+                "25.66",
+                "25.64",
+                "25.68",
+                "9,156,271",
+                "73,581,069",
+                "151",
+                "25.70",
+                "25.72",
+                "25.52",
+                "25.70",
+                "1.231",
+                "20,734,487",
+                "55.17",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payloads = parse_export_file(path)
+    quotes = [item for item in payloads if item.get("type") == "quote"]
+    depth = [item for item in payloads if item.get("type") == "depth_snapshot"]
+    assert [item["symbol"] for item in quotes] == ["2222"]
+    assert quotes[0]["price"] == "25.66"
+    assert quotes[0]["session_volume"] == "9156271"
+    assert quotes[0]["net_flow"] == "20734487"
+    assert quotes[0]["open"] == "25.70"
+    assert depth[0]["symbol"] == "2222"
+    assert depth[0]["best_bid"] == "25.64"
+    assert depth[0]["best_ask"] == "25.68"
+
+
 def test_autosync_ingests_export_into_radar(tmp_path: Path) -> None:
     feed = _feed()
     sync = TickChartAutoSync(feed, feed._settings, watch_dirs=[tmp_path])
@@ -101,6 +182,46 @@ def test_browser_upload_ingests_csv_without_local_folder() -> None:
     assert response.status_code == 200
     assert response.json()["ingested"] == 1
     assert feed.radar_report("2222")["last_price"] == 25.7
+
+
+def test_local_discover_includes_project_export_folder(tmp_path: Path, monkeypatch) -> None:
+    from app.services.tickchart_autosync import discover_export_dirs, folder_watch_allowed
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "tickchart_live").mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        environment="development",
+        tickchart_enabled=True,
+        tickchart_autosync_enabled=True,
+        tickchart_export_dir="",
+    )
+    assert folder_watch_allowed(settings) is True
+    dirs = {str(path) for path in discover_export_dirs(settings)}
+    assert str((tmp_path / "data" / "tickchart_live").resolve()) in dirs
+
+
+def test_discover_includes_uniticker_export_folder(tmp_path: Path, monkeypatch) -> None:
+    from app.services.tickchart_autosync import discover_export_dirs
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "pf86"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "pf"))
+    tclive = tmp_path / "UniTicker" / "TCLive"
+    tclive.mkdir(parents=True)
+    settings = Settings(
+        _env_file=None,
+        environment="development",
+        tickchart_enabled=True,
+        tickchart_autosync_enabled=True,
+        tickchart_export_dir="",
+    )
+    dirs = {str(path) for path in discover_export_dirs(settings)}
+    assert str((tclive / "Export").resolve()) in dirs
 
 
 def test_follow_and_refresh_are_cloud_endpoints() -> None:

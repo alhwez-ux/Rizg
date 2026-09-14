@@ -55,13 +55,13 @@ class LastQuoteBook:
                 }
                 if qty and qty > 0:
                     row["volume"] = qty
-                for key in ("value_traded", "change_percent"):
+                for key in ("value_traded", "change_percent", "net_flow"):
                     value = extras.get(key)
                     if value is not None:
                         row[key] = value
                 previous = self._quotes.get(ticker) or {}
                 if not accumulate_volume:
-                    for key in ("volume", "value_traded", "change_percent"):
+                    for key in ("volume", "value_traded", "change_percent", "net_flow"):
                         if row.get(key) is None and previous.get(key) is not None:
                             row[key] = previous[key]
                 self._quotes[ticker] = row
@@ -135,6 +135,7 @@ def _close_row(item: dict[str, Any]) -> tuple[str, float | None, dict[str, Any]]
         "volume": _positive(item.get("volume") or item.get("session_volume")),
         "value_traded": _positive(item.get("value_traded") or item.get("session_value")),
         "change_percent": _number(item.get("change_percent") or item.get("price_change_pct")),
+        "net_flow": _number(item.get("net_flow")),
         "session_date": item.get("session_date"),
     }
     return ticker, price, extras

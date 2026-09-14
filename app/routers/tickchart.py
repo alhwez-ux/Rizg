@@ -1,4 +1,5 @@
 from typing import Any
+import os
 
 from fastapi import APIRouter, File, Header, Request, UploadFile
 
@@ -23,7 +24,8 @@ async def tickchart_status(request: Request) -> TickChartStatusResponse:
         return TickChartStatusResponse(enabled=False, connected=False, symbols=[], mode="cloud")
     payload = feed.status()
     payload.setdefault("mode", "cloud")
-    payload.pop("autosync_dirs", None)
+    if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"):
+        payload.pop("autosync_dirs", None)
     return TickChartStatusResponse.model_validate(payload)
 
 

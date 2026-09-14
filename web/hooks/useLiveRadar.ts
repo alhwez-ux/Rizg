@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchLiveRadar, type LiveRadarResponse } from "@/lib/liveRadar";
+import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const POLL_MS = 2_000;
 
@@ -45,9 +46,14 @@ export function useLiveRadar(symbol: string, interval = "1d") {
     const timer = window.setInterval(() => {
       void refresh();
     }, POLL_MS);
+    const onRefresh = () => {
+      void refresh();
+    };
+    window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     return () => {
       alive.current = false;
       window.clearInterval(timer);
+      window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
   }, [refresh]);
 

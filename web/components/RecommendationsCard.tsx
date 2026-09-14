@@ -13,6 +13,7 @@ import {
   type RecommendationKind,
   type RecommendationScanMode,
 } from "@/lib/recommendations";
+import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 type FilterKind = "all" | RecommendationKind;
 type SortKey = "confidence" | "close" | "symbol";
@@ -60,7 +61,14 @@ export function RecommendationsCard() {
     const timer = window.setInterval(() => {
       void load();
     }, 2_000);
-    return () => window.clearInterval(timer);
+    const onRefresh = () => {
+      void load();
+    };
+    window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
+    };
   }, [load]);
 
   const visible = useMemo(() => {
