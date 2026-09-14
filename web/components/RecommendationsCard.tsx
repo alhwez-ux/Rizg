@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
+import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 import { formatPrice } from "@/lib/liquidity";
 import {
   fetchMarketRecommendations,
   type MarketRecommendation,
   type RecommendationKind,
+  type RecommendationScanMode,
 } from "@/lib/recommendations";
 
 type FilterKind = "all" | RecommendationKind;
@@ -22,6 +24,8 @@ export function RecommendationsCard() {
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
   const [sessionLabel, setSessionLabel] = useState<string | null>(null);
+  const [scanMode, setScanMode] = useState<RecommendationScanMode | string>("end_of_day");
+  const { live: sessionLive, label: sessionPhaseLabel } = useTasiSession();
   const [filter, setFilter] = useState<FilterKind>("all");
   const [sortKey, setSortKey] = useState<SortKey>("confidence");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
@@ -36,6 +40,7 @@ export function RecommendationsCard() {
       setRows(data);
       setCached(result.source === "cached");
       setSessionLabel(result.session_label || null);
+      setScanMode(result.scan_mode === "live" ? "live" : "end_of_day");
       setLoaded(true);
       setSelected((current) => {
         if (!current) return null;
@@ -83,21 +88,42 @@ export function RecommendationsCard() {
     setSortDir(key === "symbol" ? "asc" : "desc");
   };
 
+  const live = scanMode === "live" || sessionLive;
+  const buttonName = live ? ar.recoButtonLive : ar.recoButtonEod;
+  const title = buttonName;
+  const hint = cached && !live ? ar.recoCached : live ? ar.recoHintLive : ar.recoHintEod;
+  const badge = live ? ar.recoLive : sessionLabel || sessionPhaseLabel || ar.recoClosed;
+  const emptyLabel = live ? ar.recoEmptyLive : ar.recoEmptyEod;
+  const idleLabel = live ? ar.recoIdleLive : ar.recoIdle;
+  const loadingLabel = live ? ar.recoLoadingLive : ar.recoLoadingEod;
+  const priceLabel = live ? ar.recoColPriceLive : ar.recoColCloseEod;
+  const horizonLabel = live ? ar.recoHorizonLive : ar.recoHorizon;
+
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">
       <div className="mb-5 flex flex-col items-start justify-between gap-4 border-b border-zinc-800 pb-4 md:flex-row md:items-center">
         <div>
-          <h2 className="flex items-center gap-2 text-xl font-bold text-emerald-100">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
-              <CloseRecommendationIcon className="h-5 w-5" />
+          <h2 className={`flex items-center gap-2 text-xl font-bold ${live ? "text-sky-100" : "text-emerald-100"}`}>
+            <span
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${
+                live ? "bg-sky-500/20 text-sky-300" : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              {live ? <span aria-hidden="true">⚡</span> : <CloseRecommendationIcon className="h-5 w-5" />}
             </span>
-            {ar.recoTitle}
+            {title}
           </h2>
-          <p className="mt-1 text-xs text-zinc-500">{cached ? ar.recoCached : ar.recoHint}</p>
+          <p className="mt-1 text-xs text-zinc-500">{hint}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-xl border border-emerald-500/20 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
-            {sessionLabel || ar.recoClosed}
+          <span
+            className={`rounded-xl border px-3 py-1 text-xs font-semibold ${
+              live
+                ? "border-sky-500/30 bg-sky-500/10 text-sky-200"
+                : "border-emerald-500/20 bg-emerald-100 text-emerald-900"
+            }`}
+          >
+            {badge}
           </span>
           <button
             type="button"
@@ -105,9 +131,14 @@ export function RecommendationsCard() {
               void load();
             }}
             disabled={loading}
-            className="rounded-xl bg-gradient-to-r from-sky-600 to-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-900/20 transition hover:from-sky-500 hover:to-teal-500 disabled:opacity-50"
+            aria-label={buttonName}
+            className={`rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition disabled:opacity-50 ${
+              live
+                ? "bg-gradient-to-r from-sky-500 to-cyan-500 shadow-sky-900/30 hover:from-sky-400 hover:to-cyan-400"
+                : "bg-gradient-to-r from-sky-600 to-teal-600 shadow-sky-900/20 hover:from-sky-500 hover:to-teal-500"
+            }`}
           >
-            {loading ? ar.recoLoading : loaded ? ar.recoRefresh : ar.recoScan}
+            {buttonName}
           </button>
         </div>
       </div>
@@ -138,13 +169,13 @@ export function RecommendationsCard() {
       ) : null}
 
       {loading && !loaded ? (
-        <p className="animate-pulse py-8 text-center text-sm text-zinc-400">{ar.recoLoadingEod}</p>
+        <p className="animate-pulse py-8 text-center text-sm text-zinc-400">{loadingLabel}</p>
       ) : error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : !loaded ? (
-        <p className="py-8 text-center text-sm text-zinc-500">{ar.recoIdle}</p>
+        <p className="py-8 text-center text-sm text-zinc-500">{idleLabel}</p>
       ) : visible.length === 0 ? (
-        <p className="py-8 text-center text-sm text-zinc-500">{ar.recoEmptyEod}</p>
+        <p className="py-8 text-center text-sm text-zinc-500">{emptyLabel}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-start">
@@ -153,7 +184,7 @@ export function RecommendationsCard() {
                 <SortHeader label={ar.recoColSymbol} active={sortKey === "symbol"} onClick={() => toggleSort("symbol")} />
                 <th className="p-3 font-medium">{ar.tableColCompany}</th>
                 <th className="p-3 font-medium">{ar.recoColSignal}</th>
-                <SortHeader label={ar.recoColCloseEod} active={sortKey === "close"} onClick={() => toggleSort("close")} />
+                <SortHeader label={priceLabel} active={sortKey === "close"} onClick={() => toggleSort("close")} />
                 <th className="p-3 font-medium">{ar.recoColEntry}</th>
                 <th className="p-3 font-medium">{ar.target}</th>
                 <th className="p-3 font-medium">{ar.stopLoss}</th>
@@ -200,7 +231,7 @@ export function RecommendationsCard() {
                         </span>
                       ) : null}
                       <span className="ms-2 rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400">
-                        {ar.recoHorizon}
+                        {horizonLabel}
                       </span>
                     </td>
                     <td className="p-3 font-bold" dir="ltr">

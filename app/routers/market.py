@@ -12,7 +12,7 @@ from app.models.schemas import (
     SchedulerStatusResponse,
 )
 from app.services.ranking_store import RankingStore
-from app.services.sector_rotation import SectorRotationEngine, companies_for_sector
+from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
@@ -35,8 +35,15 @@ async def get_live_rankings_from_db(request: Request) -> RankingMatrixResponse:
 @router.get("/sector-rotation", response_model=SectorRotationResponse)
 async def get_sector_rotation_analysis(request: Request) -> SectorRotationResponse:
     rows = _tickchart_rows(request)
+    source = "TickChart"
+    quote_mode = _tape_quote_mode(rows)
+    if not rows:
+        rows = [dict(item, quote_mode="last_close") for item in SAMPLE_SECTOR_TAPE]
+        source = "last_close"
+        quote_mode = "last_close"
     payload = SectorRotationEngine(rows).ranked_payload()
-    payload["source"] = "TickChart"
+    payload["source"] = source
+    payload["quote_mode"] = quote_mode
     return SectorRotationResponse.model_validate(payload)
 
 
@@ -49,13 +56,14 @@ async def get_companies_by_sector(sector_name: str, request: Request) -> SectorC
 
 @router.get("/recommendations", response_model=MarketRecommendationsResponse)
 async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
-    rows = _close_recommendation_rows(request)
     phase = session_phase(now_riyadh())
+    live = phase == "open"
+    rows = _recommendation_rows(request, live=live)
     return MarketRecommendationsResponse(
         success=True,
         count=len(rows),
         source="TickChart",
-        scan_mode="end_of_day",
+        scan_mode="live" if live else "end_of_day",
         session_phase=phase,
         session_label=phase_label(phase),
         data=rows,
@@ -166,10 +174,25 @@ def _tickchart_rows(request: Request) -> list[dict]:
     return feed.market_rows()
 
 
-def _close_recommendation_rows(request: Request) -> list[dict]:
+def _tape_quote_mode(rows: list[dict]) -> str:
+    if any(str(row.get("quote_mode") or "") == "live" or row.get("live") for row in rows):
+        return "live"
+    if rows:
+        return "last_close"
+    return "waiting"
+
+
+def _recommendation_rows(request: Request, *, live: bool) -> list[dict]:
     feed = getattr(request.app.state, "tickchart", None)
     if feed is None:
         return []
+    if live:
+        live_scan = getattr(feed, "live_recommendations", None)
+        if callable(live_scan):
+            return live_scan()
+        opportunities = getattr(feed, "opportunities", None)
+        if callable(opportunities):
+            return opportunities()
     closer = getattr(feed, "close_recommendations", None)
     if callable(closer):
         return closer()

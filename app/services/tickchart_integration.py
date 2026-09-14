@@ -131,6 +131,7 @@ class TickChartFeed:
 
     def bind_ranking_store(self, store: Any) -> None:
         self._ranking = store
+        self.seed_last_closes()
 
     def _ranking_price(self, symbol: str) -> float | None:
         store = self._ranking
@@ -151,6 +152,13 @@ class TickChartFeed:
         self._autosync = autosync
 
     def status(self) -> dict[str, Any]:
+        last_quotes = self._quotes.snapshot()
+        if self._trades_live or self._depth_live:
+            quote_mode = "live"
+        elif last_quotes:
+            quote_mode = "last_close"
+        else:
+            quote_mode = "waiting"
         payload = {
             "enabled": self.enabled,
             "connected": self.connected,
@@ -161,6 +169,8 @@ class TickChartFeed:
             "mode": "cloud",
             "last_ingested": self._last_cloud_count,
             "last_sync_at": self._last_cloud_ingest,
+            "quote_mode": quote_mode,
+            "last_quotes": len(last_quotes),
         }
         autosync = getattr(self, "_autosync", None)
         if autosync is not None and hasattr(autosync, "status"):
@@ -203,6 +213,10 @@ class TickChartFeed:
             )
         else:
             logger.info("TickChart cloud ingest ready (browser upload / live stream)")
+        self.seed_last_closes()
+        self._tasks.append(
+            asyncio.create_task(self._bootstrap_session(), name="tickchart-session-bootstrap"),
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -283,6 +297,128 @@ class TickChartFeed:
         ingested += await self._rest_depth(ticker)
         return ingested
 
+    def seed_last_closes(self) -> int:
+        """Fill the last-close book from ranking snapshots when ticks are absent."""
+
+        store = self._ranking
+        if store is None or not hasattr(store, "snapshot"):
+            return 0
+        missing: list[dict[str, Any]] = []
+        for row in store.snapshot() or []:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol or self._quotes.price(symbol):
+                continue
+            missing.append(row)
+        return self._quotes.apply_closes(missing) if missing else 0
+
+    async def pull_session(self) -> dict[str, Any]:
+        """Immediately pull live ticks or last-close quotes for the sector/radar tape."""
+
+        seeded = self.seed_last_closes()
+        ingested = 0
+        watched = 0
+        delayed = 0
+        symbols = self._universe_symbols()[:40]
+        for symbol in symbols:
+            await self.watch(symbol)
+            watched += 1
+            ingested += await self.hydrate_symbol(symbol)
+        if not any(self.radar_report(symbol).get("quote_mode") == "live" for symbol in symbols[:8]):
+            delayed = await self._pull_delayed_closes(symbols)
+        rows = self.market_rows()
+        live_count = sum(1 for row in rows if row.get("quote_mode") == "live")
+        close_count = sum(1 for row in rows if row.get("quote_mode") == "last_close")
+        if live_count:
+            quote_mode = "live"
+        elif close_count or rows:
+            quote_mode = "last_close"
+        else:
+            quote_mode = "waiting"
+        return {
+            "success": True,
+            "source": "TickChart",
+            "watched": watched,
+            "ingested": ingested,
+            "seeded_last_close": seeded,
+            "delayed_closes": delayed,
+            "count": len(rows),
+            "live": live_count,
+            "last_close": close_count,
+            "quote_mode": quote_mode,
+            "data": rows,
+        }
+
+    async def _bootstrap_session(self) -> None:
+        await asyncio.sleep(0.05)
+        try:
+            await self.pull_session()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("TickChart session bootstrap failed", exc_info=True)
+
+    async def _pull_delayed_closes(self, symbols: list[str]) -> int:
+        """Use delayed/close quotes so the tape is not stuck waiting for live ticks."""
+
+        if not self._api_key:
+            return 0
+        provider_factory = getattr(self, "_close_quotes_provider", None)
+        if provider_factory is None and not self._owns_client:
+            return 0
+        try:
+            from app.services.sahm_data_provider import SahmDataProvider
+            from app.services.sahm_live_market import _flatten_quote, _merge_board
+        except Exception:
+            return 0
+        provider = provider_factory() if callable(provider_factory) else SahmDataProvider(self._settings, api_key=self._api_key)
+        closes: list[dict[str, Any]] = []
+        try:
+            board = await asyncio.wait_for(provider.fetch_market_board(), timeout=10.0)
+            movers = _merge_board(board)
+            wanted = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+            for symbol, quote in movers.items():
+                if wanted and symbol not in wanted:
+                    continue
+                closes.append(quote)
+            missing = [symbol for symbol in symbols if not self._quotes.price(symbol)]
+            if missing:
+                extra = await asyncio.wait_for(
+                    provider.fetch_quotes_for(missing[:12], limit=12),
+                    timeout=12.0,
+                )
+                for symbol, payload in extra.items():
+                    closes.append(_flatten_quote(payload) or {"symbol": symbol, **payload})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("delayed last-close pull failed", exc_info=True)
+            return 0
+        finally:
+            closer = getattr(provider, "aclose", None)
+            if callable(closer):
+                try:
+                    await closer()
+                except Exception:
+                    pass
+        rows: list[dict[str, Any]] = []
+        for quote in closes:
+            symbol = str(quote.get("symbol") or "").strip().upper()
+            price = quote.get("price") or quote.get("last_price") or quote.get("close")
+            if not symbol or not price:
+                continue
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "last_price": price,
+                    "volume": quote.get("volume"),
+                    "value_traded": quote.get("value_traded"),
+                    "change_percent": quote.get("change_percent"),
+                }
+            )
+        return self._quotes.apply_closes(rows)
+
     async def watch(self, symbol: str) -> None:
         ticker = symbol.strip().upper()
         if ticker:
@@ -290,9 +426,12 @@ class TickChartFeed:
 
     async def ensure_radar(self, symbol: str) -> dict[str, Any]:
         ticker = symbol.strip().upper()
+        self.seed_last_closes()
         session = self._engine.session_snapshot(ticker)
         if session.last_price is None:
             await self.hydrate_symbol(ticker)
+        if self.radar_report(ticker).get("last_price") is None:
+            await self._pull_delayed_closes([ticker])
         await self._subscribe_symbol(ticker)
         return self.radar_report(ticker)
 
@@ -322,10 +461,12 @@ class TickChartFeed:
             spread = round(float(ask) - float(bid), 6)
         last_price = report.get("last_price") or live.get("last_price")
         live_tick = last_price is not None
+        stored = self._quotes.get(ticker) or {}
+        ranking = self._ranking_row(ticker) or {}
         if last_price is None:
-            last_price = self._quotes.price(ticker)
+            last_price = stored.get("last_price") or self._quotes.price(ticker)
         if last_price is None:
-            last_price = self._ranking_price(ticker)
+            last_price = ranking.get("last_price") or self._ranking_price(ticker)
         phase = session_phase(now_riyadh())
         if live_tick and phase == "open":
             quote_mode = "live"
@@ -335,13 +476,26 @@ class TickChartFeed:
             quote_mode = "waiting"
         reasons = list(report.get("reasons") or [])
         if quote_mode == "last_close":
-            note = "آخر سعر مسجّل — في انتظار بيانات الجلسة"
+            note = "آخر إغلاق مسجّل — يُحدَّث مع أول تكات للجلسة"
+            reasons = [item for item in reasons if "انتظار بيانات الجلسة" not in str(item)]
             if note not in reasons:
                 reasons.insert(0, note)
         elif quote_mode == "waiting":
             note = "في انتظار بيانات الجلسة"
             if note not in reasons:
                 reasons.insert(0, note)
+        change = live.get("change_percent")
+        if change is None:
+            change = report.get("change_percent")
+        if change is None:
+            change = stored.get("change_percent") or ranking.get("change_percent")
+        session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
+        if not session_volume:
+            session_volume = stored.get("volume") or ranking.get("volume")
+        session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
+        net_flow = report.get("net_flow") or 0
+        if not net_flow and session_value and change:
+            net_flow = float(session_value) * (float(change) / 100.0)
         report.update(
             {
                 "symbol": ticker,
@@ -354,7 +508,7 @@ class TickChartFeed:
                 "ask_size": _json_number(levels.ask_size) or _json_number(tape.ask_size()),
                 "book_pressure": _json_number(levels.book_pressure),
                 "last_price": last_price,
-                "change_percent": live.get("change_percent") if live.get("change_percent") is not None else report.get("change_percent"),
+                "change_percent": change,
                 "mfi": live.get("mfi"),
                 "institutional_mfi": live.get("institutional_mfi"),
                 "retail_mfi": live.get("retail_mfi"),
@@ -364,8 +518,9 @@ class TickChartFeed:
                 "bid_wall": live.get("bid_wall"),
                 "ask_wall": live.get("ask_wall"),
                 "levels": live.get("levels"),
-                "session_volume": live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume),
-                "session_value": live.get("session_value"),
+                "session_volume": session_volume,
+                "session_value": session_value,
+                "net_flow": net_flow,
                 "live_quote": quote_mode == "live",
                 "quote_mode": quote_mode,
                 "session_phase": phase,
@@ -378,10 +533,16 @@ class TickChartFeed:
 
     def market_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for symbol in self._active_symbols():
+        for symbol in self._universe_symbols():
             report = self.radar_report(symbol)
             if not report.get("last_price"):
                 continue
+            volume = report.get("session_volume") or 0
+            value = report.get("session_value") or 0
+            change = report.get("change_percent") or 0
+            net_flow = report.get("net_flow") or 0
+            if not net_flow and value and change:
+                net_flow = float(value) * (float(change) / 100.0)
             rows.append(
                 {
                     "symbol": symbol,
@@ -389,12 +550,12 @@ class TickChartFeed:
                     "sector": report.get("sector") or sector_for(symbol),
                     "last_price": report.get("last_price"),
                     "price": report.get("last_price"),
-                    "price_change_pct": report.get("change_percent") or 0,
-                    "volume": report.get("session_volume") or 0,
-                    "value_traded": report.get("session_value") or 0,
-                    "net_flow": report.get("net_flow") or 0,
-                    "inflow": report.get("inflow") or 0,
-                    "outflow": report.get("outflow") or 0,
+                    "price_change_pct": change,
+                    "volume": volume,
+                    "value_traded": value,
+                    "net_flow": net_flow,
+                    "inflow": report.get("inflow") or max(float(net_flow), 0.0),
+                    "outflow": report.get("outflow") or max(-float(net_flow), 0.0),
                     "mfi": report.get("mfi"),
                     "institutional_mfi": report.get("institutional_mfi"),
                     "retail_mfi": report.get("retail_mfi"),
@@ -408,8 +569,13 @@ class TickChartFeed:
 
     def opportunities(self) -> list[dict[str, Any]]:
         if session_phase(now_riyadh()) == "open":
-            return self._live_opportunities()
+            return self.live_recommendations()
         return self.close_recommendations()
+
+    def live_recommendations(self) -> list[dict[str, Any]]:
+        """Intraday entries from live ticks and session flow while TASI is open."""
+
+        return self._live_opportunities()
 
     def close_recommendations(self) -> list[dict[str, Any]]:
         """Always scan last close + closing volume for next-session entries."""
@@ -422,7 +588,7 @@ class TickChartFeed:
         rows: list[dict[str, Any]] = []
         for report in (self.radar_report(symbol) for symbol in self._universe_symbols()):
             last = report.get("last_price")
-            if not last or report.get("quote_mode") != "live":
+            if not last:
                 continue
             trap = report.get("trap") or {}
             kind = str(trap.get("kind") or "")
@@ -472,6 +638,8 @@ class TickChartFeed:
                     "mfi": report.get("institutional_mfi") or report.get("mfi"),
                     "scan_mode": "live",
                     "horizon": "intraday",
+                    "entry": True,
+                    "entry_rule": "intraday_flow",
                 }
             )
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)

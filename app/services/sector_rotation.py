@@ -10,12 +10,12 @@ STATUS_ACCUMULATION = "مرحلة تجميع وهدوء إيجابي 📈"
 STATUS_OUTFLOW = "خروج سيولة / ضغط بيعي ⚠️"
 
 SAMPLE_SECTOR_TAPE: list[dict[str, Any]] = [
-    {"symbol": "1120", "name": "الراجحي", "sector": "المصارف", "price_change_pct": 1.8, "volume": 8_200_000, "value_traded": 640_000_000, "net_flow": 85_000_000},
-    {"symbol": "1180", "name": "الأهلي", "sector": "المصارف", "price_change_pct": 0.9, "volume": 6_100_000, "value_traded": 410_000_000, "net_flow": 22_000_000},
-    {"symbol": "2222", "name": "أرامكو السعودية", "sector": "الطاقة", "price_change_pct": 0.4, "volume": 12_400_000, "value_traded": 1_150_000_000, "net_flow": 48_000_000},
-    {"symbol": "2380", "name": "البتروكيماويات", "sector": "الطاقة", "price_change_pct": -0.6, "volume": 3_200_000, "value_traded": 95_000_000, "net_flow": -18_000_000},
-    {"symbol": "2010", "name": "سابك", "sector": "المواد الأساسية", "price_change_pct": -1.4, "volume": 4_800_000, "value_traded": 210_000_000, "net_flow": -62_000_000},
-    {"symbol": "1211", "name": "معادن", "sector": "المواد الأساسية", "price_change_pct": 2.1, "volume": 5_500_000, "value_traded": 280_000_000, "net_flow": 31_000_000},
+    {"symbol": "1120", "name": "الراجحي", "sector": "المصارف", "last_price": 96.5, "price_change_pct": 1.8, "volume": 8_200_000, "value_traded": 640_000_000, "net_flow": 85_000_000, "quote_mode": "last_close"},
+    {"symbol": "1180", "name": "الأهلي", "sector": "المصارف", "last_price": 38.2, "price_change_pct": 0.9, "volume": 6_100_000, "value_traded": 410_000_000, "net_flow": 22_000_000, "quote_mode": "last_close"},
+    {"symbol": "2222", "name": "أرامكو السعودية", "sector": "الطاقة", "last_price": 25.7, "price_change_pct": 0.4, "volume": 12_400_000, "value_traded": 1_150_000_000, "net_flow": 48_000_000, "quote_mode": "last_close"},
+    {"symbol": "2380", "name": "البتروكيماويات", "sector": "الطاقة", "last_price": 7.1, "price_change_pct": -0.6, "volume": 3_200_000, "value_traded": 95_000_000, "net_flow": -18_000_000, "quote_mode": "last_close"},
+    {"symbol": "2010", "name": "سابك", "sector": "المواد الأساسية", "last_price": 57.4, "price_change_pct": -1.4, "volume": 4_800_000, "value_traded": 210_000_000, "net_flow": -62_000_000, "quote_mode": "last_close"},
+    {"symbol": "1211", "name": "معادن", "sector": "المواد الأساسية", "last_price": 52.8, "price_change_pct": 2.1, "volume": 5_500_000, "value_traded": 280_000_000, "net_flow": 31_000_000, "quote_mode": "last_close"},
 ]
 
 # Sample used when no live TASI tape is available (banks + energy).
@@ -237,7 +237,8 @@ def _company_record(
         "inflow": round(inflow, 4),
         "outflow": round(outflow, 4),
         "flow_status": flow_status,
-        "live": bool(price),
+        "live": str(live_row.get("quote_mode") or "") == "live" if live_row.get("quote_mode") else bool(price),
+        "quote_mode": live_row.get("quote_mode") or ("last_close" if price else "waiting"),
     }
 
 

@@ -148,6 +148,8 @@ class TickChartStatusResponse(BaseModel):
     last_file: str | None = None
     last_ingested: int = 0
     last_sync_at: str | None = None
+    quote_mode: str = "waiting"
+    last_quotes: int = 0
 
 
 class TickChartFollowBody(BaseModel):
@@ -204,6 +206,7 @@ class RankingMatrixResponse(BaseModel):
 class SectorRotationResponse(BaseModel):
     success: bool = True
     source: str = "TickChart"
+    quote_mode: str = "waiting"
     total_sectors: int
     leaders: list[dict[str, Any]]
     laggards: list[dict[str, Any]]

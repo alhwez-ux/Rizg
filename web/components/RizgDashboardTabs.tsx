@@ -14,16 +14,10 @@ import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import NotificationCenter from "./NotificationCenter";
 import { useTasiTone } from "@/hooks/useTasiTone";
+import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
 type DashboardTab = "sectors" | "radar" | "recommendations" | "ranking";
-
-const TABS: { id: DashboardTab; label: string; icon: string }[] = [
-  { id: "sectors", label: ar.tabsSectors, icon: "🌐" },
-  { id: "radar", label: ar.tabsRadar, icon: "⚡" },
-  { id: "recommendations", label: ar.tabsRecommendations, icon: "🎯" },
-  { id: "ranking", label: ar.tabsRanking, icon: "🏰" },
-];
 
 const MARKET_RADAR = [
   { symbol: "1120", symbolName: "الراجحي" },
@@ -45,11 +39,26 @@ function DashboardShell() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { tone } = useTasiTone();
+  const { live: sessionLive } = useTasiSession();
   const tablistId = useId();
   const activeTab = parseTab(searchParams.get("tab"));
   const selectedSector = searchParams.get("sector");
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
+  const tabs = useMemo(
+    () =>
+      [
+        { id: "sectors" as const, label: ar.tabsSectors, icon: "🌐" },
+        { id: "radar" as const, label: ar.tabsRadar, icon: "⚡" },
+        {
+          id: "recommendations" as const,
+          label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod,
+          icon: sessionLive ? "⚡" : "🎯",
+        },
+        { id: "ranking" as const, label: ar.tabsRanking, icon: "🏰" },
+      ] satisfies { id: DashboardTab; label: string; icon: string }[],
+    [sessionLive],
+  );
   const radarCards = useMemo(() => {
     const extra =
       radarSymbol && !MARKET_RADAR.some((item) => item.symbol === radarSymbol)
@@ -88,16 +97,16 @@ function DashboardShell() {
         return;
       }
       event.preventDefault();
-      const last = TABS.length - 1;
+      const last = tabs.length - 1;
       let next = index;
       if (event.key === "Home") next = 0;
       else if (event.key === "End") next = last;
       else if (event.key === "ArrowLeft") next = index === last ? 0 : index + 1;
       else next = index === 0 ? last : index - 1;
-      setActiveTab(TABS[next].id);
-      document.getElementById(`${tablistId}-${TABS[next].id}`)?.focus();
+      setActiveTab(tabs[next].id);
+      document.getElementById(`${tablistId}-${tabs[next].id}`)?.focus();
     },
-    [setActiveTab, tablistId],
+    [setActiveTab, tablistId, tabs],
   );
 
   return (
@@ -129,7 +138,7 @@ function DashboardShell() {
         aria-label={ar.tabsTitle}
         className="flex flex-wrap gap-2 border-b border-zinc-800 pb-4"
       >
-        {TABS.map((tab, index) => {
+        {tabs.map((tab, index) => {
           const selected = activeTab === tab.id;
           return (
             <button
@@ -139,20 +148,25 @@ function DashboardShell() {
               role="tab"
               aria-selected={selected}
               aria-controls={`${tablistId}-panel-${tab.id}`}
+              aria-label={tab.label}
               tabIndex={selected ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
               className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
                 tab.id === "recommendations"
                   ? selected
-                    ? "bg-emerald-100 text-emerald-900 shadow-lg shadow-emerald-900/20"
-                    : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 hover:text-emerald-100"
+                    ? sessionLive
+                      ? "bg-sky-100 text-sky-900 shadow-lg shadow-sky-900/20"
+                      : "bg-emerald-100 text-emerald-900 shadow-lg shadow-emerald-900/20"
+                    : sessionLive
+                      ? "border border-sky-500/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 hover:text-sky-100"
+                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 hover:text-emerald-100"
                   : selected
                     ? "bg-sky-600 text-white shadow-lg shadow-sky-900/30"
                     : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               }`}
             >
-              {tab.id === "recommendations" ? (
+              {tab.id === "recommendations" && !sessionLive ? (
                 <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
               ) : (
                 <span aria-hidden="true">{tab.icon}</span>

@@ -50,9 +50,15 @@ async def tickchart_alerts(request: Request) -> dict[str, Any]:
 
 @router.post("/refresh")
 async def refresh_tickchart_live(request: Request) -> dict[str, Any]:
-    """Subscribe cloud ticks for watched symbols and return the latest rows."""
+    """Pull the latest live ticks or last-close quotes and return the market tape."""
 
     feed = _require_feed(request)
+    puller = getattr(feed, "pull_session", None)
+    if callable(puller):
+        payload = await puller()
+        payload.setdefault("success", True)
+        payload.setdefault("source", "TickChart")
+        return payload
     watched = 0
     for symbol in list(getattr(feed, "status", lambda: {})().get("symbols") or []):
         await feed.watch(str(symbol))
@@ -65,6 +71,7 @@ async def refresh_tickchart_live(request: Request) -> dict[str, Any]:
         "source": "TickChart",
         "watched": watched,
         "count": len(rows),
+        "quote_mode": "last_close" if rows else "waiting",
         "data": rows,
     }
 

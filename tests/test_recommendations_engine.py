@@ -142,6 +142,48 @@ def test_recommendations_endpoint_returns_scanned_opportunities() -> None:
     assert all(row["entry_price"] and row["reason"] for row in payload["data"])
 
 
+def test_recommendations_endpoint_live_during_open_session(monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "open")
+    monkeypatch.setattr("app.routers.market.phase_label", lambda phase: "جلسة تداول")
+
+    class _Feed:
+        def live_recommendations(self):
+            return [
+                {
+                    "symbol": "1120",
+                    "name": "الراجحي",
+                    "close_price": 96.4,
+                    "signal_type": "استمرار صعود بسيولة مؤسسية 🚀",
+                    "signal_kind": "momentum",
+                    "confidence": "84%",
+                    "confidence_score": 84,
+                    "entry_price": "96.40",
+                    "target_price": "98.10",
+                    "stop_loss": "95.20",
+                    "reason": "تدفق مؤسسي مع تكات صاعدة",
+                    "scan_mode": "live",
+                    "horizon": "intraday",
+                    "entry": True,
+                }
+            ]
+
+        def close_recommendations(self):
+            raise AssertionError("close scan must not run during the open session")
+
+    app = FastAPI()
+    app.state.tickchart = _Feed()
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scan_mode"] == "live"
+    assert payload["session_phase"] == "open"
+    assert payload["session_label"] == "جلسة تداول"
+    assert payload["count"] == 1
+    assert payload["data"][0]["horizon"] == "intraday"
+    assert payload["data"][0]["entry"] is True
+
+
 def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_path) -> None:
     import asyncio
     from datetime import date, timedelta
