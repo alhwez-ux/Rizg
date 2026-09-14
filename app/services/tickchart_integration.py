@@ -226,6 +226,9 @@ class TickChartFeed:
         self._tasks.append(
             asyncio.create_task(self._bootstrap_session(), name="tickchart-session-bootstrap"),
         )
+        self._tasks.append(
+            asyncio.create_task(self._hydrate_close_history(), name="tickchart-close-history"),
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -596,13 +599,38 @@ class TickChartFeed:
         main = [row for row in bars if is_tasi_main_symbol(str(row.get("symbol") or ""))]
         return self._quotes.merge_history(main)
 
+    def hydrate_main_market_history(self, *, sessions: int = 10) -> dict[str, Any]:
+        """Fill last close + 10 prior sessions from public daily bars when the book is empty."""
+
+        from app.services.session_history import fetch_main_market_closes, listed_main_market_symbols
+
+        ready, total = self.close_history_coverage(need=sessions + 1)
+        if ready >= 40 and total >= 40:
+            return {"imported": 0, "quotes": 0, "ready": ready, "symbols": total, "skipped": True}
+        bars, quotes = fetch_main_market_closes(listed_main_market_symbols(), sessions=sessions)
+        imported = self.import_close_history(bars)
+        applied = self._quotes.apply_closes(quotes) if quotes else 0
+        ready, total = self.close_history_coverage(need=sessions + 1)
+        logger.info("TASI main-market close history ready=%s/%s imported=%s quotes=%s", ready, total, imported, applied)
+        return {"imported": imported, "quotes": applied, "ready": ready, "symbols": total, "skipped": False}
+
     def main_market_symbols(self) -> list[str]:
-        return [symbol for symbol in self._universe_symbols() if is_tasi_main_symbol(symbol)]
+        from app.services.session_history import listed_main_market_symbols
+
+        return listed_main_market_symbols() or [symbol for symbol in self._universe_symbols() if is_tasi_main_symbol(symbol)]
 
     def close_history_coverage(self, *, need: int = 11) -> tuple[int, int]:
         symbols = self.main_market_symbols()
         ready = sum(1 for symbol in symbols if len(self._quotes.close_history(symbol)) >= need)
         return ready, len(symbols)
+
+    async def _hydrate_close_history(self) -> None:
+        try:
+            await asyncio.to_thread(self.hydrate_main_market_history)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("TASI close-history hydrate failed", exc_info=True)
 
     def _live_opportunities(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []

@@ -157,17 +157,27 @@ async def import_tickchart_close_history(
 
     import asyncio
 
-    from app.services.session_history import fetch_prior_session_bars, main_market_symbols
-
     feed = _require_feed(request)
     _check_ingest_token(request, x_tickchart_token, authorization)
     body = payload if isinstance(payload, dict) else {}
     bars = [row for row in (body.get("bars") or []) if isinstance(row, dict)]
     sessions = max(1, min(int(body.get("sessions") or 10), 40))
+    quotes_applied = 0
     if body.get("fetch"):
-        symbols = main_market_symbols(feed.main_market_symbols())
-        fetched = await asyncio.to_thread(fetch_prior_session_bars, symbols, sessions=sessions)
-        bars.extend(fetched)
+        result = await asyncio.to_thread(feed.hydrate_main_market_history, sessions=sessions)
+        imported = int(result.get("imported") or 0) + feed.import_close_history(bars)
+        quotes_applied = int(result.get("quotes") or 0)
+        ready, total = feed.close_history_coverage(need=sessions + 1)
+        return {
+            "success": True,
+            "imported": imported,
+            "quotes": quotes_applied,
+            "source": "TickChart",
+            "market": "TASI_MAIN",
+            "sessions": sessions,
+            "symbols": total,
+            "ready": ready,
+        }
     imported = feed.import_close_history(bars)
     ready, total = feed.close_history_coverage(need=sessions + 1)
     return {

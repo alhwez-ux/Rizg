@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Iterable
 
 import httpx
@@ -20,6 +22,17 @@ _BATCH = 10
 _RANGE = "1mo"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 _RETRIES = 3
+_LISTINGS_PATH = Path(__file__).resolve().parents[1] / "data" / "tasi_main_symbols.json"
+
+
+def listed_main_market_symbols() -> list[str]:
+    try:
+        raw = json.loads(_LISTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    return main_market_symbols(str(item) for item in raw)
 
 
 def main_market_symbols(symbols: Iterable[str]) -> list[str]:
@@ -71,22 +84,77 @@ def parse_spark_bars(
     return rows
 
 
-def fetch_prior_session_bars(
-    symbols: Iterable[str],
+def parse_spark_market(
+    payload: dict[str, Any],
+    *,
+    today: date | None = None,
+    sessions: int = 10,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Prior closes before today plus the latest last-price quote (today if present)."""
+
+    cutoff = today or now_riyadh().date()
+    want = max(1, min(int(sessions), 40))
+    bars: list[dict[str, Any]] = []
+    quotes: list[dict[str, Any]] = []
+    for item in _spark_results(payload):
+        ticker = str(item.get("symbol") or "").strip().upper().replace(".SR", "")
+        if not is_tasi_main_symbol(ticker):
+            continue
+        chart = _first_response(item)
+        stamps = chart.get("timestamp") if isinstance(chart, dict) else None
+        quote = _quote_block(chart)
+        closes = quote.get("close") if isinstance(quote, dict) else None
+        volumes = quote.get("volume") if isinstance(quote, dict) else None
+        if not isinstance(stamps, list) or not isinstance(closes, list):
+            continue
+        series: list[dict[str, Any]] = []
+        for index, stamp in enumerate(stamps):
+            day = _riyadh_day(stamp)
+            close = _positive(closes[index] if index < len(closes) else None)
+            if day is None or close is None:
+                continue
+            volume = _number(volumes[index] if isinstance(volumes, list) and index < len(volumes) else 0) or 0.0
+            series.append({"symbol": ticker, "date": day.isoformat(), "close": close, "volume": volume})
+        series.sort(key=lambda row: str(row.get("date") or ""))
+        if not series:
+            continue
+        prior = [row for row in series if str(row["date"]) < cutoff.isoformat()][-want:]
+        bars.extend(prior)
+        last = series[-1]
+        prev = prior[-1]["close"] if prior else None
+        change = None
+        if prev and prev > 0:
+            change = round(((last["close"] - prev) / prev) * 100, 4)
+        quotes.append(
+            {
+                "symbol": ticker,
+                "last_price": last["close"],
+                "volume": last.get("volume") or 0.0,
+                "prev_close": prev,
+                "change_percent": change,
+                "session_date": date.fromisoformat(last["date"]),
+            }
+        )
+    return bars, quotes
+
+
+def fetch_main_market_closes(
+    symbols: Iterable[str] | None = None,
     *,
     sessions: int = 10,
     today: date | None = None,
     client: httpx.Client | None = None,
-) -> list[dict[str, Any]]:
-    """Download the last `sessions` main-market daily closes before today."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Download 10 prior sessions and the latest close for TASI main-market names."""
 
-    tickers = main_market_symbols(symbols)
+    tickers = main_market_symbols(symbols or listed_main_market_symbols())
     if not tickers:
-        return []
+        return [], []
     cutoff = today or now_riyadh().date()
     own_client = client is None
     http = client or httpx.Client(timeout=30.0, headers={"User-Agent": _UA, "Accept": "application/json"})
     bars: list[dict[str, Any]] = []
+    quotes: list[dict[str, Any]] = []
     try:
         for start in range(0, len(tickers), _BATCH):
             chunk = tickers[start : start + _BATCH]
@@ -103,12 +171,27 @@ def fetch_prior_session_bars(
                     time.sleep(0.4 * (attempt + 1))
             if payload is None:
                 continue
-            bars.extend(parse_spark_bars(payload, today=cutoff, sessions=sessions))
+            chunk_bars, chunk_quotes = parse_spark_market(payload, today=cutoff, sessions=sessions)
+            bars.extend(chunk_bars)
+            quotes.extend(chunk_quotes)
             if start + _BATCH < len(tickers):
-                time.sleep(0.15)
+                time.sleep(0.12)
     finally:
         if own_client:
             http.close()
+    return bars, quotes
+
+
+def fetch_prior_session_bars(
+    symbols: Iterable[str],
+    *,
+    sessions: int = 10,
+    today: date | None = None,
+    client: httpx.Client | None = None,
+) -> list[dict[str, Any]]:
+    """Download the last `sessions` main-market daily closes before today."""
+
+    bars, _quotes = fetch_main_market_closes(symbols, sessions=sessions, today=today, client=client)
     return bars
 
 

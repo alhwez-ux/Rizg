@@ -12,7 +12,7 @@ from app.models.screener import is_tasi_main_symbol
 from app.routers.tickchart import router as tickchart_router
 from app.services.last_quotes import LastQuoteBook
 from app.services.liquidity_engine import LiquidityRadarEngine
-from app.services.session_history import main_market_symbols, parse_spark_bars
+from app.services.session_history import listed_main_market_symbols, main_market_symbols, parse_spark_bars, parse_spark_market
 from app.services.tickchart_integration import TickChartFeed
 
 _RIYADH = ZoneInfo("Asia/Riyadh")
@@ -103,11 +103,18 @@ def test_parse_spark_bars_keeps_main_market_sessions_before_today() -> None:
     symbols = {row["symbol"] for row in rows}
     assert symbols == {"2222"}
     assert [row["date"] for row in rows] == ["2026-09-10", "2026-09-11"]
-    assert all(row["date"] < "2026-09-14" for row in rows)
+    bars, quotes = parse_spark_market(payload, today=date(2026, 9, 14), sessions=10)
+    assert [row["date"] for row in bars] == ["2026-09-10", "2026-09-11"]
+    assert quotes[0]["symbol"] == "2222"
+    assert quotes[0]["last_price"] == 25.66
+    assert quotes[0]["prev_close"] == 25.5
+    assert all(row["symbol"] != "9510" for row in quotes)
 
 
 def test_main_market_symbols_filters_nomu() -> None:
     assert main_market_symbols(["2222", "9510", "2222.SR", "TASI", "1120"]) == ["2222", "1120"]
+    assert "2222" in listed_main_market_symbols()
+    assert "9510" not in listed_main_market_symbols()
 
 
 def test_history_endpoint_imports_main_market_bars_only(tmp_path: Path, monkeypatch) -> None:
