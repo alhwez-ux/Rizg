@@ -43,7 +43,9 @@ export interface SectorCompaniesResponse {
 }
 
 export async function fetchSectorCompanies(sector: string): Promise<SectorCompaniesResponse> {
-  const response = await apiFetch(`/api/v1/market/sector-companies/${encodeURIComponent(sector)}`);
+  const response = await apiFetch(`/api/v1/market/sector-companies/${encodeURIComponent(sector)}`, {
+    timeoutMs: 60_000,
+  });
   const payload = (await response.json().catch(() => null)) as SectorCompaniesResponse | null;
   if (!response.ok || !payload) {
     throw new Error("تعذر جلب شركات القطاع من تكرتشارت");
@@ -52,7 +54,7 @@ export async function fetchSectorCompanies(sector: string): Promise<SectorCompan
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationResponse> {
-  const response = await apiFetch("/api/v1/market/sector-rotation");
+  const response = await apiFetch("/api/v1/market/sector-rotation", { timeoutMs: 60_000 });
   const payload = (await response.json().catch(() => null)) as SectorRotationResponse | null;
   if (!response.ok || !payload) {
     throw new Error("تعذر جلب خريطة القطاعات من تكرتشارت");

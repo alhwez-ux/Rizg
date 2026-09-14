@@ -263,3 +263,89 @@ def test_recommendations_endpoint_falls_back_without_sahm() -> None:
     assert payload["success"] is True
     assert payload["count"] == 0
     assert payload["data"] == []
+    assert payload.get("total", 0) == 0
+
+
+def test_recommendations_endpoint_paginates_close_scan(monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "closed")
+    monkeypatch.setattr("app.routers.market.phase_label", lambda phase: "السوق مغلق")
+
+    def _row(symbol: str) -> dict:
+        return {
+            "symbol": symbol,
+            "name": symbol,
+            "close_price": 10.0,
+            "signal_type": "توصية إغلاق — اختراق 🚀",
+            "signal_kind": "momentum",
+            "confidence": "80%",
+            "confidence_score": 80,
+            "entry_price": "10.00",
+            "target_price": "10.50",
+            "stop_loss": "9.70",
+            "reason": "إغلاق فوق المقاومة",
+            "scan_mode": "end_of_day",
+            "horizon": "next_session",
+            "entry": True,
+        }
+
+    class _Feed:
+        def close_recommendations(self):
+            return [_row("1120"), _row("2222"), _row("2010")]
+
+    app = FastAPI()
+    app.state.tickchart = _Feed()
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations?limit=1&offset=1")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["count"] == 1
+    assert payload["data"][0]["symbol"] == "2222"
+
+
+def test_recommendations_endpoint_returns_cached_scan_without_rescan(monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "closed")
+    monkeypatch.setattr("app.routers.market.phase_label", lambda phase: "السوق مغلق")
+    scans = {"count": 0}
+
+    class _Feed:
+        def cached_recommendations(self, *, live: bool):
+            del live
+            return [
+                {
+                    "symbol": "7200",
+                    "name": "أم آي إس",
+                    "close_price": 12.4,
+                    "signal_type": "توصية إغلاق — اختراق 🚀",
+                    "signal_kind": "momentum",
+                    "confidence": "82%",
+                    "confidence_score": 82,
+                    "entry_price": "12.40",
+                    "target_price": "13.10",
+                    "stop_loss": "12.00",
+                    "reason": "إغلاق فوق مقاومة 10 جلسات",
+                    "scan_mode": "end_of_day",
+                    "horizon": "next_session",
+                    "entry": True,
+                }
+            ]
+
+        def recommendations_stale(self, *, live: bool) -> bool:
+            del live
+            return False
+
+        def close_recommendations(self):
+            scans["count"] += 1
+            raise AssertionError("warm cache must skip a full 10-session rescan")
+
+    app = FastAPI()
+    app.state.tickchart = _Feed()
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "cached"
+    assert payload["count"] == 1
+    assert payload["total"] == 1
+    assert payload["data"][0]["symbol"] == "7200"
+    assert scans["count"] == 0

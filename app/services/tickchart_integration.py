@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
+import time
 from collections import deque
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -116,6 +118,10 @@ class TickChartFeed:
         self._quotes = quotes or LastQuoteBook()
         self._ranking: Any = None
         self._desktop_live = False
+        self._reco_lock = threading.Lock()
+        self._eod_reco_cache: tuple[str, list[dict[str, Any]]] | None = None
+        self._live_reco_cache: tuple[float, list[dict[str, Any]]] | None = None
+        self._company_names: dict[str, str] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -584,7 +590,15 @@ class TickChartFeed:
     def live_recommendations(self) -> list[dict[str, Any]]:
         """Intraday entries from live ticks and session flow while TASI is open."""
 
-        return self._live_opportunities()
+        now = time.monotonic()
+        with self._reco_lock:
+            cached = self._live_reco_cache
+            if cached and now - cached[0] < 5:
+                return list(cached[1])
+        rows = self._live_opportunities()
+        with self._reco_lock:
+            self._live_reco_cache = (now, rows)
+        return list(rows)
 
     def close_recommendations(self) -> list[dict[str, Any]]:
         """Always scan last close + closing volume for next-session entries."""
@@ -592,7 +606,35 @@ class TickChartFeed:
         from app.services.eod_scan import scan_end_of_day
 
         self.ensure_close_book()
-        return scan_end_of_day(self._close_snapshots())
+        key = self._quotes.fingerprint()
+        with self._reco_lock:
+            cached = self._eod_reco_cache
+            if cached and cached[0] == key:
+                return list(cached[1])
+        rows = scan_end_of_day(self._close_snapshots())
+        with self._reco_lock:
+            self._eod_reco_cache = (key, rows)
+        return list(rows)
+
+    def cached_recommendations(self, *, live: bool) -> list[dict[str, Any]] | None:
+        with self._reco_lock:
+            if live:
+                cached = self._live_reco_cache
+                return list(cached[1]) if cached else None
+            cached = self._eod_reco_cache
+            return list(cached[1]) if cached else None
+
+    def recommendations_stale(self, *, live: bool) -> bool:
+        with self._reco_lock:
+            if live:
+                cached = self._live_reco_cache
+                if not cached:
+                    return True
+                return time.monotonic() - cached[0] >= 5
+            cached = self._eod_reco_cache
+            if not cached:
+                return True
+            return cached[0] != self._quotes.fingerprint()
 
     def ensure_close_book(self) -> None:
         """Guarantee a main-market close book exists before scanning (bundled tape)."""
@@ -634,6 +676,7 @@ class TickChartFeed:
     async def _hydrate_close_history(self) -> None:
         try:
             await asyncio.to_thread(self.hydrate_main_market_history)
+            await asyncio.to_thread(self.close_recommendations)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -702,57 +745,80 @@ class TickChartFeed:
 
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
-        ordered = self.main_market_symbols() or self._universe_symbols()
+        quotes = {str(row.get("symbol") or "").upper(): row for row in self._quotes.snapshot()}
+        history = self._quotes.history_snapshot()
+        ranking = self._ranking_index()
+        names = self._company_name_index()
+        ordered = self.main_market_symbols() or list(quotes)
         for symbol in ordered:
             if not is_tasi_main_symbol(symbol):
                 continue
-            report = self.radar_report(symbol)
-            last = report.get("last_price")
+            stored = quotes.get(symbol) or {}
+            ranked = ranking.get(symbol) or {}
+            tape = self._tapes.get(symbol)
+            live = tape.snapshot() if tape is not None else {}
+            last = live.get("last_price") or stored.get("last_price") or ranked.get("last_price")
             if not last:
                 continue
-            levels = self._engine.levels_snapshot(symbol)
-            tape = self._tape(symbol)
-            prices = list(tape.prices)
-            ranking = self._ranking_row(symbol) or {}
-            history = self._quotes.close_history(symbol)
-            closes = [float(bar["close"]) for bar in history if bar.get("close")]
-            volumes = [float(bar.get("volume") or 0) for bar in history]
-            stored = self._quotes.get(symbol) or {}
+            bars = history.get(symbol) or []
+            closes = [float(bar["close"]) for bar in bars if bar.get("close")]
+            volumes = [float(bar.get("volume") or 0) for bar in bars]
+            name = stored.get("name") or ranked.get("name") or names.get(symbol) or symbol
             snapshots.append(
                 {
                     "symbol": symbol,
-                    "name": report.get("name") or ranking.get("name") or symbol,
+                    "name": name,
                     "last_price": last,
                     "close_price": last,
                     "closes": closes,
                     "volumes": volumes,
-                    "session_volume": report.get("session_volume") or stored.get("volume") or ranking.get("volume") or 0,
-                    "volume": stored.get("volume") or ranking.get("volume") or report.get("session_volume") or 0,
-                    "volume_ratio": report.get("volume_ratio"),
-                    "change_percent": report.get("change_percent") or stored.get("change_percent"),
-                    "institutional_mfi": report.get("institutional_mfi"),
-                    "mfi": report.get("mfi") or ranking.get("mfi"),
-                    "net_flow": report.get("net_flow") or stored.get("net_flow") or 0,
-                    "atr": report.get("atr"),
-                    "prev_close": stored.get("prev_close"),
+                    "session_volume": live.get("session_volume") or stored.get("volume") or ranked.get("volume") or 0,
+                    "volume": stored.get("volume") or ranked.get("volume") or live.get("session_volume") or 0,
+                    "volume_ratio": live.get("volume_ratio"),
+                    "change_percent": live.get("change_percent") or stored.get("change_percent") or ranked.get("change_percent"),
+                    "institutional_mfi": live.get("institutional_mfi"),
+                    "mfi": live.get("mfi") or ranked.get("mfi"),
+                    "net_flow": stored.get("net_flow") or live.get("net_flow") or 0,
+                    "atr": ranked.get("atr"),
+                    "prev_close": stored.get("prev_close") or live.get("prev_close"),
                     "session_open": stored.get("open"),
-                    "session_high": stored.get("high")
-                    or _json_number(levels.session_high)
-                    or (float(max(prices)) if prices else last),
-                    "session_low": stored.get("low")
-                    or _json_number(levels.session_low)
-                    or (float(min(prices)) if prices else last),
+                    "session_high": stored.get("high") or live.get("session_high"),
+                    "session_low": stored.get("low") or live.get("session_low"),
                     "liquidity_flow": stored.get("liquidity_flow"),
-                    "trap": report.get("trap"),
-                    "book_pressure": report.get("book_pressure"),
-                    "bid_size": report.get("bid_size"),
-                    "ask_size": report.get("ask_size"),
-                    "spread": report.get("spread"),
-                    "bid_wall": report.get("bid_wall"),
-                    "ask_wall": report.get("ask_wall"),
+                    "trap": live.get("trap"),
+                    "book_pressure": live.get("book_pressure"),
+                    "bid_size": live.get("bid_size"),
+                    "ask_size": live.get("ask_size"),
+                    "spread": live.get("spread"),
+                    "bid_wall": live.get("bid_wall"),
+                    "ask_wall": live.get("ask_wall"),
                 }
             )
         return snapshots
+
+    def _ranking_index(self) -> dict[str, dict[str, Any]]:
+        store = self._ranking
+        if store is None or not hasattr(store, "snapshot"):
+            return {}
+        indexed: dict[str, dict[str, Any]] = {}
+        for row in store.snapshot() or []:
+            ticker = str(row.get("symbol") or "").strip().upper()
+            if ticker:
+                indexed[ticker] = dict(row)
+        return indexed
+
+    def _company_name_index(self) -> dict[str, str]:
+        if self._company_names is not None:
+            return self._company_names
+        from app.services.shariah import compliance_universe
+
+        names = {
+            str(item.get("symbol") or "").strip().upper(): str(item.get("companyNameAr") or item.get("name") or "").strip()
+            for item in compliance_universe()
+            if item.get("symbol")
+        }
+        self._company_names = {key: value for key, value in names.items() if key and value}
+        return self._company_names
 
     def _ranking_row(self, symbol: str) -> dict[str, Any] | None:
         store = self._ranking

@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetch, HEAVY_API_TIMEOUT_MS } from "@/lib/api";
 
 export type RecommendationKind = "bounce" | "momentum";
 export type RecommendationScanMode = "live" | "end_of_day";
@@ -26,6 +26,7 @@ export interface MarketRecommendation {
 export interface RecommendationsResponse {
   success: boolean;
   count: number;
+  total?: number;
   source: string;
   scan_mode?: RecommendationScanMode | string;
   session_phase?: string;
@@ -33,8 +34,20 @@ export interface RecommendationsResponse {
   data: MarketRecommendation[];
 }
 
+let inflight: Promise<RecommendationsResponse> | null = null;
+
 export async function fetchMarketRecommendations(): Promise<RecommendationsResponse> {
-  const response = await apiFetch("/api/v1/market/recommendations");
+  if (inflight) return inflight;
+  inflight = pullMarketRecommendations().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+async function pullMarketRecommendations(): Promise<RecommendationsResponse> {
+  const response = await apiFetch("/api/v1/market/recommendations", {
+    timeoutMs: HEAVY_API_TIMEOUT_MS,
+  });
   const payload = (await response.json().catch(() => null)) as RecommendationsResponse | null;
   if (!response.ok || !payload) {
     throw new Error("تعذر جلب التوصيات");

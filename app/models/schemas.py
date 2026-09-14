@@ -249,6 +249,7 @@ class MarketRecommendationsResponse(BaseModel):
     session_phase: str | None = None
     session_label: str | None = None
     scan_build: str = "eod-tape-1"
+    total: int = 0
     data: list[MarketRecommendation]
 
 

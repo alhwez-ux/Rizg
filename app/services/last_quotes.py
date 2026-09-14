@@ -108,6 +108,16 @@ class LastQuoteBook:
         with self._guard:
             return [dict(row) for row in self._history.get(ticker) or []]
 
+    def history_snapshot(self) -> dict[str, list[dict[str, Any]]]:
+        with self._guard:
+            return {ticker: [dict(bar) for bar in bars] for ticker, bars in self._history.items()}
+
+    def fingerprint(self) -> str:
+        with self._guard:
+            bars = sum(len(series) for series in self._history.values())
+            latest = max((str(row.get("at") or "") for row in self._quotes.values()), default="")
+            return f"{len(self._quotes)}:{bars}:{latest}"
+
     def merge_history(self, bars: list[dict[str, Any]], *, keep_today: bool = True) -> int:
         """Merge dated close/volume bars without replacing today's live quote."""
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
@@ -18,9 +18,17 @@ import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 type FilterKind = "all" | RecommendationKind;
 type SortKey = "confidence" | "close" | "symbol";
 
+const LIVE_POLL_MS = 12_000;
+const CLOSE_POLL_MS = 45_000;
+const MAX_ATTEMPTS = 3;
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
 export function RecommendationsCard() {
   const [rows, setRows] = useState<MarketRecommendation[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
@@ -31,45 +39,70 @@ export function RecommendationsCard() {
   const [sortKey, setSortKey] = useState<SortKey>("confidence");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [selected, setSelected] = useState<MarketRecommendation | null>(null);
+  const inflight = useRef(false);
+  const rowsRef = useRef<MarketRecommendation[]>([]);
 
   const load = useCallback(async () => {
+    if (inflight.current) return;
+    inflight.current = true;
     setLoading(true);
     setError(null);
+    let lastError: unknown = null;
     try {
-      const result = await fetchMarketRecommendations();
-      const data = result.data;
-      setRows(data);
-      setCached(result.source === "cached");
-      setSessionLabel(result.session_label || null);
-      setScanMode(result.scan_mode === "live" ? "live" : "end_of_day");
-      setLoaded(true);
-      setSelected((current) => {
-        if (!current) return null;
-        return data.find((row) => row.symbol === current.symbol) ?? null;
-      });
-    } catch {
-      setRows([]);
-      setError(ar.recoLoadError);
-      setLoaded(true);
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        try {
+          const result = await fetchMarketRecommendations();
+          const data = result.data;
+          rowsRef.current = data;
+          setRows(data);
+          setCached(result.source === "cached");
+          setSessionLabel(result.session_label || null);
+          setScanMode(result.scan_mode === "live" ? "live" : "end_of_day");
+          setLoaded(true);
+          setError(null);
+          setSelected((current) => {
+            if (!current) return null;
+            return data.find((row) => row.symbol === current.symbol) ?? null;
+          });
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (!isTimeoutError(err) || attempt === MAX_ATTEMPTS - 1) {
+            break;
+          }
+        }
+      }
+      if (lastError) {
+        setLoaded(true);
+        if (rowsRef.current.length === 0) {
+          setError(ar.recoLoadError);
+        }
+      }
     } finally {
+      inflight.current = false;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => {
-      void load();
-    }, 2_000);
     const onRefresh = () => {
       void load();
     };
     window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
   }, [load]);
+
+  useEffect(() => {
+    const interval = scanMode === "live" || sessionLive ? LIVE_POLL_MS : CLOSE_POLL_MS;
+    const timer = window.setInterval(() => {
+      void load();
+    }, interval);
+    return () => window.clearInterval(timer);
+  }, [load, scanMode, sessionLive]);
 
   const visible = useMemo(() => {
     const filtered = filter === "all" ? rows : rows.filter((row) => row.signal_kind === filter);
@@ -102,7 +135,6 @@ export function RecommendationsCard() {
   const hint = cached && !live ? ar.recoCached : live ? ar.recoHintLive : ar.recoHintEod;
   const badge = live ? ar.recoLive : sessionLabel || sessionPhaseLabel || ar.recoClosed;
   const emptyLabel = live ? ar.recoEmptyLive : ar.recoEmptyEod;
-  const idleLabel = live ? ar.recoIdleLive : ar.recoIdle;
   const loadingLabel = live ? ar.recoLoadingLive : ar.recoLoadingEod;
   const priceLabel = live ? ar.recoColPriceLive : ar.recoColCloseEod;
   const horizonLabel = live ? ar.recoHorizonLive : ar.recoHorizon;
@@ -139,14 +171,16 @@ export function RecommendationsCard() {
               void load();
             }}
             disabled={loading}
+            aria-busy={loading}
             aria-label={buttonName}
-            className={`rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition disabled:opacity-50 ${
+            className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition disabled:opacity-50 ${
               live
                 ? "bg-gradient-to-r from-sky-500 to-cyan-500 shadow-sky-900/30 hover:from-sky-400 hover:to-cyan-400"
                 : "bg-gradient-to-r from-sky-600 to-teal-600 shadow-sky-900/20 hover:from-sky-500 hover:to-teal-500"
             }`}
           >
-            {buttonName}
+            {loading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : null}
+            {loading ? ar.recoRefreshing : buttonName}
           </button>
         </div>
       </div>
@@ -176,12 +210,12 @@ export function RecommendationsCard() {
         </div>
       ) : null}
 
-      {loading && !loaded ? (
-        <p className="animate-pulse py-8 text-center text-sm text-zinc-400">{loadingLabel}</p>
-      ) : error ? (
+      {loading && visible.length === 0 ? (
+        <RecoSpinner label={loadingLabel} />
+      ) : error && visible.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : !loaded ? (
-        <p className="py-8 text-center text-sm text-zinc-500">{idleLabel}</p>
+        <RecoSpinner label={loadingLabel} />
       ) : visible.length === 0 ? (
         <p className="py-8 text-center text-sm text-zinc-500">{emptyLabel}</p>
       ) : (
@@ -273,6 +307,15 @@ export function RecommendationsCard() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function RecoSpinner({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-10" role="status" aria-live="polite">
+      <span className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-700 border-t-sky-400" />
+      <p className="max-w-md text-center text-sm text-zinc-400">{label}</p>
+    </div>
   );
 }
 

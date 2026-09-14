@@ -25,7 +25,7 @@ export interface RankingMatrixResponse {
 }
 
 export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
-  const response = await apiFetch("/api/v1/market/ranking-matrix");
+  const response = await apiFetch("/api/v1/market/ranking-matrix", { timeoutMs: 60_000 });
   const payload = (await response.json().catch(() => null)) as RankingMatrixResponse | null;
   if (!response.ok || !payload) {
     throw new Error("تعذر جلب مصفوفة التصنيف من تكرتشارت");

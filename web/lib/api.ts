@@ -15,31 +15,62 @@ function configuredBackend(): string {
 
 export const API_BASE = configuredBackend();
 
+export const DEFAULT_API_TIMEOUT_MS = 18_000;
+export const HEAVY_API_TIMEOUT_MS = 120_000;
+
+export type ApiFetchInit = RequestInit & {
+  /** Pass `null` to wait until the server responds. */
+  timeoutMs?: number | null;
+};
+
+export class ApiTimeoutError extends Error {
+  constructor(message = "انتهت مهلة الطلب") {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
 export function apiUrl(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE}${normalized}`;
 }
 
-export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))
+  );
+}
+
+export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<Response> {
+  const { timeoutMs, signal, ...rest } = init;
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
-  if (init.body != null) {
+  if (rest.body != null) {
     headers["Content-Type"] = "application/json";
   }
-  const controller = init.signal ? null : new AbortController();
-  const timer = controller ? setTimeout(() => controller.abort(), 18_000) : null;
-  return fetch(apiUrl(path), {
-    ...init,
-    signal: init.signal ?? controller?.signal,
-    cache: init.cache ?? "no-store",
-    headers: {
-      ...headers,
-      ...(init.headers ?? {}),
-    },
-  }).finally(() => {
+  const timeout = signal ? null : timeoutMs === null ? null : timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  const controller = timeout != null && timeout > 0 ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+  try {
+    return await fetch(apiUrl(path), {
+      ...rest,
+      signal: signal ?? controller?.signal,
+      cache: rest.cache ?? "no-store",
+      headers: {
+        ...headers,
+        ...(rest.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    if (controller?.signal.aborted || isAbortError(error)) {
+      throw new ApiTimeoutError();
+    }
+    throw error;
+  } finally {
     if (timer) clearTimeout(timer);
-  });
+  }
 }
 
 export function wsUrlFor(symbol: string): string {

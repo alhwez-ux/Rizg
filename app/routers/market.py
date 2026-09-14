@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
+import asyncio
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
 from app.models.schemas import (
     RankingMatrixResponse,
@@ -55,19 +56,36 @@ async def get_companies_by_sector(sector_name: str, request: Request) -> SectorC
 
 
 @router.get("/recommendations", response_model=MarketRecommendationsResponse)
-async def get_market_recommendations(request: Request) -> MarketRecommendationsResponse:
+async def get_market_recommendations(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    limit: int = Query(12, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+) -> MarketRecommendationsResponse:
     phase = session_phase(now_riyadh())
     live = phase == "open"
-    rows = _recommendation_rows(request, live=live)
+    feed = getattr(request.app.state, "tickchart", None)
+    cached = _cached_recommendation_rows(feed, live=live)
+    if cached is not None:
+        rows = cached
+        source = "cached"
+        if feed is not None and getattr(feed, "recommendations_stale", None):
+            if feed.recommendations_stale(live=live):
+                background_tasks.add_task(_refresh_recommendations, feed, live)
+    else:
+        rows = await asyncio.to_thread(_recommendation_rows, request, live=live)
+        source = "TickChart"
+    page = rows[offset : offset + limit]
     return MarketRecommendationsResponse(
         success=True,
-        count=len(rows),
-        source="TickChart",
+        count=len(page),
+        total=len(rows),
+        source=source,
         scan_mode="live" if live else "end_of_day",
         session_phase=phase,
         session_label=phase_label(phase),
         scan_build="eod-tape-1",
-        data=rows,
+        data=page,
     )
 
 
@@ -181,6 +199,27 @@ def _tape_quote_mode(rows: list[dict]) -> str:
     if rows:
         return "last_close"
     return "waiting"
+
+
+def _cached_recommendation_rows(feed, *, live: bool) -> list[dict] | None:
+    if feed is None:
+        return None
+    lookup = getattr(feed, "cached_recommendations", None)
+    if not callable(lookup):
+        return None
+    rows = lookup(live=live)
+    return list(rows) if rows is not None else None
+
+
+def _refresh_recommendations(feed, live: bool) -> None:
+    if live:
+        live_scan = getattr(feed, "live_recommendations", None)
+        if callable(live_scan):
+            live_scan()
+        return
+    closer = getattr(feed, "close_recommendations", None)
+    if callable(closer):
+        closer()
 
 
 def _recommendation_rows(request: Request, *, live: bool) -> list[dict]:

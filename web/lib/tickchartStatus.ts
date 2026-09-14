@@ -1,4 +1,4 @@
-import { apiFetch, apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl, HEAVY_API_TIMEOUT_MS } from "@/lib/api";
 
 export const SESSION_REFRESHED_EVENT = "rizg-session-refreshed";
 
@@ -55,29 +55,23 @@ export async function refreshTickChartLive(): Promise<SessionRefreshResult> {
 }
 
 async function pullSessionTape(): Promise<SessionRefreshResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45_000);
-  try {
-    const response = await apiFetch("/api/v1/tickchart/refresh", {
-      method: "POST",
-      body: "{}",
-      signal: controller.signal,
-    });
-    const payload = (await response.json().catch(() => null)) as SessionRefreshResult | null;
-    if (!response.ok) {
-      throw new Error("تعذر تحديث رادار تكرتشارت");
-    }
-    notifySessionRefreshed();
-    return {
-      success: Boolean(payload?.success ?? true),
-      count: Number(payload?.count || 0),
-      quote_mode: payload?.quote_mode,
-      live: payload?.live,
-      last_close: payload?.last_close,
-    };
-  } finally {
-    clearTimeout(timer);
+  const response = await apiFetch("/api/v1/tickchart/refresh", {
+    method: "POST",
+    body: "{}",
+    timeoutMs: HEAVY_API_TIMEOUT_MS,
+  });
+  const payload = (await response.json().catch(() => null)) as SessionRefreshResult | null;
+  if (!response.ok) {
+    throw new Error("تعذر تحديث رادار تكرتشارت");
   }
+  notifySessionRefreshed();
+  return {
+    success: Boolean(payload?.success ?? true),
+    count: Number(payload?.count || 0),
+    quote_mode: payload?.quote_mode,
+    live: payload?.live,
+    last_close: payload?.last_close,
+  };
 }
 
 export async function followTickChartSymbol(symbol: string): Promise<{ symbol: string; name: string }> {

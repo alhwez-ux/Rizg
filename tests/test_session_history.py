@@ -140,6 +140,13 @@ def test_close_recommendations_scan_bundled_tape(tmp_path: Path) -> None:
     assert rows
     assert all(row.get("scan_mode") == "end_of_day" for row in rows)
 
+    def _fail_radar(_symbol: str) -> dict:
+        raise AssertionError("close scan should use the quote tape, not per-symbol radar")
+
+    feed.radar_report = _fail_radar  # type: ignore[method-assign]
+    again = feed.close_recommendations()
+    assert again == rows
+
 
 def test_history_endpoint_imports_main_market_bars_only(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
