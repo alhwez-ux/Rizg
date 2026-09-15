@@ -125,14 +125,14 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
   if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase()) {
     return report;
   }
-  return {
+    return {
     ...report,
     last_price: tick.lastPrice ?? report.last_price,
-    net_flow: tick.netFlow,
-    inflow: tick.inflow,
-    outflow: tick.outflow,
-    buy_volume: tick.buyVolume,
-    sell_volume: tick.sellVolume,
+    net_flow: tick.netFlow || report.net_flow,
+    inflow: tick.inflow || report.inflow,
+    outflow: tick.outflow || report.outflow,
+    buy_volume: tick.buyVolume || report.buy_volume,
+    sell_volume: tick.sellVolume || report.sell_volume,
     trade_count: tick.tradeCount || report.trade_count,
   };
 }

@@ -39,7 +39,17 @@ def _configure_logging() -> None:
 
 
 def _fingerprint(quotes: list[dict]) -> tuple:
-    return tuple((item.get("symbol"), item.get("price"), item.get("time")) for item in quotes)
+    return tuple(
+        (
+            item.get("symbol"),
+            item.get("price"),
+            item.get("time"),
+            item.get("change_percent"),
+            item.get("session_volume"),
+            item.get("net_flow"),
+        )
+        for item in quotes
+    )
 
 
 def push_quotes(quotes: list[dict], api: str) -> int:

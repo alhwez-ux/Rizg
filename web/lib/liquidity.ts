@@ -193,9 +193,8 @@ export function parseAlert(payload: AlertStreamPayload): LiquidityAlertEvent | n
 
 export function formatPercent(value: number | null, digits = 1): string {
   if (value == null || Number.isNaN(value)) return "—";
-  const pct = Math.abs(value) <= 1 && Math.abs(value) > 0 ? value * 100 : value;
-  const sign = pct > 0 ? "+" : pct < 0 ? "−" : "";
-  return `${sign}${formatCompact(Math.abs(pct), digits)}%`;
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatCompact(Math.abs(value), digits)}%`;
 }
 
 export function formatRatio(value: number | null): string {

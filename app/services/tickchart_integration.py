@@ -546,16 +546,18 @@ class TickChartFeed:
             note = "في انتظار بيانات الجلسة"
             if note not in reasons:
                 reasons.insert(0, note)
-        change = live.get("change_percent")
+        change = stored.get("change_percent")
+        if change is None:
+            change = live.get("change_percent")
         if change is None:
             change = report.get("change_percent")
-        if change is None:
-            change = stored.get("change_percent") or ranking.get("change_percent")
         session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
         if not session_volume:
             session_volume = stored.get("volume") or ranking.get("volume")
         session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
-        net_flow = report.get("net_flow") or stored.get("net_flow") or 0
+        engine_flow = _json_number(report.get("net_flow")) or 0
+        stored_flow = _json_number(stored.get("net_flow")) or 0
+        net_flow = engine_flow or stored_flow or 0
         if not net_flow and session_value and change:
             net_flow = float(session_value) * (float(change) / 100.0)
         report.update(

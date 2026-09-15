@@ -195,7 +195,10 @@ class TickChartAutoSync:
         quotes = await asyncio.to_thread(collect_live_quotes)
         if not quotes:
             return
-        fingerprint = tuple((item.get("symbol"), item.get("price"), item.get("time")) for item in quotes)
+        fingerprint = tuple(
+            (item.get("symbol"), item.get("price"), item.get("time"), item.get("change_percent"), item.get("net_flow"))
+            for item in quotes
+        )
         if fingerprint == self._flat_fingerprint:
             return
         ingester = getattr(self._feed, "ingest_quote_snapshot", None)
@@ -527,7 +530,10 @@ def _rows_to_payloads(rows: list[dict[str, Any]], hint: str | None) -> list[dict
             }
             if qty is not None:
                 payload["session_volume"] = qty
-            value = _clean_number(row.get("value"))
+            session_volume = _clean_number(row.get("session_volume"))
+            if session_volume is not None:
+                payload["session_volume"] = session_volume
+            value = _clean_number(row.get("value") or row.get("value_traded"))
             if value is not None:
                 payload["value_traded"] = value
             change = _clean_number(row.get("change_percent"))

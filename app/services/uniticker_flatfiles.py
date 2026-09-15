@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import struct
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,16 @@ _map_key: tuple[str, float] | None = None
 _id_to_symbol: dict[str, str] = {}
 
 
+@dataclass(frozen=True)
+class Bar:
+    time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float | None
+
+
 def tclive_root() -> Path:
     local = str(os.environ.get("LOCALAPPDATA") or "").strip()
     if local:
@@ -29,37 +40,67 @@ def tclive_root() -> Path:
 
 
 def collect_live_quotes(root: Path | None = None) -> list[dict[str, Any]]:
-    """Return one quote payload per main-market symbol from the newest 1-minute bars."""
+    """Return one quote payload per main-market symbol from 1-minute + daily bars."""
 
     base = root or tclive_root()
     mapping = load_id_to_symbol(base / "Cache" / _CACHE_NAME)
-    folder = discover_minute_dir(base / "FlatFiles")
-    if folder is None or not mapping:
+    flat = base / "FlatFiles"
+    minute_dir = discover_interval_dir(flat, 60.0) or discover_minute_dir(flat)
+    daily_dir = discover_interval_dir(flat, 86_400.0)
+    if minute_dir is None or not mapping:
         return []
+    dailies = _index_last_bars(daily_dir, mapping) if daily_dir is not None else {}
     quotes: list[dict[str, Any]] = []
-    for path in folder.glob("*.dat"):
+    for path in minute_dir.glob("*.dat"):
         symbol = mapping.get(path.stem)
         if not symbol:
             continue
         bar = read_last_bar(path)
-        if bar is None:
+        if bar is None or bar.close <= 0:
             continue
-        _time, _open, _high, _low, close = bar
-        if close <= 0:
-            continue
-        quotes.append(
-            {
-                "type": "quote",
-                "symbol": symbol,
-                "price": round(close, 4),
-                "time": _time.isoformat(timespec="seconds"),
-            }
-        )
+        daily_last, daily_prev = dailies.get(symbol, (None, None))
+        prev_close = None
+        if daily_last is not None and daily_prev is not None and daily_last.time.date() >= bar.time.date():
+            prev_close = daily_prev.close
+        elif daily_last is not None:
+            prev_close = daily_last.close
+        volume = _as_shares((daily_last.volume if daily_last else None) or bar.volume)
+        change = None
+        if prev_close and prev_close > 0:
+            change = round((bar.close - prev_close) / prev_close * 100.0, 4)
+        value = round(volume * bar.close, 2) if volume else None
+        net_flow = round(value * change / 100.0, 2) if value is not None and change is not None else None
+        session = daily_last if daily_last is not None else bar
+        row: dict[str, Any] = {
+            "type": "quote",
+            "symbol": symbol,
+            "price": round(bar.close, 4),
+            "time": bar.time.isoformat(timespec="seconds"),
+            "open": round(session.open, 4),
+            "high": round(session.high, 4),
+            "low": round(session.low, 4),
+        }
+        if prev_close:
+            row["prev_close"] = round(prev_close, 4)
+        if volume:
+            row["session_volume"] = volume
+        if value is not None:
+            row["value"] = value
+            row["value_traded"] = value
+        if change is not None:
+            row["change_percent"] = change
+        if net_flow is not None:
+            row["net_flow"] = net_flow
+        quotes.append(row)
     quotes.sort(key=lambda item: str(item["symbol"]))
     return quotes
 
 
 def discover_minute_dir(flat_root: Path) -> Path | None:
+    return discover_interval_dir(flat_root, 60.0)
+
+
+def discover_interval_dir(flat_root: Path, target_seconds: float) -> Path | None:
     if not flat_root.is_dir():
         return None
     best: Path | None = None
@@ -73,7 +114,7 @@ def discover_minute_dir(flat_root: Path) -> Path | None:
         delta = bar_seconds(sample)
         if delta is None or delta <= 0:
             continue
-        score = abs(delta - 60.0)
+        score = abs(delta - target_seconds)
         if score < best_score:
             best_score = score
             best = sample.parent
@@ -92,25 +133,42 @@ def bar_seconds(path: Path) -> float | None:
     return abs(second - first) * 86400.0
 
 
-def read_last_bar(path: Path) -> tuple[datetime, float, float, float, float] | None:
+def read_last_bar(path: Path) -> Bar | None:
+    bars = read_last_bars(path, 1)
+    return bars[-1] if bars else None
+
+
+def read_last_bars(path: Path, count: int) -> list[Bar]:
+    need = max(1, count)
     try:
         with path.open("rb") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
-            if size < _RECORD.size:
-                return None
-            handle.seek(size - _RECORD.size)
-            raw = handle.read(_RECORD.size)
+            take = min(size // _RECORD.size, need)
+            if take <= 0:
+                return []
+            handle.seek(size - take * _RECORD.size)
+            raw = handle.read(take * _RECORD.size)
     except OSError:
-        return None
-    if len(raw) != _RECORD.size:
-        return None
-    ole, open_, high, low, close, *_rest = _RECORD.unpack(raw)
-    try:
-        moment = _OLE_EPOCH + timedelta(days=float(ole))
-    except (OverflowError, ValueError, OSError):
-        return None
-    return moment, float(open_), float(high), float(low), float(close)
+        return []
+    bars: list[Bar] = []
+    for offset in range(0, len(raw) - _RECORD.size + 1, _RECORD.size):
+        ole, open_, high, low, close, _oi, volume_raw, _junk, _trades = _RECORD.unpack_from(raw, offset)
+        try:
+            moment = _OLE_EPOCH + timedelta(days=float(ole))
+        except (OverflowError, ValueError, OSError):
+            continue
+        bars.append(
+            Bar(
+                time=moment,
+                open=float(open_),
+                high=float(high),
+                low=float(low),
+                close=float(close),
+                volume=_as_shares(volume_raw),
+            )
+        )
+    return bars
 
 
 def load_id_to_symbol(cache_path: Path) -> dict[str, str]:
@@ -144,3 +202,30 @@ def load_id_to_symbol(cache_path: Path) -> dict[str, str]:
     _id_to_symbol = mapping
     _map_key = key
     return mapping
+
+
+def _index_last_bars(folder: Path, mapping: dict[str, str]) -> dict[str, tuple[Bar | None, Bar | None]]:
+    indexed: dict[str, tuple[Bar | None, Bar | None]] = {}
+    for path in folder.glob("*.dat"):
+        symbol = mapping.get(path.stem)
+        if not symbol:
+            continue
+        bars = read_last_bars(path, 2)
+        if not bars:
+            continue
+        last = bars[-1]
+        prev = bars[-2] if len(bars) > 1 else None
+        indexed[symbol] = (last, prev)
+    return indexed
+
+
+def _as_shares(raw: float | None) -> float | None:
+    try:
+        number = float(raw) if raw is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    if number != number or number <= 0:
+        return None
+    if number < 500:
+        return number * 1_000_000.0
+    return number

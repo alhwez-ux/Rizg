@@ -13,9 +13,9 @@ from tests.test_tickchart_autosync import _feed
 _OLE_EPOCH = datetime(1899, 12, 30)
 
 
-def _pack(moment: datetime, close: float) -> bytes:
+def _pack(moment: datetime, close: float, volume_m: float = 0.0) -> bytes:
     ole = (moment - _OLE_EPOCH).total_seconds() / 86400.0
-    return struct.pack("<d8f", ole, close, close, close, close, 0.0, 0.0, 0.0, 0.0)
+    return struct.pack("<d8f", ole, close, close, close, close, 0.0, volume_m, 0.0, 0.0)
 
 
 def _layout(tmp_path: Path) -> Path:
@@ -40,7 +40,8 @@ def _layout(tmp_path: Path) -> Path:
     (minute / "1843.dat").write_bytes(_pack(t0, 25.1) + _pack(t1, 25.2))
     day0 = datetime(2026, 9, 14)
     day1 = datetime(2026, 9, 15)
-    (daily / "197.dat").write_bytes(_pack(day0, 64.0) + _pack(day1, 65.0))
+    (daily / "197.dat").write_bytes(_pack(day0, 64.0, 9.0) + _pack(day1, 65.0, 8.0))
+    (daily / "1843.dat").write_bytes(_pack(day0, 24.0, 5.0) + _pack(day1, 25.0, 6.0))
     return tmp_path
 
 
@@ -51,10 +52,15 @@ def test_collects_main_market_one_minute_closes(tmp_path: Path, monkeypatch) -> 
     assert discover_minute_dir(root / "FlatFiles") == root / "FlatFiles" / "one_minute" / "tad"
     assert quotes["1120"]["price"] == 66.05
     assert quotes["2222"]["price"] == 25.2
+    assert quotes["1120"]["prev_close"] == 64.0
+    assert quotes["1120"]["session_volume"] == 8_000_000.0
+    assert quotes["1120"]["change_percent"] == 3.2031
+    assert quotes["1120"]["net_flow"]
     assert "9500" not in quotes
-    moment, *_rest, close = read_last_bar(root / "FlatFiles" / "one_minute" / "tad" / "197.dat")
-    assert round(close, 4) == 66.05
-    assert moment.hour == 10 and moment.minute == 1
+    bar = read_last_bar(root / "FlatFiles" / "one_minute" / "tad" / "197.dat")
+    assert bar is not None
+    assert round(bar.close, 4) == 66.05
+    assert bar.time.hour == 10 and bar.time.minute == 1
 
 
 def test_autosync_ingests_uniticker_flatfiles(tmp_path: Path, monkeypatch) -> None:
