@@ -89,7 +89,7 @@ export default function NotificationCenter() {
 
   return (
     <div className="relative" dir="rtl" ref={root}>
-      {mounted ? createPortal(<PriceTicker />, document.body) : null}
+      {mounted ? createPortal(<PriceTicker alerts={notifications} />, document.body) : null}
 
       <button
         type="button"

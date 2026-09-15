@@ -19,6 +19,7 @@ export function TickChartSyncChip({
   const [status, setStatus] = useState<TickChartStatus | null>(null);
   const [symbol, setSymbol] = useState("");
   const [busy, setBusy] = useState<"follow" | "refresh" | "upload" | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -26,7 +27,10 @@ export function TickChartSyncChip({
     let alive = true;
     const load = async () => {
       const next = await fetchTickChartStatus();
-      if (alive) setStatus(next);
+      if (alive) {
+        setStatus(next);
+        if (next?.last_sync_at) setLastSyncAt(next.last_sync_at);
+      }
     };
     const bootstrap = async () => {
       try {
@@ -34,6 +38,9 @@ export function TickChartSyncChip({
         if (!alive) return;
         const next = await fetchTickChartStatus();
         setStatus(next);
+        if (pulled.last_sync_at || next?.last_sync_at) {
+          setLastSyncAt(pulled.last_sync_at || next?.last_sync_at || null);
+        }
         if (pulled.count > 0) {
           setMessage(`${ar.tickchartRefreshed} (${pulled.count})`);
         }
@@ -89,6 +96,7 @@ export function TickChartSyncChip({
       const pulled = await refreshTickChartLive();
       const next = await fetchTickChartStatus();
       setStatus(next);
+      setLastSyncAt(pulled.last_sync_at || next?.last_sync_at || new Date().toISOString());
       setMessage(pulled.count > 0 ? `${ar.tickchartRefreshed} (${pulled.count})` : ar.tickchartRefreshed);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : ar.tickchartRefreshError);
@@ -172,14 +180,22 @@ export function TickChartSyncChip({
             }}
           />
         </label>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={busy !== null}
-          className="min-h-11 rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
-        >
-          {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
-        </button>
+        <div className="flex min-w-[9.5rem] flex-col items-stretch">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={busy !== null}
+            className="min-h-11 rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
+          >
+            {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
+          </button>
+          <p className="mt-1 text-center text-[11px] leading-4 text-zinc-500">
+            {ar.tickchartLastSync}
+            <span dir="ltr" className="mt-0.5 block font-mono text-zinc-400">
+              {formatSyncTime(lastSyncAt || status?.last_sync_at)}
+            </span>
+          </p>
+        </div>
       </div>
       {message ? <p className="text-xs text-zinc-400">{message}</p> : null}
     </div>
@@ -187,3 +203,19 @@ export function TickChartSyncChip({
 }
 
 export default TickChartSyncChip;
+
+function formatSyncTime(value: string | null | undefined): string {
+  if (!value) return ar.tickchartLastSyncNever;
+  const stamp = new Date(value);
+  if (Number.isNaN(stamp.getTime())) return ar.tickchartLastSyncNever;
+  return stamp.toLocaleString("ar-SA", {
+    timeZone: "Asia/Riyadh",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    day: "numeric",
+    month: "short",
+    hour12: true,
+    numberingSystem: "latn",
+  });
+}

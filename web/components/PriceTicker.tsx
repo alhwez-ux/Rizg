@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, type AnimationEvent } from "react";
+import { useEffect, useRef, useState, type AnimationEvent, type ReactNode } from "react";
 
 import { ar } from "@/lib/ar";
 import { formatPercent, formatPrice } from "@/lib/liquidity";
+import type { MarketAlert } from "@/lib/notifications";
 import { fetchTickChartMarket, type TickChartQuote } from "@/lib/tickchartStatus";
 
-export function PriceTicker() {
+function tapeDuration(count: number): string {
+  return `${Math.max(2400, count * 30)}s`;
+}
+
+export function PriceTicker({ alerts = [] }: { alerts?: MarketAlert[] }) {
   const [quotes, setQuotes] = useState<TickChartQuote[]>([]);
   const [today, setToday] = useState("");
   const pending = useRef<TickChartQuote[]>([]);
@@ -26,44 +31,70 @@ export function PriceTicker() {
     void load();
     const timer = window.setInterval(() => {
       void load();
-    }, 45_000);
+    }, quotes.length ? 45_000 : 8_000);
     return () => {
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [quotes.length]);
 
-  const onLoop = (event: AnimationEvent<HTMLDivElement>) => {
+  const onPriceLoop = (event: AnimationEvent<HTMLDivElement>) => {
     if (event.animationName !== "ticker") return;
     if (pending.current.length) setQuotes(pending.current);
   };
 
   return (
-    <div
-      className="group/ticker fixed inset-x-0 top-0 z-40 border-b border-zinc-800 bg-zinc-950/90 text-xs text-zinc-300"
-      dir="rtl"
-    >
-      <div className="flex items-center justify-between gap-3 overflow-hidden px-4 py-2">
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold text-sky-400">
-          <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
-          {ar.notifyTicker}
-        </div>
-        <div className="min-w-0 flex-1 overflow-hidden">
-          {quotes.length ? (
-            <div
-              dir="ltr"
-              onAnimationIteration={onLoop}
-              className="flex w-max animate-ticker items-center gap-8 whitespace-nowrap group-hover/ticker:[animation-play-state:paused] motion-reduce:animate-none"
-            >
-              <TickerQuotes quotes={quotes} prefix="a" />
-              <TickerQuotes quotes={quotes} prefix="b" />
-            </div>
-          ) : (
-            <p className="truncate text-zinc-500">{ar.priceTickerEmpty}</p>
-          )}
-        </div>
-        {today ? <div className="shrink-0 whitespace-nowrap font-mono text-[11px] text-zinc-400">{today}</div> : null}
+    <div className="group/ticker fixed inset-x-0 top-0 z-40 border-b border-zinc-800 bg-zinc-950/95 text-xs text-zinc-300" dir="rtl">
+      <TapeRow label={ar.priceTickerLabel} trailing={today}>
+        {quotes.length ? (
+          <div
+            dir="ltr"
+            onAnimationIteration={onPriceLoop}
+            className="flex w-max animate-ticker items-center gap-8 whitespace-nowrap group-hover/ticker:[animation-play-state:paused] motion-reduce:animate-none"
+            style={{ animationDuration: tapeDuration(quotes.length) }}
+          >
+            <TickerQuotes quotes={quotes} prefix="a" />
+            <TickerQuotes quotes={quotes} prefix="b" />
+          </div>
+        ) : (
+          <p className="truncate text-zinc-500">{ar.priceTickerEmpty}</p>
+        )}
+      </TapeRow>
+      <TapeRow label={ar.notifyTicker}>
+        {alerts.length ? (
+          <div
+            dir="ltr"
+            className="flex w-max animate-ticker items-center gap-8 whitespace-nowrap group-hover/ticker:[animation-play-state:paused] motion-reduce:animate-none"
+            style={{ animationDuration: tapeDuration(alerts.length) }}
+          >
+            <AlertQuotes alerts={alerts} prefix="a" />
+            <AlertQuotes alerts={alerts} prefix="b" />
+          </div>
+        ) : (
+          <p className="truncate text-zinc-500">{ar.notifyEmpty}</p>
+        )}
+      </TapeRow>
+    </div>
+  );
+}
+
+function TapeRow({
+  label,
+  trailing,
+  children,
+}: {
+  label: string;
+  trailing?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 overflow-hidden border-b border-zinc-800/80 px-4 py-1.5 last:border-b-0">
+      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold text-sky-400">
+        <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
+        {label}
       </div>
+      <div className="min-w-0 flex-1 overflow-hidden">{children}</div>
+      {trailing ? <div className="shrink-0 whitespace-nowrap font-mono text-[11px] text-zinc-400">{trailing}</div> : null}
     </div>
   );
 }
@@ -81,6 +112,16 @@ function TickerQuotes({ quotes, prefix }: { quotes: TickChartQuote[]; prefix: st
       </span>
     );
   });
+}
+
+function AlertQuotes({ alerts, prefix }: { alerts: MarketAlert[]; prefix: string }) {
+  return alerts.map((item) => (
+    <span key={`${prefix}-${item.id}`} className="inline-flex items-center gap-2 text-zinc-200">
+      <span>⚡</span>
+      <span className="font-semibold text-sky-300">{item.title}</span>
+      <span>{item.message}</span>
+    </span>
+  ));
 }
 
 export default PriceTicker;

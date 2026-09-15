@@ -66,15 +66,31 @@ class LastQuoteBook:
                 }
                 if qty and qty > 0:
                     row["volume"] = qty
-                for key in ("value_traded", "change_percent", "net_flow", "prev_close", "high", "low", "open", "liquidity_flow"):
+                previous = self._quotes.get(ticker) or {}
+                extra_keys = (
+                    "value_traded",
+                    "change_percent",
+                    "net_flow",
+                    "prev_close",
+                    "high",
+                    "low",
+                    "open",
+                    "liquidity_flow",
+                )
+                for key in extra_keys:
                     value = extras.get(key)
                     if value is not None:
                         row[key] = value
-                previous = self._quotes.get(ticker) or {}
-                if not accumulate_volume:
-                    for key in ("volume", "value_traded", "change_percent", "net_flow", "prev_close", "high", "low", "open", "liquidity_flow"):
-                        if row.get(key) is None and previous.get(key) is not None:
-                            row[key] = previous[key]
+                    elif previous.get(key) is not None:
+                        row[key] = previous[key]
+                if accumulate_volume:
+                    prev_volume = previous.get("volume")
+                    if qty and qty > 0:
+                        row["volume"] = float(prev_volume or 0) + qty if prev_volume else qty
+                    elif prev_volume:
+                        row["volume"] = prev_volume
+                elif row.get("volume") is None and previous.get("volume") is not None:
+                    row["volume"] = previous["volume"]
                 self._quotes[ticker] = row
                 bars = list(self._history.get(ticker) or [])
                 if bars and str(bars[-1].get("date")) == day:

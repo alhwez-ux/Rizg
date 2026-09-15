@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { AUTH_VERSION } from "@/lib/auth/public-constants";
+import { CLIENT_BUILD } from "@/lib/auth/public-constants";
 
 const STORAGE_KEY = "rizg-build";
 
@@ -22,10 +22,10 @@ export function AppUpdateGuard() {
       } catch {
         /* ignore */
       }
-      window.localStorage.setItem(STORAGE_KEY, AUTH_VERSION);
-      if (previous && previous !== AUTH_VERSION) {
+      window.localStorage.setItem(STORAGE_KEY, CLIENT_BUILD);
+      if (previous && previous !== CLIENT_BUILD) {
         const url = new URL(window.location.href);
-        url.searchParams.set("v", AUTH_VERSION);
+        url.searchParams.set("v", CLIENT_BUILD);
         window.location.replace(url.pathname + url.search);
       }
     })();

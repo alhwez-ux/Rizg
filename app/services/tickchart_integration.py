@@ -401,6 +401,9 @@ class TickChartFeed:
             quote_mode = "last_close"
         else:
             quote_mode = "waiting"
+        self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
+        if ingested or delayed or seeded or rows:
+            self._last_cloud_count = max(self._last_cloud_count, ingested or delayed or seeded or len(rows))
         return {
             "success": True,
             "source": "TickChart",
@@ -412,6 +415,7 @@ class TickChartFeed:
             "live": live_count,
             "last_close": close_count,
             "quote_mode": quote_mode,
+            "last_sync_at": self._last_cloud_ingest,
             "data": rows,
         }
 
@@ -557,7 +561,10 @@ class TickChartFeed:
         session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
         engine_flow = _json_number(report.get("net_flow")) or 0
         stored_flow = _json_number(stored.get("net_flow")) or 0
-        net_flow = engine_flow or stored_flow or 0
+        if abs(stored_flow) >= abs(engine_flow):
+            net_flow = stored_flow or engine_flow or 0
+        else:
+            net_flow = engine_flow or stored_flow or 0
         if not net_flow and session_value and change:
             net_flow = float(session_value) * (float(change) / 100.0)
         report.update(

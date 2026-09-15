@@ -40,8 +40,8 @@ const config: Config = {
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         ticker: {
-          "0%": { transform: "translateX(0)" },
-          "100%": { transform: "translateX(-50%)" },
+          "0%": { transform: "translateX(-50%)" },
+          "100%": { transform: "translateX(0)" },
         },
       },
       animation: {
@@ -50,7 +50,7 @@ const config: Config = {
         toastIn: "toastIn 0.35s ease-out",
         revealIn: "revealIn 0.45s ease-out",
         fadeIn: "fadeIn 0.4s ease-out",
-        ticker: "ticker 900s linear infinite",
+        ticker: "ticker 2400s linear infinite",
       },
     },
   },

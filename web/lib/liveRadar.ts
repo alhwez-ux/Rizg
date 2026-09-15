@@ -66,40 +66,7 @@ export async function fetchLiveRadar(symbol: string, _interval = "1d"): Promise<
   const response = await apiFetch(`/api/v1/radar/live/${encodeURIComponent(ticker)}`);
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok) {
-    if (response.status === 404) {
-      return {
-        symbol: ticker,
-        success: true,
-        source: "TickChart",
-        analysis: {
-          symbol: ticker,
-          signal: "neutral",
-          entry: false,
-          exit: false,
-          trap: null,
-          flow_verified: false,
-          score: 0,
-          net_flow: 0,
-          inflow: 0,
-          outflow: 0,
-          buy_volume: 0,
-          sell_volume: 0,
-          buy_ratio: null,
-          sell_ratio: null,
-          last_price: null,
-          vwap: null,
-          atr: null,
-          suggested_entry: null,
-          suggested_exit: null,
-          target_price: null,
-          stop_loss: null,
-          change_percent: null,
-          trade_count: 0,
-          reasons: ["في انتظار بيانات الجلسة"],
-          quote_mode: "waiting",
-        },
-      };
-    }
+    if (response.status === 404) return null;
     throw new Error(readApiError(payload, "تعذر جلب رادار السيولة من تكرتشارت"));
   }
   return parseLiveRadarPayload(payload, ticker);
@@ -125,16 +92,22 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
   if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase()) {
     return report;
   }
-    return {
+  return {
     ...report,
     last_price: tick.lastPrice ?? report.last_price,
-    net_flow: tick.netFlow || report.net_flow,
-    inflow: tick.inflow || report.inflow,
-    outflow: tick.outflow || report.outflow,
-    buy_volume: tick.buyVolume || report.buy_volume,
-    sell_volume: tick.sellVolume || report.sell_volume,
+    net_flow: preferFlow(tick.netFlow, report.net_flow),
+    inflow: preferFlow(tick.inflow, report.inflow),
+    outflow: preferFlow(tick.outflow, report.outflow),
+    buy_volume: preferFlow(tick.buyVolume, report.buy_volume),
+    sell_volume: preferFlow(tick.sellVolume, report.sell_volume),
     trade_count: tick.tradeCount || report.trade_count,
   };
+}
+
+function preferFlow(tickValue: number, reportValue: number): number {
+  if (!tickValue) return reportValue;
+  if (!reportValue) return tickValue;
+  return Math.abs(reportValue) >= Math.abs(tickValue) ? reportValue : tickValue;
 }
 
 function parseReport(raw: unknown): LiveRadarReport | null {

@@ -81,6 +81,7 @@ async def refresh_tickchart_live(request: Request) -> dict[str, Any]:
         "watched": watched,
         "count": len(rows),
         "quote_mode": "last_close" if rows else "waiting",
+        "last_sync_at": feed.status().get("last_sync_at"),
         "data": rows,
     }
 

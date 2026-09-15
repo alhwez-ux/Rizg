@@ -110,7 +110,7 @@ function DashboardShell() {
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-6 pt-14 text-zinc-100 sm:px-6 lg:px-8">
+    <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-6 pt-24 text-zinc-100 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow backdrop-blur-md sm:p-6 md:flex-row md:items-center">
         <div>
           <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" tone={tone} />

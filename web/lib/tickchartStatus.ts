@@ -26,6 +26,7 @@ export interface SessionRefreshResult {
   quote_mode?: string;
   live?: number;
   last_close?: number;
+  last_sync_at?: string | null;
 }
 
 let refreshInflight: Promise<SessionRefreshResult> | null = null;
@@ -62,19 +63,29 @@ function parseQuoteRows(payload: { data?: unknown } | null): TickChartQuote[] {
     .slice(0, 120);
 }
 
-export async function fetchTickChartMarket(): Promise<TickChartQuote[]> {
+async function loadQuotePath(path: string, timeoutMs: number): Promise<TickChartQuote[]> {
   try {
-    const tape = await apiFetch("/api/v1/tickchart/tape", { timeoutMs: 20_000 });
-    const tapePayload = (await tape.json().catch(() => null)) as { data?: unknown } | null;
-    const fromTape = parseQuoteRows(tapePayload);
-    if (tape.ok && fromTape.length) return fromTape;
-    const response = await apiFetch("/api/v1/tickchart/market", { timeoutMs: 60_000 });
+    const local = await fetch(path, { cache: "no-store", headers: { Accept: "application/json" } });
+    const localPayload = (await local.json().catch(() => null)) as { data?: unknown } | null;
+    const fromLocal = parseQuoteRows(localPayload);
+    if (local.ok && fromLocal.length) return fromLocal;
+  } catch {
+    /* fall through to the direct backend */
+  }
+  try {
+    const response = await apiFetch(path, { timeoutMs });
     const payload = (await response.json().catch(() => null)) as { data?: unknown } | null;
     if (!response.ok) return [];
     return parseQuoteRows(payload);
   } catch {
     return [];
   }
+}
+
+export async function fetchTickChartMarket(): Promise<TickChartQuote[]> {
+  const tape = await loadQuotePath("/api/v1/tickchart/tape", 45_000);
+  if (tape.length) return tape;
+  return loadQuotePath("/api/v1/tickchart/market", 60_000);
 }
 
 export async function fetchTickChartStatus(): Promise<TickChartStatus | null> {
@@ -113,6 +124,7 @@ async function pullSessionTape(): Promise<SessionRefreshResult> {
     quote_mode: payload?.quote_mode,
     live: payload?.live,
     last_close: payload?.last_close,
+    last_sync_at: payload?.last_sync_at ?? new Date().toISOString(),
   };
 }
 

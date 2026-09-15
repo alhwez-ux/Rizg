@@ -26,6 +26,27 @@ class _Broadcaster:
         return set()
 
 
+def test_remember_keeps_daily_net_flow(tmp_path: Path) -> None:
+    book = LastQuoteBook(tmp_path / "quotes.json")
+    book.apply_closes(
+        [
+            {
+                "symbol": "1120",
+                "last_price": 66.0,
+                "change_percent": -0.6,
+                "net_flow": 77_261_643,
+                "volume": 2_730_898,
+            }
+        ]
+    )
+    book.remember("1120", 66.2, volume=1_000)
+    row = book.get("1120") or {}
+    assert row["last_price"] == 66.2
+    assert row["net_flow"] == 77_261_643
+    assert row["change_percent"] == -0.6
+    assert row["volume"] == 2_731_898
+
+
 def test_is_tasi_main_symbol_excludes_nomu_and_etfs() -> None:
     assert is_tasi_main_symbol("2222") is True
     assert is_tasi_main_symbol("4330") is True

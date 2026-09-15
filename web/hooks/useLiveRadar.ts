@@ -23,7 +23,7 @@ export function useLiveRadar(symbol: string, interval = "1d") {
       if (!alive.current) return;
       if (payload) {
         hasData.current = true;
-        setData(payload);
+        setData((current) => keepRadarFlow(current, payload));
         setError(null);
       }
     } catch (err) {
@@ -58,4 +58,17 @@ export function useLiveRadar(symbol: string, interval = "1d") {
   }, [refresh]);
 
   return { data, error, loading, refresh };
+}
+
+function keepRadarFlow(current: LiveRadarResponse | null, next: LiveRadarResponse): LiveRadarResponse {
+  const previous = current?.analysis;
+  if (!previous?.net_flow || next.analysis.net_flow) return next;
+  return {
+    ...next,
+    analysis: {
+      ...next.analysis,
+      net_flow: previous.net_flow,
+      change_percent: next.analysis.change_percent ?? previous.change_percent,
+    },
+  };
 }
