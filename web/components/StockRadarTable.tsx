@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 
+import { useRadarRecommendations } from "@/hooks/useRadarRecommendations";
 import { ar } from "@/lib/ar";
-import { formatCompact, formatMoney, formatPrice } from "@/lib/liquidity";
+import { formatCompact, formatMoney, formatPrice, type RecommendationFlag } from "@/lib/liquidity";
 import { type RadarTableRow } from "@/lib/firebase";
 import { type ScreenerRow } from "@/lib/screener";
 
@@ -39,6 +40,7 @@ export function StockRadarTable({
     for (const row of screenerRows) map.set(row.symbol, row);
     return map;
   }, [screenerRows]);
+  const recommendations = useRadarRecommendations(screenerRows);
 
   const filtered = useMemo(() => {
     const needle = normalizeSearch(query);
@@ -175,10 +177,11 @@ export function StockRadarTable({
       </header>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[860px] w-full border-collapse text-sm">
+        <table className="min-w-[980px] w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-zinc-800 text-start text-[11px] uppercase tracking-wide text-zinc-500">
               <th className="px-4 py-3 font-medium sm:px-5">{ar.tableColCompany}</th>
+              <th className="px-3 py-3 font-medium">{ar.tableColRecommendation}</th>
               <th className="px-3 py-3 font-medium">{ar.tableColStatus}</th>
               <th className="px-3 py-3 font-medium">{ar.tableColSector}</th>
               <th className="px-3 py-3 font-medium">{ar.tableColPurification}</th>
@@ -193,11 +196,11 @@ export function StockRadarTable({
               <SkeletonRows />
             ) : error ? (
               <tr>
-                <td colSpan={8} className="h-24" />
+                <td colSpan={9} className="h-24" />
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-14 text-center text-sm text-zinc-500">
+                <td colSpan={9} className="px-4 py-14 text-center text-sm text-zinc-500">
                   {ar.tableEmpty}
                 </td>
               </tr>
@@ -219,6 +222,9 @@ export function StockRadarTable({
                       </p>
                       <p className="truncate text-xs text-zinc-300">{row.companyNameAr}</p>
                       <p className="truncate text-[11px] text-zinc-500">{row.companyNameEn}</p>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <RecommendationCell value={recommendations.get(row.symbol) ?? null} />
                     </td>
                     <td className="px-3 py-3.5">
                       <StatusBadge status={row.currentStatus} />
@@ -301,6 +307,40 @@ function FilterChip({
   );
 }
 
+function RecommendationCell({ value }: { value: RecommendationFlag | null | undefined }) {
+  if (value === "دخول") {
+    return (
+      <span
+        className="inline-block text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
+        style={{
+          color: "#00E676",
+          textShadow: "0 0 8px rgba(0, 230, 118, 0.55), 0 0 18px rgba(0, 230, 118, 0.22)",
+        }}
+      >
+        دخول
+      </span>
+    );
+  }
+  if (value === "خروج") {
+    return (
+      <span
+        className="inline-block text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
+        style={{
+          color: "#F87171",
+          textShadow: "0 0 6px rgba(248, 113, 113, 0.28)",
+        }}
+      >
+        خروج
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block text-[13px] font-medium tracking-tight text-zinc-500 [text-rendering:geometricPrecision]">
+      —
+    </span>
+  );
+}
+
 function StatusBadge({ status }: { status: "PURE" | "MIXED" }) {
   if (status === "PURE") {
     return (
@@ -365,7 +405,7 @@ function SkeletonRows() {
     <>
       {Array.from({ length: 4 }, (_, index) => (
         <tr key={index} className="border-b border-zinc-800/70">
-          {Array.from({ length: 8 }, (__, cell) => (
+          {Array.from({ length: 9 }, (__, cell) => (
             <td key={cell} className="px-4 py-4">
               <span className="block h-3 w-20 animate-pulse rounded bg-zinc-800" />
             </td>

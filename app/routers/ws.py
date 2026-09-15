@@ -46,6 +46,7 @@ async def liquidity_symbol_stream(websocket: WebSocket, symbol: str) -> None:
         snapshot = LiquidityStreamMessage.from_session(
             engine.session_snapshot(ticker),
             timestamp=datetime.now(timezone.utc),
+            recommendation=engine.recommendation_flag(ticker),
         )
         await _send(websocket, snapshot.as_json())
         for alert in alerts.recent(ticker)[:20]:

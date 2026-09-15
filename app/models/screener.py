@@ -62,6 +62,7 @@ class ScreenerRow(BaseModel):
     score: Decimal = Decimal("0")
     entry_signal: bool = False
     exit_signal: bool = False
+    recommendation: str | None = None
     unexpected: bool = False
     flow_verified: bool = False
     tracked: bool = False

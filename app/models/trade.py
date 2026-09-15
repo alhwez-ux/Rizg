@@ -5,6 +5,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+RECOMMENDATION_ENTRY = "دخول"
+RECOMMENDATION_EXIT = "خروج"
+
+
+def recommendation_label(*, entry: bool = False, exit_signal: bool = False) -> str | None:
+    if entry:
+        return RECOMMENDATION_ENTRY
+    if exit_signal:
+        return RECOMMENDATION_EXIT
+    return None
+
 
 class TradeSide(str, Enum):
     BUY = "BUY"
@@ -74,12 +85,18 @@ class LiquidityStreamMessage(BaseModel):
     money_flow: Decimal | None = None
     trade_count: int = 0
     timestamp: datetime | None = None
+    recommendation: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 
     @classmethod
-    def from_trade(cls, result: TradeResult) -> "LiquidityStreamMessage":
+    def from_trade(
+        cls,
+        result: TradeResult,
+        *,
+        recommendation: str | None = None,
+    ) -> "LiquidityStreamMessage":
         session = result.session
         return cls(
             type="liquidity",
@@ -98,6 +115,7 @@ class LiquidityStreamMessage(BaseModel):
             money_flow=result.money_flow,
             trade_count=session.trade_count,
             timestamp=result.timestamp,
+            recommendation=recommendation,
         )
 
     @classmethod
@@ -106,6 +124,7 @@ class LiquidityStreamMessage(BaseModel):
         session: SessionFlow,
         *,
         timestamp: datetime | None = None,
+        recommendation: str | None = None,
     ) -> "LiquidityStreamMessage":
         return cls(
             type="snapshot",
@@ -119,4 +138,5 @@ class LiquidityStreamMessage(BaseModel):
             last_side=session.last_side,
             trade_count=session.trade_count,
             timestamp=timestamp,
+            recommendation=recommendation,
         )

@@ -2,6 +2,13 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline
 
 export type TapeRegime = "accumulation" | "distribution" | "neutral";
 
+export type RecommendationFlag = "دخول" | "خروج";
+
+export function parseRecommendation(value: unknown): RecommendationFlag | null {
+  if (value === "دخول" || value === "خروج") return value;
+  return null;
+}
+
 export interface LiquidityTick {
   type: string;
   symbol: string;
@@ -19,6 +26,7 @@ export interface LiquidityTick {
   moneyFlow: number | null;
   tradeCount: number;
   timestamp: string | null;
+  recommendation: RecommendationFlag | null;
 }
 
 export interface LiquidityStreamPayload {
@@ -38,6 +46,7 @@ export interface LiquidityStreamPayload {
   money_flow?: string | number | null;
   trade_count?: number;
   timestamp?: string | null;
+  recommendation?: string | null;
 }
 
 const SPARKLINE_POINTS = 48;
@@ -78,6 +87,7 @@ export function parseTick(payload: LiquidityStreamPayload): LiquidityTick | null
     moneyFlow: payload.money_flow == null ? null : toNumber(payload.money_flow),
     tradeCount: payload.trade_count ?? 0,
     timestamp: payload.timestamp ?? null,
+    recommendation: parseRecommendation(payload.recommendation),
   };
 }
 

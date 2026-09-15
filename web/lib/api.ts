@@ -85,3 +85,15 @@ export function wsUrlFor(symbol: string): string {
   const host = httpBase.replace(/^https?:\/\//, "");
   return `${protocol}://${host}/ws/liquidity/${ticker}`;
 }
+
+export function wsUrlTape(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, "");
+  if (explicit) {
+    const root = explicit.replace(/\/ws\/liquidity(?:\/.*)?$/, "");
+    return `${root}/ws/liquidity`;
+  }
+  const httpBase = API_BASE;
+  const protocol = httpBase.startsWith("https") ? "wss" : "ws";
+  const host = httpBase.replace(/^https?:\/\//, "");
+  return `${protocol}://${host}/ws/liquidity`;
+}

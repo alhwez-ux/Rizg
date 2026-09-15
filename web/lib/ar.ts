@@ -73,6 +73,7 @@ export const ar = {
   tableFilterPure: "نقي",
   tableFilterMixed: "مختلط",
   tableColCompany: "الشركة",
+  tableColRecommendation: "التوصية",
   tableColStatus: "التصنيف",
   tableColSector: "القطاع",
   tableColPurification: "نسبة التطهير",

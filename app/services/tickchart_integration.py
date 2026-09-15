@@ -1195,7 +1195,7 @@ class TickChartFeed:
                 side=result.side,
                 block_floor=self._block_floor,
             )
-            message = LiquidityStreamMessage.from_trade(result)
+            message = self._engine.stream_message(result)
             await self._manager.broadcast(symbol, message.as_json())
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)
@@ -1249,6 +1249,7 @@ class TickChartFeed:
             snapshot = LiquidityStreamMessage.from_session(
                 self._engine.session_snapshot(symbol),
                 timestamp=datetime.now(timezone.utc),
+                recommendation=self._engine.recommendation_flag(symbol),
             )
             await self._manager.broadcast(symbol, snapshot.as_json())
             return True

@@ -10,7 +10,6 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
-from app.models.trade import LiquidityStreamMessage
 from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityEngine
@@ -347,7 +346,7 @@ class SahmkTradeFeed:
                 volume,
                 timestamp=timestamp,
             )
-            message = LiquidityStreamMessage.from_trade(result)
+            message = self._engine.stream_message(result)
             await self._manager.broadcast(symbol, message.as_json())
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)

@@ -11,7 +11,7 @@ import httpx
 
 from app.core.config import Settings
 from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot
-from app.models.trade import SessionFlow
+from app.models.trade import SessionFlow, recommendation_label
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
 from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
@@ -420,6 +420,7 @@ def _build_row(
         score=decision.score,
         entry_signal=decision.entry,
         exit_signal=decision.exit,
+        recommendation=recommendation_label(entry=decision.entry, exit_signal=decision.exit),
         unexpected=decision.unexpected,
         flow_verified=decision.flow_verified,
         tracked=tracked,

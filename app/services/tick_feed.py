@@ -94,7 +94,7 @@ class MockTickFeed:
                 volume,
                 timestamp=datetime.now(timezone.utc),
             )
-            message = LiquidityStreamMessage.from_trade(result)
+            message = self._engine.stream_message(result)
             await self._manager.broadcast(ticker, message.as_json())
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)

@@ -1,3 +1,5 @@
+import { parseRecommendation, type RecommendationFlag } from "@/lib/liquidity";
+
 export type SignalKind = "entry" | "exit" | "none";
 
 export interface ScreenerRow {
@@ -18,6 +20,7 @@ export interface ScreenerRow {
   score: number;
   entry_signal: boolean;
   exit_signal: boolean;
+  recommendation: string | null;
   unexpected: boolean;
   flow_verified: boolean;
   tracked: boolean;
@@ -59,6 +62,12 @@ export function signalKind(row: Pick<ScreenerRow, "entry_signal" | "exit_signal"
   return "none";
 }
 
+export function recommendationFromScreener(
+  row: Pick<ScreenerRow, "recommendation" | "entry_signal" | "exit_signal">,
+): RecommendationFlag | null {
+  return parseRecommendation(row.recommendation) ?? (row.entry_signal ? "دخول" : row.exit_signal ? "خروج" : null);
+}
+
 export function signalKey(row: ScreenerRow): string {
   return `${row.symbol}:${row.entry_signal ? "e" : ""}${row.exit_signal ? "x" : ""}:${row.suggested_entry ?? ""}:${row.suggested_exit ?? ""}`;
 }
@@ -88,6 +97,9 @@ export function parseRow(raw: Record<string, unknown>): ScreenerRow {
     score: toFiniteNumber(raw.score) ?? 0,
     entry_signal: Boolean(raw.entry_signal),
     exit_signal: Boolean(raw.exit_signal),
+    recommendation:
+      parseRecommendation(raw.recommendation) ??
+      (raw.entry_signal ? "دخول" : raw.exit_signal ? "خروج" : null),
     unexpected: Boolean(raw.unexpected),
     flow_verified: Boolean(raw.flow_verified),
     tracked: Boolean(raw.tracked),

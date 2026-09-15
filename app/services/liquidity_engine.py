@@ -9,7 +9,14 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from typing import Any
 
 from app.core.exceptions import InvalidTradeError, SymbolNotFoundError
-from app.models.trade import SessionFlow, TickType, TradeResult, TradeSide
+from app.models.trade import (
+    LiquidityStreamMessage,
+    SessionFlow,
+    TickType,
+    TradeResult,
+    TradeSide,
+    recommendation_label,
+)
 
 Number = Decimal | float | int | str
 
@@ -309,6 +316,37 @@ class LiquidityEngine:
             if state is None:
                 return _TickerState(symbol=ticker).snapshot()
             return state.snapshot()
+
+    def recommendation_flag(self, symbol: str) -> str | None:
+        """دخول/خروج from the live SignalEngine, or None when the tape is quiet."""
+
+        from app.services.signals import SignalEngine, SignalInputs, apply_levels
+
+        ticker = (symbol or "").strip().upper()
+        if not ticker:
+            return None
+        session = self.session_snapshot(ticker)
+        levels = self.levels_snapshot(ticker)
+        inputs = apply_levels(
+            SignalInputs(
+                inflow=session.inflow,
+                outflow=session.outflow,
+                net_flow=session.net_flow,
+                buy_volume=session.buy_volume,
+                sell_volume=session.sell_volume,
+                price=session.last_price or levels.last_price,
+                tracked=True,
+            ),
+            levels,
+        )
+        decision = SignalEngine().evaluate(inputs)
+        return recommendation_label(entry=decision.entry, exit_signal=decision.exit)
+
+    def stream_message(self, result: TradeResult) -> LiquidityStreamMessage:
+        return LiquidityStreamMessage.from_trade(
+            result,
+            recommendation=self.recommendation_flag(result.symbol),
+        )
 
     def snapshot_all(self) -> dict[str, SessionFlow]:
         with self._lock:
