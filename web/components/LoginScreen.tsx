@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 import { RizgLogo } from "@/components/RizgLogo";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
-import { AUTH_VERSION, PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
+import { CLIENT_BUILD, PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
 
 type Mode = "login" | "recover" | "reset";
 
@@ -24,7 +24,7 @@ export function LoginScreen() {
     const next = new URLSearchParams(window.location.search).get("next") || "/";
     const path = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
     const url = new URL(path, window.location.origin);
-    url.searchParams.set("v", AUTH_VERSION);
+    url.searchParams.set("v", CLIENT_BUILD);
     window.location.replace(url.pathname + url.search);
   };
 

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { AUTH_VERSION, SESSION_COOKIE } from "@/lib/auth/config";
+import { CLIENT_BUILD, SESSION_COOKIE } from "@/lib/auth/config";
 import { readSessionToken, sessionCookieFromRequest } from "@/lib/auth/token";
 
-const PUBLIC_PATHS = ["/login", "/api/auth", "/sw.js", "/version.json"];
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/version", "/sw.js", "/version.json"];
 const STALE_COOKIES = [
   "rizg_session",
   "rizg_session_v3",
@@ -18,7 +18,7 @@ const STALE_COOKIES = [
 ];
 
 function withNoStore(response: NextResponse, auth: string): NextResponse {
-  response.headers.set("x-rizg-build", AUTH_VERSION);
+  response.headers.set("x-rizg-build", CLIENT_BUILD);
   response.headers.set("x-rizg-auth", auth);
   response.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
   response.headers.set("Pragma", "no-cache");
@@ -65,7 +65,7 @@ export async function middleware(request: NextRequest) {
   login.pathname = "/login";
   const next = `${pathname}${request.nextUrl.search}`;
   login.searchParams.set("next", next.startsWith("/") ? next : pathname);
-  login.searchParams.set("v", AUTH_VERSION);
+  login.searchParams.set("v", CLIENT_BUILD);
   const redirect = withNoStore(NextResponse.redirect(login), token ? "invalid" : "missing");
   clearStale(request, redirect);
   return redirect;

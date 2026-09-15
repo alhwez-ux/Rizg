@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "ignoreCommand": "exit 1",
   "env": {
     "DATABASE_URL": "file:./dev.db",
     "ACCESS_PIN": "123456",
