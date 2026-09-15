@@ -50,9 +50,9 @@ export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<R
   if (rest.body != null) {
     headers["Content-Type"] = "application/json";
   }
-  const timeout = signal ? null : timeoutMs === null ? null : timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+  const timeout = signal ? undefined : timeoutMs === null ? undefined : timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
   const controller = timeout != null && timeout > 0 ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+  const timer = controller && timeout ? setTimeout(() => controller.abort(), timeout) : null;
   try {
     return await fetch(apiUrl(path), {
       ...rest,
