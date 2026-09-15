@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.services.uniticker_flatfiles import collect_live_quotes
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,8 @@ class TickChartAutoSync:
         self._last_file: str | None = None
         self._last_at: str | None = None
         self._errors = 0
+        self._flat_next = 0.0
+        self._flat_fingerprint: tuple[int, str] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -150,6 +153,7 @@ class TickChartAutoSync:
             await asyncio.sleep(self._poll)
 
     async def _scan_once(self) -> None:
+        await self._scan_flatfiles()
         for path in self._iter_files():
             if not self._running:
                 return
@@ -182,6 +186,35 @@ class TickChartAutoSync:
                 if callable(mark):
                     mark()
                 logger.info("TickChart autosync ingested %s prints from %s", ingested, path.name)
+
+    async def _scan_flatfiles(self) -> None:
+        now = datetime.now(timezone.utc).timestamp()
+        if now < self._flat_next:
+            return
+        self._flat_next = now + 10.0
+        quotes = await asyncio.to_thread(collect_live_quotes)
+        if not quotes:
+            return
+        fingerprint = tuple((item.get("symbol"), item.get("price"), item.get("time")) for item in quotes)
+        if fingerprint == self._flat_fingerprint:
+            return
+        ingester = getattr(self._feed, "ingest_quote_snapshot", None)
+        if callable(ingester):
+            ingested = await ingester(quotes)
+        else:
+            ingested = 0
+            for payload in quotes:
+                ingested += await self._feed.ingest_message(payload)
+        if not ingested:
+            return
+        self._flat_fingerprint = fingerprint
+        self._ingested += ingested
+        self._last_file = "uniticker_1m"
+        self._last_at = datetime.now(timezone.utc).isoformat()
+        mark = getattr(self._feed, "mark_desktop_live", None)
+        if callable(mark):
+            mark()
+        logger.info("TickChart autosync ingested %s UniTicker 1m quotes", ingested)
 
     def _iter_files(self) -> list[Path]:
         found: list[Path] = []

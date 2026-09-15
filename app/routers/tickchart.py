@@ -125,9 +125,21 @@ async def upload_tickchart_file(
         if parsed.symbol:
             filename = f"{parsed.symbol}_{filename}"
     payloads = parse_export_text(raw, filename or "upload.csv")
-    ingested = 0
-    for item in payloads:
-        ingested += await feed.ingest_message(item)
+    quote_rows = [
+        item
+        for item in payloads
+        if isinstance(item, dict)
+        and (
+            str(item.get("type") or "").lower() == "quote"
+            or (item.get("price") is not None and item.get("symbol") and "bids" not in item)
+        )
+    ]
+    if quote_rows and len(quote_rows) == len(payloads):
+        ingested = await feed.ingest_quote_snapshot(quote_rows)
+    else:
+        ingested = 0
+        for item in payloads:
+            ingested += await feed.ingest_message(item)
     return TickChartIngestResponse(success=True, ingested=ingested)
 
 

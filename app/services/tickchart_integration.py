@@ -304,6 +304,53 @@ class TickChartFeed:
             self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
         return ingested
 
+    async def ingest_quote_snapshot(self, rows: list[dict[str, Any]]) -> int:
+        """Ingest a market-watch snapshot with one disk write and no websocket storm."""
+
+        accepted: list[dict[str, Any]] = []
+        for payload in rows:
+            if not isinstance(payload, dict):
+                continue
+            parsed = parse_tick(payload)
+            if parsed is None:
+                continue
+            symbol, price, volume, timestamp, dedupe_key = parsed
+            if not self._mark_seen(dedupe_key):
+                continue
+            try:
+                result = self._engine.process_trade(symbol, price, volume, timestamp=timestamp)
+                self._tape(symbol).observe_print(
+                    price,
+                    volume,
+                    side=result.side,
+                    block_floor=self._block_floor,
+                )
+                self._last_trade_time[symbol] = timestamp.isoformat()
+            except Exception:
+                logger.exception("failed to ingest TickChart snapshot for %s", symbol)
+                continue
+            extras: dict[str, Any] = {
+                "symbol": symbol,
+                "last_price": float(price),
+                "volume": payload.get("session_volume"),
+                "value_traded": payload.get("value_traded"),
+                "change_percent": payload.get("change_percent"),
+                "net_flow": payload.get("net_flow"),
+                "prev_close": payload.get("prev_close"),
+                "high": payload.get("high"),
+                "low": payload.get("low"),
+                "open": payload.get("open"),
+                "liquidity_flow": payload.get("liquidity_flow"),
+            }
+            accepted.append(extras)
+        if not accepted:
+            return 0
+        self._quotes.apply_closes(accepted, accumulate_volume=False)
+        self.mark_desktop_live()
+        self._last_cloud_count += len(accepted)
+        self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
+        return len(accepted)
+
     async def hydrate_symbol(self, symbol: str) -> int:
         """Optional REST snapshot only when TICKCHART_REST_URL is set."""
 

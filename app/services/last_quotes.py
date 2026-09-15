@@ -22,6 +22,7 @@ class LastQuoteBook:
         self._guard = threading.RLock()
         self._quotes: dict[str, dict[str, Any]] = {}
         self._history: dict[str, list[dict[str, Any]]] = {}
+        self._dirty = False
         self._load()
         if path is None and not self._quotes:
             self.seed_bundled_tape()
@@ -39,7 +40,13 @@ class LastQuoteBook:
             accumulate_volume=True,
         )
 
-    def apply_closes(self, rows: list[dict[str, Any]], *, accumulate_volume: bool = False) -> int:
+    def apply_closes(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        accumulate_volume: bool = False,
+        persist: bool = True,
+    ) -> int:
         """Store last-close quotes in one write. Volume is replaced unless accumulating prints."""
 
         applied = 0
@@ -80,8 +87,15 @@ class LastQuoteBook:
                 self._history[ticker] = bars[-_HISTORY_LIMIT:]
                 applied += 1
             if applied:
-                self._save()
+                self._dirty = True
+                if persist:
+                    self._save_locked()
         return applied
+
+    def flush(self) -> None:
+        with self._guard:
+            if self._dirty:
+                self._save_locked()
 
     def get(self, symbol: str) -> dict[str, Any] | None:
         ticker = str(symbol or "").strip().upper()
@@ -150,7 +164,8 @@ class LastQuoteBook:
                 ordered = sorted(current.values(), key=lambda row: str(row.get("date") or ""))
                 self._history[ticker] = ordered[-_HISTORY_LIMIT:]
             if applied:
-                self._save()
+                self._dirty = True
+                self._save_locked()
         return applied
 
     def seed_bundled_tape(self, path: Path | None = None) -> int:
@@ -207,9 +222,16 @@ class LastQuoteBook:
                     self._history[str(key).upper()] = [dict(bar) for bar in bars if isinstance(bar, dict)]
 
     def _save(self) -> None:
+        with self._guard:
+            self._save_locked()
+
+    def _save_locked(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"quotes": self._quotes, "history": self._history}
-        self._path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self._path)
+        self._dirty = False
 
 
 def _close_row(item: dict[str, Any]) -> tuple[str, float | None, dict[str, Any]]:
