@@ -50,9 +50,9 @@ class InvalidTradeError(AppError):
 
 
 class InvalidSymbolError(AppError):
-    def __init__(self, symbol: str) -> None:
+    def __init__(self, symbol: str, *, message: str | None = None) -> None:
         super().__init__(
-            "رمز السهم غير صالح. استخدم رمز تداول من 4 أرقام مثل 4030.",
+            message or "رمز السهم غير صالح. استخدم رمز تداول من 4 أرقام أو اسم الشركة المدرجة.",
             status_code=422,
             error_code="invalid_symbol",
             details={"symbol": symbol},

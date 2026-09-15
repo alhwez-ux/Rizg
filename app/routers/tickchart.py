@@ -10,8 +10,7 @@ from app.models.schemas import (
     TickChartStatusResponse,
     TickChartUploadText,
 )
-from app.models.screener import normalize_tasi_symbol
-from app.services.shariah import company_name_for
+from app.services.shariah import company_name_for, resolve_listed_company, search_listed_companies
 from app.services.tickchart_autosync import parse_export_text
 
 router = APIRouter(prefix="/api/v1/tickchart", tags=["tickchart"])
@@ -88,10 +87,16 @@ async def refresh_tickchart_live(request: Request) -> dict[str, Any]:
 
 @router.post("/follow")
 async def follow_symbol(payload: TickChartFollowBody, request: Request) -> dict[str, Any]:
-    try:
-        ticker = normalize_tasi_symbol(payload.symbol)
-    except ValueError:
+    resolved = resolve_listed_company(payload.symbol)
+    if resolved is None:
+        matches = search_listed_companies(payload.symbol, limit=5)
+        if matches:
+            raise InvalidSymbolError(
+                payload.symbol,
+                message="عدة شركات تطابق البحث — اختر الرمز أو الاسم الكامل من القائمة",
+            )
         raise InvalidSymbolError(payload.symbol)
+    ticker, name = resolved
     feed = _require_feed(request)
     watchlist = getattr(request.app.state, "watchlist", None)
     if watchlist is not None:
@@ -104,7 +109,7 @@ async def follow_symbol(payload: TickChartFollowBody, request: Request) -> dict[
         "success": True,
         "source": "TickChart",
         "symbol": ticker,
-        "name": company_name_for(ticker) or ticker,
+        "name": name or company_name_for(ticker) or ticker,
         "analysis": report,
     }
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ar } from "@/lib/ar";
+import { resolveListedCompany, searchListedCompanies, type ListedCompany } from "@/lib/listedCompanies";
 import {
   fetchTickChartStatus,
   followTickChartSymbol,
@@ -17,7 +18,8 @@ export function TickChartSyncChip({
   onFollow?: (company: { symbol: string; name: string }) => void;
 }) {
   const [status, setStatus] = useState<TickChartStatus | null>(null);
-  const [symbol, setSymbol] = useState("");
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<ListedCompany[]>([]);
   const [busy, setBusy] = useState<"follow" | "refresh" | "upload" | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -72,16 +74,26 @@ export function TickChartSyncChip({
         ? ar.tickchartSyncLastClose
         : ar.tickchartSyncIdle;
 
-  const follow = async () => {
-    const ticker = symbol.trim();
-    if (!ticker) return;
+  const follow = async (picked?: ListedCompany) => {
+    const raw = picked?.symbol || query.trim();
+    if (!raw) return;
+    const local = picked || resolveListedCompany(raw);
+    const matches = local ? [local] : searchListedCompanies(raw, 5);
+    if (!local && matches.length > 1) {
+      setSuggestions(matches);
+      setMessage(ar.tickchartFollowAmbiguous);
+      return;
+    }
+    const ticker = local?.symbol || raw;
     setBusy("follow");
     setMessage(null);
     try {
       const result = await followTickChartSymbol(ticker);
-      setSymbol("");
-      onFollow?.({ symbol: result.symbol, name: result.name });
-      setMessage(`${ar.tickchartFollowed} ${result.name}`);
+      const name = result.name && result.name !== result.symbol ? result.name : local?.name || result.symbol;
+      setQuery("");
+      setSuggestions([]);
+      onFollow?.({ symbol: result.symbol, name });
+      setMessage(`${ar.tickchartFollowed} ${name} (${result.symbol})`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : ar.tickchartFollowError);
     } finally {
@@ -143,26 +155,51 @@ export function TickChartSyncChip({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          value={symbol}
-          onChange={(event) => setSymbol(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void follow();
-            }
-          }}
-          inputMode="numeric"
-          maxLength={4}
-          placeholder={ar.tickchartSymbolPlaceholder}
-          className="min-h-11 flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none ring-sky-500/40 placeholder:text-zinc-500 focus:ring-2"
-          aria-label={ar.tickchartSymbolPlaceholder}
-        />
+      <div className="relative flex flex-col gap-2 sm:flex-row">
+        <div className="relative min-w-0 flex-1">
+          <input
+            value={query}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              setSuggestions(searchListedCompanies(next, 6));
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void follow();
+              }
+              if (event.key === "Escape") setSuggestions([]);
+            }}
+            maxLength={80}
+            placeholder={ar.tickchartSymbolPlaceholder}
+            className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none ring-sky-500/40 placeholder:text-zinc-500 focus:ring-2"
+            aria-label={ar.tickchartSymbolPlaceholder}
+            autoComplete="off"
+          />
+          {suggestions.length ? (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 py-1 shadow-lg">
+              {suggestions.map((item) => (
+                <li key={item.symbol}>
+                  <button
+                    type="button"
+                    onClick={() => void follow(item)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm text-zinc-200 hover:bg-sky-500/15"
+                  >
+                    <span>{item.name}</span>
+                    <span className="font-mono text-xs text-zinc-500" dir="ltr">
+                      {item.symbol}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={() => void follow()}
-          disabled={busy !== null || !symbol.trim()}
+          disabled={busy !== null || !query.trim()}
           className="min-h-11 rounded-xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:opacity-50"
         >
           {busy === "follow" ? ar.tickchartFollowing : ar.tickchartFollow}

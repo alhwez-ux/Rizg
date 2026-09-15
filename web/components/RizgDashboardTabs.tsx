@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useId, useMemo, type KeyboardEvent } from "react";
+import { Suspense, useCallback, useEffect, useId, useMemo, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
@@ -13,19 +13,13 @@ import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import NotificationCenter from "./NotificationCenter";
+import { useMarketRadarList } from "@/hooks/useMarketRadarList";
+import { listedNameFor } from "@/lib/listedCompanies";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
 type DashboardTab = "sectors" | "radar" | "recommendations" | "ranking";
-
-const MARKET_RADAR = [
-  { symbol: "1120", symbolName: "الراجحي" },
-  { symbol: "2222", symbolName: "أرامكو السعودية" },
-  { symbol: "2010", symbolName: "سابك" },
-  { symbol: "7010", symbolName: "الاتصالات السعودية" },
-  { symbol: "1150", symbolName: "الإنماء" },
-] as const;
 
 function parseTab(value: string | null): DashboardTab {
   if (value === "radar" || value === "recommendations" || value === "ranking" || value === "sectors") {
@@ -45,6 +39,7 @@ function DashboardShell() {
   const selectedSector = searchParams.get("sector");
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
+  const { companies: radarCards, addCompany, removeCompany, ready: radarReady } = useMarketRadarList();
   const tabs = useMemo(
     () =>
       [
@@ -59,13 +54,6 @@ function DashboardShell() {
       ] satisfies { id: DashboardTab; label: string; icon: string }[],
     [sessionLive],
   );
-  const radarCards = useMemo(() => {
-    const extra =
-      radarSymbol && !MARKET_RADAR.some((item) => item.symbol === radarSymbol)
-        ? [{ symbol: radarSymbol, symbolName: radarName || radarSymbol }]
-        : [];
-    return [...extra, ...MARKET_RADAR];
-  }, [radarName, radarSymbol]);
 
   const replaceQuery = useCallback(
     (patch: Record<string, string | null>) => {
@@ -89,6 +77,21 @@ function DashboardShell() {
       replaceQuery({ tab: id, sector: null, symbol: null, name: null });
     },
     [replaceQuery],
+  );
+
+  useEffect(() => {
+    if (!radarReady || !radarSymbol) return;
+    addCompany({ symbol: radarSymbol, name: listedNameFor(radarSymbol) || radarName || radarSymbol });
+  }, [addCompany, radarName, radarReady, radarSymbol]);
+
+  const removeRadarCompany = useCallback(
+    (symbol: string) => {
+      removeCompany(symbol);
+      if (radarSymbol?.toUpperCase() === symbol.toUpperCase()) {
+        replaceQuery({ symbol: null, name: null });
+      }
+    },
+    [radarSymbol, removeCompany, replaceQuery],
   );
 
   const onTabKeyDown = useCallback(
@@ -126,9 +129,10 @@ function DashboardShell() {
             <AuthControls />
           </div>
           <TickChartSyncChip
-            onFollow={(company) =>
-              replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null })
-            }
+            onFollow={(company) => {
+              addCompany(company);
+              replaceQuery({ tab: "radar", symbol: company.symbol, name: null, sector: null });
+            }}
           />
         </div>
       </div>
@@ -207,13 +211,18 @@ function DashboardShell() {
               <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
             </div>
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {radarCards.map((item) => (
-                <LiquidityRadarCard
-                  key={item.symbol}
-                  symbol={item.symbol}
-                  symbolName={item.symbolName}
-                />
-              ))}
+              {radarCards.length === 0 ? (
+                <p className="text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
+              ) : (
+                radarCards.map((item) => (
+                  <LiquidityRadarCard
+                    key={item.symbol}
+                    symbol={item.symbol}
+                    symbolName={item.symbolName}
+                    onRemove={() => removeRadarCompany(item.symbol)}
+                  />
+                ))
+              )}
             </div>
           </div>
         ) : null}

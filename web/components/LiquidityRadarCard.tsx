@@ -21,14 +21,16 @@ import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 export function LiquidityRadarCard({
   symbol,
   symbolName,
+  onRemove,
 }: {
   symbol: string;
   symbolName?: string;
+  onRemove?: () => void;
 }) {
   const { data, loading, refresh } = useLiveRadar(symbol);
   const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
   const report = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
-  const title = (symbolName || "").trim();
+  const title = displayCompanyTitle(symbol, symbolName);
   const quoteMode = report?.quote_mode ?? (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
   const live = quoteMode === "live" && status === "live";
   const statusLabel = live
@@ -44,7 +46,7 @@ export function LiquidityRadarCard({
           <p className="text-sm font-medium text-zinc-500">{ar.liveRadarTitle}</p>
           <h3 className="mt-1 text-2xl font-semibold text-zinc-50">
             {title ? <span>{title} </span> : null}
-            <span className="font-mono" dir="ltr">
+            <span className="font-mono text-lg text-zinc-300" dir="ltr">
               {symbol}
             </span>
           </h3>
@@ -71,6 +73,16 @@ export function LiquidityRadarCard({
           >
             {ar.radarRetry}
           </button>
+          {onRemove ? (
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={`${ar.marketRadarRemove} ${title || symbol}`}
+              className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-rose-500 hover:bg-rose-500/10 hover:text-rose-300"
+            >
+              {ar.marketRadarRemove}
+            </button>
+          ) : null}
         </div>
       </div>
 

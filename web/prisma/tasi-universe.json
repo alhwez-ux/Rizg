@@ -1,7 +1,7 @@
 [
   {
     "symbol": "1120",
-    "companyNameAr": "مصرف الراجحي",
+    "companyNameAr": "الراجحي",
     "companyNameEn": "Al Rajhi Bank",
     "currentStatus": "PURE",
     "sector": "المصارف",
@@ -11,7 +11,7 @@
   },
   {
     "symbol": "1140",
-    "companyNameAr": "بنك البلاد",
+    "companyNameAr": "البلاد",
     "companyNameEn": "Bank Albilad",
     "currentStatus": "PURE",
     "sector": "المصارف",
@@ -21,7 +21,7 @@
   },
   {
     "symbol": "1150",
-    "companyNameAr": "مصرف الإنماء",
+    "companyNameAr": "الإنماء",
     "companyNameEn": "Alinma Bank",
     "currentStatus": "PURE",
     "sector": "المصارف",
@@ -31,7 +31,7 @@
   },
   {
     "symbol": "1020",
-    "companyNameAr": "بنك الجزيرة",
+    "companyNameAr": "الجزيرة",
     "companyNameEn": "Bank AlJazira",
     "currentStatus": "PURE",
     "sector": "المصارف",
@@ -41,7 +41,7 @@
   },
   {
     "symbol": "1182",
-    "companyNameAr": "أم القرى للتنمية",
+    "companyNameAr": "أملاك",
     "companyNameEn": "Umm Al Qura",
     "currentStatus": "PURE",
     "sector": "العقارات",
@@ -51,7 +51,7 @@
   },
   {
     "symbol": "4330",
-    "companyNameAr": "الرياض للتعمير",
+    "companyNameAr": "الرياض ريت",
     "companyNameEn": "Riyad REIT",
     "currentStatus": "PURE",
     "sector": "الصناديق العقارية",
@@ -61,7 +61,7 @@
   },
   {
     "symbol": "4340",
-    "companyNameAr": "الجزيرة ريت",
+    "companyNameAr": "الراجحي ريت",
     "companyNameEn": "AlJazira REIT",
     "currentStatus": "PURE",
     "sector": "الصناديق العقارية",
@@ -81,7 +81,7 @@
   },
   {
     "symbol": "1010",
-    "companyNameAr": "بنك الرياض",
+    "companyNameAr": "الرياض",
     "companyNameEn": "Riyad Bank",
     "currentStatus": "PROHIBITED",
     "sector": "المصارف",
@@ -91,7 +91,7 @@
   },
   {
     "symbol": "1030",
-    "companyNameAr": "البنك السعودي للاستثمار",
+    "companyNameAr": "الإستثمار",
     "companyNameEn": "SAIB",
     "currentStatus": "PROHIBITED",
     "sector": "المصارف",
@@ -101,7 +101,7 @@
   },
   {
     "symbol": "1050",
-    "companyNameAr": "البنك السعودي البريطاني",
+    "companyNameAr": "بي اس اف",
     "companyNameEn": "SABB",
     "currentStatus": "PROHIBITED",
     "sector": "المصارف",
@@ -111,7 +111,7 @@
   },
   {
     "symbol": "1080",
-    "companyNameAr": "البنك العربي الوطني",
+    "companyNameAr": "العربي",
     "companyNameEn": "ANB",
     "currentStatus": "PROHIBITED",
     "sector": "المصارف",
@@ -131,7 +131,7 @@
   },
   {
     "symbol": "1180",
-    "companyNameAr": "الأهلي السعودي",
+    "companyNameAr": "الأهلي",
     "companyNameEn": "SNB",
     "currentStatus": "PROHIBITED",
     "sector": "المصارف",
@@ -141,7 +141,7 @@
   },
   {
     "symbol": "8040",
-    "companyNameAr": "أليانز السعودي الفرنسي",
+    "companyNameAr": "متكاملة",
     "companyNameEn": "Allianz SF",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -241,7 +241,7 @@
   },
   {
     "symbol": "2310",
-    "companyNameAr": "سبكيم",
+    "companyNameAr": "سبكيم العالمية",
     "companyNameEn": "Sipchem",
     "currentStatus": "MIXED",
     "sector": "المواد الأساسية",
@@ -301,7 +301,7 @@
   },
   {
     "symbol": "2082",
-    "companyNameAr": "أكوا باور",
+    "companyNameAr": "أكوا",
     "companyNameEn": "ACWA Power",
     "currentStatus": "MIXED",
     "sector": "المرافق",
@@ -311,7 +311,7 @@
   },
   {
     "symbol": "5110",
-    "companyNameAr": "الكهرباء السعودية",
+    "companyNameAr": "السعودية للطاقة",
     "companyNameEn": "Saudi Electricity",
     "currentStatus": "MIXED",
     "sector": "المرافق",
@@ -391,7 +391,7 @@
   },
   {
     "symbol": "7200",
-    "companyNameAr": "أم آي إس",
+    "companyNameAr": "ام آي اس",
     "companyNameEn": "MIS",
     "currentStatus": "MIXED",
     "sector": "الاتصالات",
@@ -421,7 +421,7 @@
   },
   {
     "symbol": "4100",
-    "companyNameAr": "مكة للإنشاء",
+    "companyNameAr": "مكة",
     "companyNameEn": "Makkah Construction",
     "currentStatus": "MIXED",
     "sector": "العقارات",
@@ -461,7 +461,7 @@
   },
   {
     "symbol": "4001",
-    "companyNameAr": "العثيم",
+    "companyNameAr": "أسواق ع العثيم",
     "companyNameEn": "Abdullah Al Othaim",
     "currentStatus": "MIXED",
     "sector": "التجزئة",
@@ -491,7 +491,7 @@
   },
   {
     "symbol": "4006",
-    "companyNameAr": "الحكير",
+    "companyNameAr": "أسواق المزرعة",
     "companyNameEn": "Fawaz Alhokair",
     "currentStatus": "MIXED",
     "sector": "التجزئة",
@@ -531,7 +531,7 @@
   },
   {
     "symbol": "2270",
-    "companyNameAr": "صافولا",
+    "companyNameAr": "سدافكو",
     "companyNameEn": "Savola",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -541,7 +541,7 @@
   },
   {
     "symbol": "2050",
-    "companyNameAr": "صافولا للأغذية",
+    "companyNameAr": "مجموعة صافولا",
     "companyNameEn": "Savola Foods",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -561,7 +561,7 @@
   },
   {
     "symbol": "6002",
-    "companyNameAr": "هرفي",
+    "companyNameAr": "هرفي للأغذية",
     "companyNameEn": "Herfy",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -611,7 +611,7 @@
   },
   {
     "symbol": "4013",
-    "companyNameAr": "الحمادي",
+    "companyNameAr": "سليمان الحبيب",
     "companyNameEn": "Al Hammadi",
     "currentStatus": "MIXED",
     "sector": "الرعاية الصحية",
@@ -621,7 +621,7 @@
   },
   {
     "symbol": "4007",
-    "companyNameAr": "المواساة",
+    "companyNameAr": "الحمادي",
     "companyNameEn": "Al Mouwasat",
     "currentStatus": "MIXED",
     "sector": "الرعاية الصحية",
@@ -631,7 +631,7 @@
   },
   {
     "symbol": "4014",
-    "companyNameAr": "سليمان الحبيب",
+    "companyNameAr": "دار المعدات",
     "companyNameEn": "Dr. Sulaiman Al Habib",
     "currentStatus": "MIXED",
     "sector": "الرعاية الصحية",
@@ -681,7 +681,7 @@
   },
   {
     "symbol": "3050",
-    "companyNameAr": "أسمنت الجنوبية",
+    "companyNameAr": "أسمنت الجنوب",
     "companyNameEn": "Southern Cement",
     "currentStatus": "MIXED",
     "sector": "الأسمنت",
@@ -711,7 +711,7 @@
   },
   {
     "symbol": "1303",
-    "companyNameAr": "الكابلات",
+    "companyNameAr": "الصناعات الكهربائية",
     "companyNameEn": "Riyadh Cables",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -721,7 +721,7 @@
   },
   {
     "symbol": "2200",
-    "companyNameAr": "أنابيب السعودية",
+    "companyNameAr": "أنابيب",
     "companyNameEn": "Saudi Pipes",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -731,7 +731,7 @@
   },
   {
     "symbol": "1320",
-    "companyNameAr": "البحر الأحمر",
+    "companyNameAr": "أنابيب السعودية",
     "companyNameEn": "Red Sea International",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -741,7 +741,7 @@
   },
   {
     "symbol": "1830",
-    "companyNameAr": "وقت اللياقة",
+    "companyNameAr": "لجام للرياضة",
     "companyNameEn": "Leejam",
     "currentStatus": "MIXED",
     "sector": "الخدمات",
@@ -811,7 +811,7 @@
   },
   {
     "symbol": "4130",
-    "companyNameAr": "البحر الأحمر العالمية",
+    "companyNameAr": "درب السعودية",
     "companyNameEn": "Red Sea Global",
     "currentStatus": "MIXED",
     "sector": "العقارات",
@@ -831,7 +831,7 @@
   },
   {
     "symbol": "2090",
-    "companyNameAr": "الجبس",
+    "companyNameAr": "جبسكو",
     "companyNameEn": "Gypsum",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -871,7 +871,7 @@
   },
   {
     "symbol": "8060",
-    "companyNameAr": "ولاء للتأمين",
+    "companyNameAr": "ولاء",
     "companyNameEn": "Walaa",
     "currentStatus": "MIXED",
     "sector": "التأمين",
@@ -881,7 +881,7 @@
   },
   {
     "symbol": "8012",
-    "companyNameAr": "الجزيرة تكافل",
+    "companyNameAr": "جزيرة تكافل",
     "companyNameEn": "AlJazira Takaful",
     "currentStatus": "PURE",
     "sector": "التأمين",
@@ -891,7 +891,7 @@
   },
   {
     "symbol": "4331",
-    "companyNameAr": "الأهلي ريت",
+    "companyNameAr": "الجزيرة ريت",
     "companyNameEn": "SNB REIT",
     "currentStatus": "PURE",
     "sector": "الصناديق العقارية",
@@ -911,7 +911,7 @@
   },
   {
     "symbol": "4348",
-    "companyNameAr": "الراجحي ريت",
+    "companyNameAr": "الخبير ريت",
     "companyNameEn": "Al Rajhi REIT",
     "currentStatus": "PURE",
     "sector": "الصناديق العقارية",
@@ -921,7 +921,7 @@
   },
   {
     "symbol": "4349",
-    "companyNameAr": "الإنماء ريت",
+    "companyNameAr": "الإنماء ريت الفندقي",
     "companyNameEn": "Alinma REIT",
     "currentStatus": "PURE",
     "sector": "الصناديق العقارية",
@@ -941,7 +941,7 @@
   },
   {
     "symbol": "8030",
-    "companyNameAr": "ميدغلف",
+    "companyNameAr": "ميدغلف للتأمين",
     "companyNameEn": "MedGulf",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -1001,7 +1001,7 @@
   },
   {
     "symbol": "8170",
-    "companyNameAr": "الاتحاد للتأمين",
+    "companyNameAr": "الاتحاد",
     "companyNameEn": "Al Etihad",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -1031,7 +1031,7 @@
   },
   {
     "symbol": "8240",
-    "companyNameAr": "تشب العربية",
+    "companyNameAr": "تْشب",
     "companyNameEn": "CHUBB Arabia",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -1061,7 +1061,7 @@
   },
   {
     "symbol": "8280",
-    "companyNameAr": "العالمية للتأمين",
+    "companyNameAr": "ليفا",
     "companyNameEn": "Wataniya",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -1071,7 +1071,7 @@
   },
   {
     "symbol": "8300",
-    "companyNameAr": "الوطنية للتأمين",
+    "companyNameAr": "الوطنية",
     "companyNameEn": "Watani",
     "currentStatus": "PROHIBITED",
     "sector": "التأمين",
@@ -1081,7 +1081,7 @@
   },
   {
     "symbol": "2170",
-    "companyNameAr": "لوبريف",
+    "companyNameAr": "اللجين",
     "companyNameEn": "Luberef",
     "currentStatus": "MIXED",
     "sector": "الطاقة",
@@ -1091,7 +1091,7 @@
   },
   {
     "symbol": "2080",
-    "companyNameAr": "غازكو",
+    "companyNameAr": "الغاز القابضة",
     "companyNameEn": "Gasco",
     "currentStatus": "MIXED",
     "sector": "المرافق",
@@ -1131,7 +1131,7 @@
   },
   {
     "symbol": "1202",
-    "companyNameAr": "ميبكو",
+    "companyNameAr": "مبكو",
     "companyNameEn": "MEPCO",
     "currentStatus": "MIXED",
     "sector": "المواد الأساسية",
@@ -1161,7 +1161,7 @@
   },
   {
     "symbol": "1214",
-    "companyNameAr": "الحسن والصافي",
+    "companyNameAr": "شاكر",
     "companyNameEn": "Al Hassan & Al Safi",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -1201,7 +1201,7 @@
   },
   {
     "symbol": "1820",
-    "companyNameAr": "مجموعة الحكير",
+    "companyNameAr": "بان",
     "companyNameEn": "Al Hokair Group",
     "currentStatus": "MIXED",
     "sector": "الخدمات",
@@ -1221,7 +1221,7 @@
   },
   {
     "symbol": "1835",
-    "companyNameAr": "البابطين للطيران",
+    "companyNameAr": "تمكين",
     "companyNameEn": "Al Babtain Aviation",
     "currentStatus": "MIXED",
     "sector": "النقل",
@@ -1231,7 +1231,7 @@
   },
   {
     "symbol": "2120",
-    "companyNameAr": "المتطورة",
+    "companyNameAr": "متطورة",
     "companyNameEn": "Advanced",
     "currentStatus": "MIXED",
     "sector": "المواد الأساسية",
@@ -1271,7 +1271,7 @@
   },
   {
     "symbol": "2190",
-    "companyNameAr": "سيسكو",
+    "companyNameAr": "سيسكو القابضة",
     "companyNameEn": "SISCO",
     "currentStatus": "MIXED",
     "sector": "النقل",
@@ -1291,7 +1291,7 @@
   },
   {
     "symbol": "2240",
-    "companyNameAr": "الزامل للصناعة",
+    "companyNameAr": "صناعات",
     "companyNameEn": "Zamil Industrial",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -1361,7 +1361,7 @@
   },
   {
     "symbol": "3005",
-    "companyNameAr": "أسمنت أم القرى",
+    "companyNameAr": "أسمنت ام القرى",
     "companyNameEn": "Umm Al-Qura Cement",
     "currentStatus": "MIXED",
     "sector": "الأسمنت",
@@ -1381,7 +1381,7 @@
   },
   {
     "symbol": "3092",
-    "companyNameAr": "أسمنت الباحة",
+    "companyNameAr": "أسمنت الرياض",
     "companyNameEn": "Baha Cement",
     "currentStatus": "MIXED",
     "sector": "الأسمنت",
@@ -1391,7 +1391,7 @@
   },
   {
     "symbol": "4002",
-    "companyNameAr": "المواشي",
+    "companyNameAr": "المواساة",
     "companyNameEn": "Almowasat",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -1421,7 +1421,7 @@
   },
   {
     "symbol": "4012",
-    "companyNameAr": "ثوب الأصيل",
+    "companyNameAr": "الأصيل",
     "companyNameEn": "Thob Al Aseel",
     "currentStatus": "MIXED",
     "sector": "التجزئة",
@@ -1481,7 +1481,7 @@
   },
   {
     "symbol": "4081",
-    "companyNameAr": "سينومي سنترز",
+    "companyNameAr": "النايفات",
     "companyNameEn": "Cenomi Centers",
     "currentStatus": "MIXED",
     "sector": "العقارات",
@@ -1501,7 +1501,7 @@
   },
   {
     "symbol": "4161",
-    "companyNameAr": "بن شاكر",
+    "companyNameAr": "بن داود",
     "companyNameEn": "BinShakir",
     "currentStatus": "MIXED",
     "sector": "التجزئة",
@@ -1511,7 +1511,7 @@
   },
   {
     "symbol": "4162",
-    "companyNameAr": "أنابيب الشرق",
+    "companyNameAr": "المنجم",
     "companyNameEn": "East Pipes",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -1551,7 +1551,7 @@
   },
   {
     "symbol": "4180",
-    "companyNameAr": "الفخارية",
+    "companyNameAr": "مجموعة فتيحي",
     "companyNameEn": "Saudi Vitrified",
     "currentStatus": "MIXED",
     "sector": "الصناعة",
@@ -1571,7 +1571,7 @@
   },
   {
     "symbol": "4210",
-    "companyNameAr": "الأبحاث والتسويق",
+    "companyNameAr": "الأبحاث والإعلام",
     "companyNameEn": "SRMG",
     "currentStatus": "MIXED",
     "sector": "الإعلام",
@@ -1581,7 +1581,7 @@
   },
   {
     "symbol": "4220",
-    "companyNameAr": "إعمار المدينة",
+    "companyNameAr": "إعمار",
     "companyNameEn": "Emaar The Economic City",
     "currentStatus": "MIXED",
     "sector": "العقارات",
@@ -1621,7 +1621,7 @@
   },
   {
     "symbol": "4270",
-    "companyNameAr": "فنادق السعودية",
+    "companyNameAr": "طباعة وتغليف",
     "companyNameEn": "Saudi Hotels",
     "currentStatus": "MIXED",
     "sector": "السياحة",
@@ -1631,7 +1631,7 @@
   },
   {
     "symbol": "4291",
-    "companyNameAr": "الوطنية للتربية",
+    "companyNameAr": "الوطنية للتعليم",
     "companyNameEn": "National Education",
     "currentStatus": "MIXED",
     "sector": "التعليم",
@@ -1641,7 +1641,7 @@
   },
   {
     "symbol": "4292",
-    "companyNameAr": "إم بي سي",
+    "companyNameAr": "عطاء",
     "companyNameEn": "MBC Group",
     "currentStatus": "MIXED",
     "sector": "الإعلام",
@@ -1651,7 +1651,7 @@
   },
   {
     "symbol": "4321",
-    "companyNameAr": "المراكز العربية",
+    "companyNameAr": "سينومي سنترز",
     "companyNameEn": "Arabian Centres",
     "currentStatus": "MIXED",
     "sector": "العقارات",
@@ -1701,7 +1701,7 @@
   },
   {
     "symbol": "4337",
-    "companyNameAr": "مشاعر ريت",
+    "companyNameAr": "العزيزية ريت",
     "companyNameEn": "Mashaar REIT",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1711,7 +1711,7 @@
   },
   {
     "symbol": "4339",
-    "companyNameAr": "جدوى ريت السعودية",
+    "companyNameAr": "دراية ريت",
     "companyNameEn": "Jadwa REIT Saudi",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1721,7 +1721,7 @@
   },
   {
     "symbol": "4342",
-    "companyNameAr": "جدوى ريت",
+    "companyNameAr": "جدوى ريت السعودية",
     "companyNameEn": "Jadwa REIT",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1741,7 +1741,7 @@
   },
   {
     "symbol": "4345",
-    "companyNameAr": "الأندلس ريت",
+    "companyNameAr": "الإنماء ريت للتجزئة",
     "companyNameEn": "AlAndalus REIT",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1751,7 +1751,7 @@
   },
   {
     "symbol": "4346",
-    "companyNameAr": "بنيان ريت",
+    "companyNameAr": "ميفك ريت",
     "companyNameEn": "Bonyan REIT",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1761,7 +1761,7 @@
   },
   {
     "symbol": "4347",
-    "companyNameAr": "ميفك ريت",
+    "companyNameAr": "بنيان ريت",
     "companyNameEn": "MEFIC REIT",
     "currentStatus": "MIXED",
     "sector": "الصناديق العقارية",
@@ -1771,7 +1771,7 @@
   },
   {
     "symbol": "6013",
-    "companyNameAr": "بن داود",
+    "companyNameAr": "التطويرية الغذائية",
     "companyNameEn": "BinDawood",
     "currentStatus": "MIXED",
     "sector": "التجزئة",
@@ -1781,8 +1781,8 @@
   },
   {
     "symbol": "6014",
-    "companyNameAr": "أمريكانا",
-    "companyNameEn": "Americana",
+    "companyNameAr": "الآمار",
+    "companyNameEn": "Alamar",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
     "purificationRate": 0.014,
@@ -1791,8 +1791,8 @@
   },
   {
     "symbol": "6015",
-    "companyNameAr": "أنعام القابضة",
-    "companyNameEn": "Anaam Holding",
+    "companyNameAr": "أمريكانا",
+    "companyNameEn": "Americana",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
     "purificationRate": 0.02,
@@ -1831,7 +1831,7 @@
   },
   {
     "symbol": "6070",
-    "companyNameAr": "الجوف الزراعية",
+    "companyNameAr": "الجوف",
     "companyNameEn": "Al Jouf Agricultural",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -1851,7 +1851,7 @@
   },
   {
     "symbol": "7201",
-    "companyNameAr": "باتك",
+    "companyNameAr": "بحر العرب",
     "companyNameEn": "Batic",
     "currentStatus": "MIXED",
     "sector": "الخدمات",
@@ -1891,7 +1891,7 @@
   },
   {
     "symbol": "4009",
-    "companyNameAr": "المطاحن الأولى",
+    "companyNameAr": "السعودي الألماني الصحية",
     "companyNameEn": "First Mills",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -1901,7 +1901,7 @@
   },
   {
     "symbol": "2283",
-    "companyNameAr": "المطاحن الحديثة",
+    "companyNameAr": "المطاحن الأولى",
     "companyNameEn": "Modern Mills",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
@@ -1928,5 +1928,15 @@
     "purificationRate": 0.012,
     "debtRatio": 0.21,
     "impureIncomeRatio": 0.021
+  },
+  {
+    "symbol": "4061",
+    "companyNameAr": "أنعام القابضة",
+    "companyNameEn": "Anaam Holding",
+    "currentStatus": "MIXED",
+    "sector": "الأغذية",
+    "purificationRate": 0.02,
+    "debtRatio": 0.31,
+    "impureIncomeRatio": 0.032
   }
 ]

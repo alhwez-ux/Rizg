@@ -153,7 +153,7 @@ class TickChartStatusResponse(BaseModel):
 
 
 class TickChartFollowBody(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=8)
+    symbol: str = Field(..., min_length=1, max_length=80)
 
 
 class TickChartUploadText(BaseModel):
