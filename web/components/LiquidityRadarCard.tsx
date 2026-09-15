@@ -2,7 +2,14 @@
 
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
-import { formatMoney, formatPercent, formatPrice, formatRatio } from "@/lib/liquidity";
+import {
+  formatMoney,
+  formatPercent,
+  formatPrice,
+  formatRatio,
+  regimeFromNetFlow,
+  type TapeRegime,
+} from "@/lib/liquidity";
 import {
   overlayTickOnReport,
   type LiveRadarReport,
@@ -53,6 +60,7 @@ export function LiquidityRadarCard({
           >
             {statusLabel}
           </span>
+          {report ? <RegimePill report={report} /> : null}
           {report ? <SignalPill report={report} /> : null}
           <button
             type="button"
@@ -77,9 +85,29 @@ export function LiquidityRadarCard({
   );
 }
 
+function stockRegime(report: LiveRadarReport): TapeRegime {
+  if (report.net_flow) return regimeFromNetFlow(report.net_flow);
+  const change = report.change_percent ?? 0;
+  if (change > 0) return "accumulation";
+  if (change < 0) return "distribution";
+  return "neutral";
+}
+
+function regimeCopy(regime: TapeRegime): { label: string; hint: string; tone: "up" | "down" | "flat" } {
+  if (regime === "accumulation") {
+    return { label: ar.accumulation, hint: ar.accumulationDesc, tone: "up" };
+  }
+  if (regime === "distribution") {
+    return { label: ar.distribution, hint: ar.distributionDesc, tone: "down" };
+  }
+  return { label: ar.neutral, hint: ar.neutralDesc, tone: "flat" };
+}
+
 function ReportBody({ report, source }: { report: LiveRadarReport; source?: string }) {
   const positive = report.net_flow > 0;
   const negative = report.net_flow < 0;
+  const regime = stockRegime(report);
+  const copy = regimeCopy(regime);
 
   return (
     <div className="mt-5 space-y-4">
@@ -88,6 +116,26 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
           {ar.liveRadarTrap}: {report.trap.label}
         </p>
       ) : null}
+
+      <div
+        className={`rounded-xl border px-4 py-3 ${
+          copy.tone === "up"
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : copy.tone === "down"
+              ? "border-rose-500/30 bg-rose-500/10"
+              : "border-zinc-800 bg-zinc-950/60"
+        }`}
+      >
+        <p className="text-xs text-zinc-500">{ar.regime}</p>
+        <p
+          className={`mt-1 text-lg font-semibold ${
+            copy.tone === "up" ? "text-emerald-300" : copy.tone === "down" ? "text-rose-300" : "text-zinc-200"
+          }`}
+        >
+          {copy.label}
+        </p>
+        <p className="mt-1 text-xs text-zinc-400">{copy.hint}</p>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric
@@ -100,9 +148,9 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
           value={formatPrice(report.last_price)}
         />
         <Metric
-          label={ar.regime}
+          label={ar.heatmapColChange}
           value={formatPercent(report.change_percent)}
-          tone={(report.change_percent ?? 0) >= 0 ? "up" : "down"}
+          tone={(report.change_percent ?? 0) > 0 ? "up" : (report.change_percent ?? 0) < 0 ? "down" : "flat"}
         />
       </div>
 
@@ -214,6 +262,21 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
               : ar.liveRadarSource}
       </p>
     </div>
+  );
+}
+
+function RegimePill({ report }: { report: LiveRadarReport }) {
+  const copy = regimeCopy(stockRegime(report));
+  const tone =
+    copy.tone === "up"
+      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+      : copy.tone === "down"
+        ? "border-rose-400/40 bg-rose-500/15 text-rose-200"
+        : "border-zinc-700 bg-zinc-900 text-zinc-400";
+  return (
+    <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${tone}`}>
+      {copy.label}
+    </span>
   );
 }
 

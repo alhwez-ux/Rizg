@@ -50,7 +50,7 @@ const config: Config = {
         toastIn: "toastIn 0.35s ease-out",
         revealIn: "revealIn 0.45s ease-out",
         fadeIn: "fadeIn 0.4s ease-out",
-        ticker: "ticker 90s linear infinite",
+        ticker: "ticker 900s linear infinite",
       },
     },
   },

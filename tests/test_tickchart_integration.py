@@ -94,3 +94,33 @@ def test_tickchart_feed_builds_radar_from_ticks_and_book() -> None:
     assert report["ask"] == 25.74
     assert report["source"] == "TickChart"
     assert "institutional_mfi" in report or report["last_price"] == 25.72
+
+
+def test_quote_tape_uses_stored_last_quotes(tmp_path) -> None:
+    from app.services.last_quotes import LastQuoteBook
+
+    settings = Settings(
+        _env_file=None,
+        tickchart_api_key="test-key",
+        sahmk_api_key="test-key",
+        enable_mock_feed=False,
+    )
+    quotes = LastQuoteBook(path=tmp_path / "quotes.json")
+    quotes.apply_closes(
+        [
+            {
+                "symbol": "1120",
+                "last_price": 66.0,
+                "change_percent": -0.6,
+                "net_flow": 1_000_000,
+            }
+        ]
+    )
+    feed = TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, quotes=quotes)
+    tape = feed.quote_tape()
+    row = next(item for item in tape if item["symbol"] == "1120")
+    assert row["last_price"] == 66.0
+    assert row["price_change_pct"] == -0.6
+    assert row["net_flow"] == 1_000_000
+    assert row["name"]
+

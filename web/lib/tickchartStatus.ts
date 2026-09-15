@@ -35,6 +35,48 @@ function notifySessionRefreshed() {
   window.dispatchEvent(new Event(SESSION_REFRESHED_EVENT));
 }
 
+export interface TickChartQuote {
+  symbol: string;
+  name: string;
+  last_price: number | null;
+  price_change_pct: number;
+  net_flow: number;
+}
+
+function parseQuoteRows(payload: { data?: unknown } | null): TickChartQuote[] {
+  if (!payload || !Array.isArray(payload.data)) return [];
+  return payload.data
+    .map((row) => {
+      const item = row as Record<string, unknown>;
+      const symbol = String(item.symbol || "").trim();
+      const price = Number(item.last_price ?? item.price);
+      return {
+        symbol,
+        name: String(item.name || symbol),
+        last_price: Number.isFinite(price) && price > 0 ? price : null,
+        price_change_pct: Number(item.price_change_pct ?? item.change_percent) || 0,
+        net_flow: Number(item.net_flow) || 0,
+      };
+    })
+    .filter((row) => row.symbol.length === 4 && row.last_price != null)
+    .slice(0, 120);
+}
+
+export async function fetchTickChartMarket(): Promise<TickChartQuote[]> {
+  try {
+    const tape = await apiFetch("/api/v1/tickchart/tape", { timeoutMs: 20_000 });
+    const tapePayload = (await tape.json().catch(() => null)) as { data?: unknown } | null;
+    const fromTape = parseQuoteRows(tapePayload);
+    if (tape.ok && fromTape.length) return fromTape;
+    const response = await apiFetch("/api/v1/tickchart/market", { timeoutMs: 60_000 });
+    const payload = (await response.json().catch(() => null)) as { data?: unknown } | null;
+    if (!response.ok) return [];
+    return parseQuoteRows(payload);
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchTickChartStatus(): Promise<TickChartStatus | null> {
   try {
     const response = await apiFetch("/api/v1/tickchart/status");

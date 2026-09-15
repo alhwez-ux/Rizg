@@ -120,4 +120,24 @@ def test_quote_snapshot_writes_last_quotes_once(tmp_path: Path) -> None:
     assert saves["n"] == 1
     assert feed.radar_report("1120")["last_price"] == 66.0
     assert feed.status()["quote_mode"] == "live"
+    again = asyncio.run(
+        feed.ingest_quote_snapshot(
+            [
+                {
+                    "type": "quote",
+                    "symbol": "1120",
+                    "price": 66.0,
+                    "time": "2026-09-15T11:00:00",
+                    "change_percent": -0.6,
+                    "session_volume": 8_000_000,
+                    "value_traded": 528_000_000,
+                    "net_flow": -3_168_000,
+                }
+            ]
+        )
+    )
+    assert again == 1
+    report = feed.radar_report("1120")
+    assert report["change_percent"] == -0.6
+    assert report["net_flow"] == -3_168_000
 

@@ -29,6 +29,13 @@ async def tickchart_status(request: Request) -> TickChartStatusResponse:
     return TickChartStatusResponse.model_validate(payload)
 
 
+@router.get("/tape")
+async def tickchart_tape(request: Request) -> dict[str, Any]:
+    feed = getattr(request.app.state, "tickchart", None)
+    rows = feed.quote_tape() if feed is not None else []
+    return {"success": True, "source": "TickChart", "count": len(rows), "data": rows}
+
+
 @router.get("/market")
 async def tickchart_market(request: Request) -> dict[str, Any]:
     feed = getattr(request.app.state, "tickchart", None)

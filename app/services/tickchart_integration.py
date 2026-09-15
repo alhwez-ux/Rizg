@@ -315,20 +315,20 @@ class TickChartFeed:
             if parsed is None:
                 continue
             symbol, price, volume, timestamp, dedupe_key = parsed
-            if not self._mark_seen(dedupe_key):
-                continue
-            try:
-                result = self._engine.process_trade(symbol, price, volume, timestamp=timestamp)
-                self._tape(symbol).observe_print(
-                    price,
-                    volume,
-                    side=result.side,
-                    block_floor=self._block_floor,
-                )
-                self._last_trade_time[symbol] = timestamp.isoformat()
-            except Exception:
-                logger.exception("failed to ingest TickChart snapshot for %s", symbol)
-                continue
+            fresh = self._mark_seen(dedupe_key)
+            if fresh:
+                try:
+                    result = self._engine.process_trade(symbol, price, volume, timestamp=timestamp)
+                    self._tape(symbol).observe_print(
+                        price,
+                        volume,
+                        side=result.side,
+                        block_floor=self._block_floor,
+                    )
+                    self._last_trade_time[symbol] = timestamp.isoformat()
+                except Exception:
+                    logger.exception("failed to ingest TickChart snapshot for %s", symbol)
+                    continue
             extras: dict[str, Any] = {
                 "symbol": symbol,
                 "last_price": float(price),
@@ -629,6 +629,43 @@ class TickChartFeed:
                     "quote_mode": report.get("quote_mode"),
                 }
             )
+        return rows
+
+    def quote_tape(self) -> list[dict[str, Any]]:
+        """Lightweight last-quote strip for the top price ticker."""
+
+        rows: list[dict[str, Any]] = []
+        for item in self._quotes.snapshot():
+            symbol = str(item.get("symbol") or "").strip().upper()
+            if not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
+                continue
+            try:
+                price = float(item.get("last_price") or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            try:
+                change = float(item.get("change_percent") or 0)
+            except (TypeError, ValueError):
+                change = 0.0
+            try:
+                net_flow = float(item.get("net_flow") or 0)
+            except (TypeError, ValueError):
+                net_flow = 0.0
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "name": company_name_for(symbol) or symbol,
+                    "last_price": price,
+                    "price_change_pct": change,
+                    "net_flow": net_flow,
+                }
+            )
+        rows.sort(
+            key=lambda row: (abs(float(row["net_flow"])), abs(float(row["price_change_pct"]))),
+            reverse=True,
+        )
         return rows
 
     def opportunities(self) -> list[dict[str, Any]]:
