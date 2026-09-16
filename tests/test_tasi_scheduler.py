@@ -90,6 +90,38 @@ def test_forced_scan_sends_trap_alert(monkeypatch) -> None:
     telegram.send_radar_event.assert_called()
 
 
+def test_close_notifies_telegram_for_each_recommendation() -> None:
+    class _Feed:
+        def close_recommendations(self):
+            return [
+                {
+                    "symbol": "2222",
+                    "name": "أرامكو",
+                    "entry": True,
+                    "reason": "كسر إغلاق اليوم",
+                    "entry_price": "27.10",
+                }
+            ]
+
+    telegram = MagicMock()
+    telegram.send_radar_event = AsyncMock(return_value=True)
+    telegram.enabled = True
+    telegram.send_message = AsyncMock(return_value=True)
+    scheduler = TasiMarketScheduler(
+        _settings(),
+        sahm=None,
+        tickchart=_Feed(),
+        telegram=telegram,
+        enable_scheduler=False,
+    )
+    result = asyncio.run(scheduler.close_market())
+    assert result["recommendations"] == 1
+    telegram.send_radar_event.assert_called()
+    payload = telegram.send_radar_event.call_args.args[0]
+    assert payload["symbol"] == "2222"
+    assert payload["signal"] == "entry"
+
+
 def test_scheduler_status_endpoint() -> None:
     app = FastAPI()
     app.include_router(market_router)

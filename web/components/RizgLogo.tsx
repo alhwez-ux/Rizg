@@ -47,7 +47,7 @@ export function RizgLogo({
 
       {withWordmark ? (
         <div className="flex flex-col">
-          <span className="text-lg font-bold tracking-wide text-white">رِزق</span>
+          <span className="text-lg font-bold tracking-wide text-zinc-50">رِزق</span>
           <span
             className="text-[10px] font-semibold uppercase tracking-widest transition-colors duration-500"
             style={{ color }}

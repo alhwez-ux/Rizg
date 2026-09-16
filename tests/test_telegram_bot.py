@@ -272,3 +272,41 @@ def test_intraday_alert_posts_to_telegram_api(monkeypatch) -> None:
     assert "رادار السيولة اللحظية (رزق)" in str(payload["text"])
     assert "دخول مؤسسي" in str(payload["text"])
     assert "api.telegram.org/bot123:abc/sendMessage" in str(captured["url"])
+
+
+def test_send_opportunity_posts_entry_alert(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *args: object) -> bool:
+            return False
+
+        async def post(self, url: str, json: dict[str, object]) -> httpx.Response:
+            captured["url"] = url
+            captured["json"] = json
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 2}})
+
+    monkeypatch.setattr("app.services.telegram_alert_bot.httpx.AsyncClient", _FakeClient)
+    bot = _bot()
+    ok = asyncio.run(
+        bot.send_opportunity(
+            {
+                "symbol": "1120",
+                "name": "الراجحي",
+                "entry": True,
+                "signal_type": "فرصة دخول",
+                "reason": "تدفق إيجابي",
+                "entry_price": "96.40",
+            }
+        )
+    )
+    assert ok is True
+    text = str(captured.get("json", {}).get("text") if isinstance(captured.get("json"), dict) else "")
+    assert "1120" in text
+    assert "فرصة دخول" in text or "دخول" in text

@@ -53,13 +53,16 @@ export function LiquidityRadarCard({
           onClick={onRemove}
           aria-label={`${ar.marketRadarRemove} ${title || symbol}`}
           title={ar.marketRadarRemove}
-          className="absolute left-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-rose-400/60 bg-zinc-950 text-xl font-light leading-none text-rose-200 shadow-lg shadow-rose-950/50 transition hover:border-rose-200 hover:bg-rose-500/20 hover:text-white"
+          className="absolute left-2 top-2 z-20 inline-flex h-8 items-center gap-1 rounded-full border border-rose-400/70 bg-zinc-950 px-2.5 text-rose-100 shadow-lg shadow-rose-950/40 transition hover:border-rose-200 hover:bg-rose-500/20 hover:text-white"
         >
-          ×
+          <span aria-hidden="true" className="text-base leading-none">
+            ×
+          </span>
+          <span className="text-[11px] font-semibold">{ar.marketRadarRemove}</span>
         </button>
       ) : null}
       <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:justify-between sm:text-start">
-        <div className={onRemove ? "px-10 sm:px-0" : ""}>
+        <div className={onRemove ? "px-4 pt-8 sm:px-0 sm:pt-0" : ""}>
           <p className="hidden text-sm font-medium text-zinc-500 sm:block">{ar.liveRadarTitle}</p>
           <h3 className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-xl font-semibold text-zinc-50 sm:mt-1 sm:justify-start sm:text-2xl">
             {title ? <span>{title}</span> : null}
@@ -74,7 +77,7 @@ export function LiquidityRadarCard({
           </h3>
           <p className="mt-1 hidden text-xs text-zinc-500 sm:block">{ar.liveRadarHint}</p>
         </div>
-        <div className={`hidden flex-wrap items-center gap-2 sm:flex ${onRemove ? "pl-11" : ""}`}>
+        <div className={`hidden flex-wrap items-center gap-2 sm:flex ${onRemove ? "pl-[5.5rem]" : ""}`}>
           <span
             className={`inline-flex rounded-full border px-3 py-1.5 text-[11px] ${
               live

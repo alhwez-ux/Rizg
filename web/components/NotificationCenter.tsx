@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { PriceTicker } from "@/components/PriceTicker";
 import { ar } from "@/lib/ar";
 import {
   collectLiveAlerts,
-  collectMarketAlerts,
+  pushSystemNotice,
   type MarketAlert,
   type NoticeType,
 } from "@/lib/notifications";
@@ -15,29 +14,16 @@ import {
 const TOAST_MS = 6000;
 
 export default function NotificationCenter() {
-  const [notifications, setNotifications] = useState<MarketAlert[]>(() => collectMarketAlerts());
+  const [notifications, setNotifications] = useState<MarketAlert[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [latestToast, setLatestToast] = useState<MarketAlert | null>(null);
   const [mounted, setMounted] = useState(false);
   const root = useRef<HTMLDivElement | null>(null);
-  const known = useRef<Set<string>>(new Set(notifications.map((item) => item.id)));
-  const toasted = useRef(false);
+  const known = useRef<Set<string>>(new Set());
+  const primed = useRef(false);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    const initial = collectMarketAlerts();
-    known.current = new Set(initial.map((item) => item.id));
-    setNotifications(initial);
-    if (!toasted.current && initial[0]) {
-      toasted.current = true;
-      setLatestToast(initial[0]);
-      const timer = window.setTimeout(() => setLatestToast(null), TOAST_MS);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
   }, []);
 
   useEffect(() => {
@@ -45,11 +31,18 @@ export default function NotificationCenter() {
     const load = async () => {
       const next = await collectLiveAlerts();
       if (!alive) return;
+      if (!primed.current) {
+        next.forEach((item) => known.current.add(item.id));
+        setNotifications(next);
+        primed.current = true;
+        return;
+      }
       const newcomers = next.filter((item) => !known.current.has(item.id));
       newcomers.forEach((item) => known.current.add(item.id));
       setNotifications(next);
       if (newcomers[0]) {
         setLatestToast(newcomers[0]);
+        newcomers.forEach((item) => pushSystemNotice(item));
         window.setTimeout(() => setLatestToast((current) => (current?.id === newcomers[0].id ? null : current)), TOAST_MS);
       }
     };
@@ -140,7 +133,6 @@ export default function NotificationCenter() {
 
   return (
     <>
-      {mounted ? createPortal(<PriceTicker alerts={notifications} />, document.body) : null}
       {mounted ? createPortal(chrome, document.body) : chrome}
       {mounted && latestToast
         ? createPortal(

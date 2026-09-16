@@ -212,6 +212,25 @@ class TasiMarketScheduler:
                     "notified": sent,
                 }
             )
+        getter = getattr(feed, "opportunities", None) if feed is not None else None
+        if callable(getter):
+            try:
+                extra = list(getter() or [])
+            except Exception:
+                extra = []
+            for row in extra:
+                if row.get("entry") is False:
+                    continue
+                notified = await self._notify_opportunity(row)
+                alerts.append(
+                    {
+                        "symbol": row.get("symbol"),
+                        "name": row.get("name") or row.get("symbol"),
+                        "signal": "entry",
+                        "trap": False,
+                        "notified": notified,
+                    }
+                )
         payload = {
             "job": "scan",
             "ran_at": current.isoformat(),
@@ -233,11 +252,12 @@ class TasiMarketScheduler:
 
         current = now_riyadh()
         ranking_updated = 0
-        recs = 0
+        rec_rows: list[dict[str, Any]] = []
         feed = self._tickchart
         if feed is not None:
             closer = getattr(feed, "close_recommendations", None)
-            recs = len(closer() if callable(closer) else feed.opportunities())
+            rec_rows = list(closer() if callable(closer) else feed.opportunities())
+        recs = len(rec_rows)
         payload = {
             "job": "close",
             "ran_at": current.isoformat(),
@@ -245,6 +265,8 @@ class TasiMarketScheduler:
             "recommendations": recs,
         }
         self._last["close"] = payload
+        for row in rec_rows:
+            await self._notify_opportunity(row)
         await self._notify(
             "رزق · إغلاق تاسي 15:30\n"
             f"مصفوفة التصنيف: {ranking_updated} شركة\n"
@@ -298,6 +320,33 @@ class TasiMarketScheduler:
                 }
             )
         return rows
+
+    async def _notify_opportunity(self, row: dict[str, Any]) -> bool:
+        bot = self._telegram
+        if bot is None:
+            return False
+        report = {
+            "symbol": row.get("symbol"),
+            "name": row.get("name"),
+            "signal": "entry",
+            "reasons": [
+                item
+                for item in (row.get("reason"), row.get("signal_type"), row.get("title"), row.get("message"))
+                if item
+            ],
+            "last_price": row.get("close_price") or row.get("entry_price") or row.get("last_price"),
+        }
+        sender = getattr(bot, "send_radar_event", None)
+        if sender is None:
+            return False
+        try:
+            result = sender(report)
+            if asyncio.iscoroutine(result):
+                return bool(await result)
+            return bool(result)
+        except Exception:
+            logger.exception("failed to send opportunity alert for %s", row.get("symbol"))
+            return False
 
     async def _notify(self, text: str) -> None:
         bot = self._telegram

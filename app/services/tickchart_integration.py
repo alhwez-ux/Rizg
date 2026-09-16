@@ -942,9 +942,11 @@ class TickChartFeed:
 
     def alerts(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for row in self.market_rows():
             trap = row.get("trap") or {}
             kind = str(trap.get("kind") or "")
+            signal = str(row.get("signal") or "")
             if kind in {"bull_trap", "bear_trap", "silent_distribution"}:
                 items.append(
                     {
@@ -956,28 +958,39 @@ class TickChartFeed:
                         "message": trap.get("label") or "",
                     }
                 )
-            elif kind == "silent_accumulation" or (row.get("net_flow") or 0) > 0:
+                seen.add(str(row["symbol"]))
+                continue
+            if signal == "entry" or row.get("entry"):
                 items.append(
                     {
-                        "id": f"inflow-{row['symbol']}",
-                        "kind": "inflow",
+                        "id": f"entry-{row['symbol']}",
+                        "kind": "opportunity",
                         "symbol": row["symbol"],
                         "name": row["name"],
-                        "title": "تدفق سيولة مؤسسي",
-                        "message": f"MFI مؤسسي {row.get('institutional_mfi') or '—'} على {row['name']}",
+                        "title": "فرصة دخول",
+                        "message": f"إشارة دخول على {row['name']} ({row['symbol']})",
                     }
                 )
+                seen.add(str(row["symbol"]))
         for row in self.opportunities():
+            symbol = str(row.get("symbol") or "")
+            if not symbol or symbol in seen:
+                continue
+            title = str(row.get("signal_type") or "توصية دخول")
+            reason = str(row.get("reason") or "")
+            entry_price = row.get("entry_price") or row.get("close_price")
+            parts = [part for part in (reason, f"الدخول {entry_price}" if entry_price else "") if part]
             items.append(
                 {
-                    "id": f"opp-{row['symbol']}-{row['signal_kind']}",
+                    "id": f"reco-{symbol}-{row.get('signal_kind') or 'entry'}",
                     "kind": "opportunity",
-                    "symbol": row["symbol"],
-                    "name": row["name"],
-                    "title": row["signal_type"],
-                    "message": row["reason"],
+                    "symbol": symbol,
+                    "name": row.get("name") or symbol,
+                    "title": title,
+                    "message": " — ".join(parts) or f"توصية / فرصة دخول على {row.get('name') or symbol}",
                 }
             )
+            seen.add(symbol)
         return items
 
     def _tape(self, symbol: str) -> SymbolTape:

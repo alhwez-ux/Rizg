@@ -14,6 +14,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       aria-pressed={isDay}
       aria-label={label}
       title={label}
+      suppressHydrationWarning
       className={`inline-flex h-10 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950/70 px-3 text-xs font-semibold text-zinc-200 transition hover:border-amber-400 hover:text-amber-200 ${className}`}
     >
       {isDay ? <MoonIcon /> : <SunIcon />}

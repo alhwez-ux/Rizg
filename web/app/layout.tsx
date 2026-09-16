@@ -14,7 +14,7 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
-  title: "رزق · رادار السيولة والزخم",
+  title: "رزق · رادار السيولة وفرص السوق",
   description: "إشارات دخول وخروج من صافي تدفق الأموال مع أسعار مقترحة وهدف ووقف خسارة",
   applicationName: "رزق",
   appleWebApp: {

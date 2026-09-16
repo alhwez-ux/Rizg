@@ -116,7 +116,7 @@ function DashboardShell() {
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col items-center gap-6 px-4 pb-6 pt-24 text-center text-zinc-100 sm:px-6 lg:px-8">
+    <section className="mx-auto flex w-full max-w-7xl flex-col items-center gap-6 px-4 pb-6 pt-10 text-center text-zinc-100 sm:px-6 lg:px-8">
       <NotificationCenter />
       <div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center shadow-glow backdrop-blur-md sm:p-6">
         <div className="flex flex-col items-center">
@@ -124,7 +124,6 @@ function DashboardShell() {
           <h1 className="mt-3 bg-gradient-to-l from-sky-400 to-teal-400 bg-clip-text text-2xl font-black text-transparent">
             {ar.tabsTitle}
           </h1>
-          <p className="mt-1 text-xs text-zinc-400">{ar.tabsWelcome}</p>
         </div>
         <div className="flex w-full flex-col items-center gap-3">
           <div className="flex flex-wrap items-center justify-center gap-3">

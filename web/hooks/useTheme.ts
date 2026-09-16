@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 
 import {
   THEME_DARK,
@@ -12,10 +12,16 @@ import {
   type DisplayTheme,
 } from "@/lib/theme";
 
+function themeFromDocument(): DisplayTheme {
+  if (typeof document === "undefined") return THEME_DARK;
+  const value = document.documentElement.getAttribute("data-theme");
+  return isDisplayTheme(value) ? value : readStoredTheme();
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<DisplayTheme>(THEME_DARK);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stored = readStoredTheme();
     setThemeState(stored);
     applyTheme(stored);
@@ -35,11 +41,9 @@ export function useTheme() {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setThemeState((current) => {
-      const next = current === THEME_DARK ? THEME_LIGHT : THEME_DARK;
-      applyTheme(next);
-      return next;
-    });
+    const next = themeFromDocument() === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+    applyTheme(next);
+    setThemeState(next);
   }, []);
 
   return { theme, setTheme, toggleTheme, isDay: theme === THEME_LIGHT };

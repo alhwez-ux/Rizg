@@ -227,6 +227,22 @@ class TelegramBot:
             self._mark_radar_sent(ticker, kind)
         return ok
 
+    async def send_opportunity(self, row: dict[str, Any]) -> bool:
+        """Telegram ping for a recommendation or entry opportunity."""
+
+        if row.get("entry") is False and str(row.get("signal") or "") not in {"entry", "trap"}:
+            return False
+        report = {
+            "symbol": row.get("symbol"),
+            "name": row.get("name"),
+            "signal": "entry" if row.get("entry") is not False else str(row.get("signal") or "entry"),
+            "reasons": [item for item in (row.get("reason"), row.get("signal_type"), row.get("title"), row.get("message")) if item],
+            "last_price": row.get("close_price") or row.get("entry_price") or row.get("last_price"),
+        }
+        if report["signal"] not in {"entry", "exit", "trap"}:
+            report["signal"] = "entry"
+        return await self.send_radar_event(report)
+
     async def flush_reports(self, *, force: bool = False) -> int:
         now = datetime.now(timezone.utc)
         if not force and self._last_flush_at is not None and now - self._last_flush_at < self._interval:

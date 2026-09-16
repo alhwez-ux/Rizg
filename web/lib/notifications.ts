@@ -46,6 +46,28 @@ export function collectMarketAlerts(): MarketAlert[] {
   return [];
 }
 
+export function pushSystemNotice(alert: MarketAlert) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") return;
+  const title = alert.title || "رزق";
+  const body = [alert.name, alert.symbol ? `(${alert.symbol})` : "", alert.message].filter(Boolean).join(" ");
+  const show = () => {
+    try {
+      new Notification(title, { body, dir: "rtl", lang: "ar", tag: alert.id });
+    } catch {
+      /* ignore blocked or unsupported Notification */
+    }
+  };
+  if (Notification.permission === "granted") {
+    show();
+    return;
+  }
+  if (Notification.permission === "default") {
+    void Notification.requestPermission().then((permission) => {
+      if (permission === "granted") show();
+    });
+  }
+}
+
 export async function collectLiveAlerts(): Promise<MarketAlert[]> {
   const response = await apiFetch("/api/v1/tickchart/alerts");
   const payload = (await response.json().catch(() => null)) as {
