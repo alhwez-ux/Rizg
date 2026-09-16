@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { RecommendationStatus } from "@/components/SignalBadge";
 import { useRadarRecommendations } from "@/hooks/useRadarRecommendations";
 import { ar } from "@/lib/ar";
 import { formatCompact, formatMoney, formatPrice, type RecommendationFlag } from "@/lib/liquidity";
@@ -220,7 +221,10 @@ export function StockRadarTable({
                       <p className="font-mono text-base font-semibold text-zinc-50" dir="ltr">
                         {row.symbol}
                       </p>
-                      <p className="truncate text-xs text-zinc-300">{row.companyNameAr}</p>
+                      <p className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-xs text-zinc-300">{row.companyNameAr}</span>
+                        <RecommendationStatus value={recommendations.get(row.symbol) ?? null} />
+                      </p>
                       <p className="truncate text-[11px] text-zinc-500">{row.companyNameEn}</p>
                     </td>
                     <td className="px-3 py-3.5">

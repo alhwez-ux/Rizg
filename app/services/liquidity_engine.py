@@ -26,6 +26,20 @@ MONEY_QUANTUM = Decimal("0.00000001")
 ZERO = Decimal("0")
 
 
+def _live_signal_engine():
+    from app.core.config import get_settings
+    from app.services.signals import SignalEngine
+
+    settings = get_settings()
+    return SignalEngine(
+        net_flow_threshold=settings.signal_net_flow_threshold,
+        aggressive_ratio=settings.signal_aggressive_ratio,
+        atr_target_mult=settings.signal_atr_target_mult,
+        atr_stop_mult=settings.signal_atr_stop_mult,
+        exit_net_ceiling=settings.signal_exit_net_ceiling,
+    )
+
+
 def _to_decimal(value: Number, *, field_name: str) -> Decimal:
     if isinstance(value, bool):
         raise InvalidTradeError(
@@ -320,7 +334,7 @@ class LiquidityEngine:
     def recommendation_flag(self, symbol: str) -> str | None:
         """دخول/خروج from the live SignalEngine, or None when the tape is quiet."""
 
-        from app.services.signals import SignalEngine, SignalInputs, apply_levels
+        from app.services.signals import SignalInputs, apply_levels
 
         ticker = (symbol or "").strip().upper()
         if not ticker:
@@ -339,7 +353,7 @@ class LiquidityEngine:
             ),
             levels,
         )
-        decision = SignalEngine().evaluate(inputs)
+        decision = _live_signal_engine().evaluate(inputs)
         return recommendation_label(entry=decision.entry, exit_signal=decision.exit)
 
     def stream_message(self, result: TradeResult) -> LiquidityStreamMessage:
@@ -664,7 +678,7 @@ class LiquidityRadarEngine(LiquidityEngine):
     def get_latest_signal_report(self, symbol: str | None = None) -> dict[str, Any]:
         """Latest liquidity-flow / trap report after ingesting Sahm candles."""
 
-        from app.services.signals import SignalEngine, SignalInputs, apply_levels
+        from app.services.signals import SignalInputs, apply_levels
 
         ticker = (symbol or self._primary_symbol or "").strip().upper()
         if not ticker:
@@ -700,7 +714,7 @@ class LiquidityRadarEngine(LiquidityEngine):
             ),
             levels,
         )
-        decision = SignalEngine().evaluate(inputs)
+        decision = _live_signal_engine().evaluate(inputs)
         signal = "entry" if decision.entry else "exit" if decision.exit else "trap" if trap else "neutral"
         reasons = list(decision.reasons)
         if trap and trap["label"] not in reasons:

@@ -70,7 +70,7 @@ def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float =
         return None
     if not _liquidity_ok(snapshot, net_flow=net_flow, mfi=mfi, trap_kind=trap_kind):
         return None
-    if not _momentum_ok(closes, close, sma):
+    if not _momentum_ok(closes, close, sma, net_flow):
         return None
     blocked = _false_entry_reason(
         snapshot,
@@ -265,10 +265,12 @@ def _liquidity_ok(snapshot: Mapping[str, Any], *, net_flow: float, mfi: float, t
     return net_flow > 0 or accumulation or balanced
 
 
-def _momentum_ok(closes: list[float], close: float, sma: float) -> bool:
-    if close < sma:
-        return False
-    return _macd_bullish(closes) or close >= sma
+def _momentum_ok(closes: list[float], close: float, sma: float, net_flow: float = 0.0) -> bool:
+    if net_flow > 0:
+        return True
+    if close >= sma:
+        return True
+    return _macd_bullish(closes)
 
 
 def _false_entry_reason(

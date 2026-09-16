@@ -75,6 +75,47 @@ def test_net_inflow_without_buy_pressure_does_not_fire() -> None:
     assert decision.exit is False
 
 
+def test_agile_entry_on_modest_net_flow_and_buy_pressure() -> None:
+    engine = SignalEngine()
+    decision = engine.evaluate(
+        SignalInputs(
+            inflow=Decimal("8000"),
+            outflow=Decimal("4000"),
+            buy_volume=Decimal("520"),
+            sell_volume=Decimal("480"),
+        )
+    )
+    assert decision.entry is True
+    assert decision.exit is False
+    assert decision.reasons[0] == "إشارة دخول 🚀"
+
+
+def test_agile_exit_when_net_flow_turns_flat_or_negative() -> None:
+    engine = SignalEngine()
+    flat = engine.evaluate(
+        SignalInputs(
+            inflow=Decimal("5000"),
+            outflow=Decimal("5000"),
+            buy_volume=Decimal("400"),
+            sell_volume=Decimal("400"),
+        )
+    )
+    assert flat.entry is False
+    assert flat.exit is True
+
+    fade = engine.evaluate(
+        SignalInputs(
+            inflow=Decimal("4800"),
+            outflow=Decimal("5200"),
+            buy_volume=Decimal("490"),
+            sell_volume=Decimal("510"),
+        )
+    )
+    assert fade.entry is False
+    assert fade.exit is True
+    assert fade.reasons[0] == "إشارة خروج / تصريف ⚠️"
+
+
 def test_exit_requires_net_outflow_and_heavy_selling() -> None:
     engine = SignalEngine(net_flow_threshold=Decimal("15000"), aggressive_ratio=Decimal("0.58"))
     decision = engine.evaluate(

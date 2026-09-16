@@ -1,8 +1,38 @@
 "use client";
 
 import { ar } from "@/lib/ar";
-import { formatPrice } from "@/lib/liquidity";
+import { formatPrice, type RecommendationFlag } from "@/lib/liquidity";
 import { signalKind, type ScreenerRow } from "@/lib/screener";
+
+export function RecommendationStatus({ value }: { value: RecommendationFlag | null | undefined }) {
+  if (value === "دخول") {
+    return (
+      <span
+        className="inline-block shrink-0 text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
+        style={{
+          color: "#00E676",
+          textShadow: "0 0 8px rgba(0, 230, 118, 0.55), 0 0 18px rgba(0, 230, 118, 0.22)",
+        }}
+      >
+        {ar.radarStatusEntry}
+      </span>
+    );
+  }
+  if (value === "خروج") {
+    return (
+      <span
+        className="inline-block shrink-0 text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
+        style={{
+          color: "#F87171",
+          textShadow: "0 0 6px rgba(248, 113, 113, 0.28)",
+        }}
+      >
+        {ar.radarStatusExit}
+      </span>
+    );
+  }
+  return null;
+}
 
 export function SignalBadge({ row }: { row: ScreenerRow }) {
   const kind = signalKind(row);

@@ -1,5 +1,6 @@
 "use client";
 
+import { RecommendationStatus } from "@/components/SignalBadge";
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
 import {
@@ -44,8 +45,11 @@ export function LiquidityRadarCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-medium text-zinc-500">{ar.liveRadarTitle}</p>
-          <h3 className="mt-1 text-2xl font-semibold text-zinc-50">
-            {title ? <span>{title} </span> : null}
+          <h3 className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-2xl font-semibold text-zinc-50">
+            {title ? <span>{title}</span> : null}
+            {report ? (
+              <RecommendationStatus value={report.entry ? "دخول" : report.exit ? "خروج" : null} />
+            ) : null}
             <span className="font-mono text-lg text-zinc-300" dir="ltr">
               {symbol}
             </span>

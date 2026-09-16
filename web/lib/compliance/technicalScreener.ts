@@ -31,8 +31,8 @@ function volumeRatio(row: RadarTableRow, live: ScreenerRow | undefined): number 
 }
 
 /**
- * Rank PURE/MIXED names only. PROHIBITED rows never reach this function.
- * Mixes seeded RSI/EMA/MACD with live tape flow and volume when available.
+ * Rank PURE/MIXED names for day-trade tape. Live net-flow and buy pressure
+ * decide the opportunity — RSI/EMA/MACD only nudge the score, they never block.
  */
 export function scanMarketOpportunities(
   stocks: RadarTableRow[],
@@ -48,35 +48,40 @@ export function scanMarketOpportunities(
       const ema50 = row.ema50;
       const ema200 = row.ema200;
       const macd = row.macd;
-      if (rsi == null || ema50 == null || ema200 == null || macd == null) return [];
-
       const ratio = volumeRatio(row, live);
       const change = live?.change_percent ?? 0;
       const netFlow = live?.net_flow ?? 0;
-      const goldenCross = ema50 > ema200;
+      const buyRatio = live?.buy_ratio;
       const reasons: string[] = [];
       let kind: OpportunityKind = "MOMENTUM";
-      let score = 35;
+      let score = 28;
 
-      if (rsi < 32 && (change > 0 || netFlow > 0)) {
+      if (live?.entry_signal || (netFlow > 0 && (buyRatio == null || buyRatio >= 0.51))) {
+        kind = netFlow > 0 && change < 0 ? "BOUNCE" : "MOMENTUM";
+        score = 72 + Math.min(18, Math.abs(netFlow) / 20_000) + (ratio > 1.2 ? 6 : 0);
+        reasons.push("دخول: صافي تدفق موجب مع ضغط شراء نشط");
+      } else if (live?.exit_signal || netFlow < 0) {
         kind = "OVERSOLD";
-        score = 58 + (32 - rsi) * 1.1 + (netFlow > 0 ? 8 : 0);
-        reasons.push("تشبع بيعي على RSI مع انعكاس إيجابي");
-      } else if (goldenCross && ratio >= 1.45 && change > 0.8) {
-        kind = "BREAKOUT";
-        score = 70 + Math.min(18, (ratio - 1.4) * 12) + Math.min(8, change);
-        reasons.push("اختراق مقاومة / تقاطع EMA 50 فوق 200 بحجم مرتفع");
-      } else if (rsi < 42 && netFlow > 0 && Math.abs(ema50 - ema200) / ema200 < 0.04) {
+        score = 40 + Math.min(12, Math.abs(netFlow) / 25_000);
+        reasons.push("خروج: صافي التدفق محايد أو سالب — قفل المكاسب");
+      } else if (netFlow > 0) {
         kind = "BOUNCE";
-        score = 62 + (42 - rsi) * 0.7 + (ratio > 1.2 ? 6 : 0);
-        reasons.push("ارتداد من دعم قريب من متوسط 200 مع تدفق داخل");
-      } else if (goldenCross && macd > 0) {
-        kind = "MOMENTUM";
-        score = 55 + Math.min(20, macd * 40) + (netFlow > 0 ? 8 : 0);
-        reasons.push("زخم صاعد: تقاطع متوسطات إيجابي وMACD فوق الصفر");
+        score = 58 + Math.min(12, netFlow / 15_000);
+        reasons.push("زخم سيولة داخل بدون شرط متوسطات");
+      } else if (rsi != null && ema50 != null && ema200 != null && macd != null) {
+        if (rsi < 32 && (change > 0 || netFlow > 0)) {
+          kind = "OVERSOLD";
+          score = 50 + (32 - rsi) * 0.8;
+          reasons.push("تشبع بيعي اختياري — لا يمنع الإشارة الحية");
+        } else if (ema50 > ema200 && macd > 0) {
+          kind = "MOMENTUM";
+          score = 42 + Math.min(12, macd * 20);
+          reasons.push("زخم فني مساعد فقط");
+        } else {
+          return [];
+        }
       } else {
-        score = 28 + (goldenCross ? 8 : 0) + (macd > 0 ? 6 : 0);
-        reasons.push("إشارة فنية ضعيفة أو محايدة");
+        return [];
       }
 
       if (live?.entry_signal) {

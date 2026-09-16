@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     sahmk_max_backoff_seconds: float = Field(default=120, ge=15, le=600)
     sahmk_symbols: list[str] = Field(default_factory=lambda: ["4030"])
     screener_leader_limit: int = Field(default=10, ge=3, le=25)
-    signal_net_flow_threshold: Decimal = Field(default=Decimal("15000"))
-    signal_aggressive_ratio: Decimal = Field(default=Decimal("0.58"))
+    signal_net_flow_threshold: Decimal = Field(default=Decimal("3000"))
+    signal_aggressive_ratio: Decimal = Field(default=Decimal("0.51"))
+    signal_exit_net_ceiling: Decimal = Field(default=Decimal("0"))
     signal_atr_target_mult: Decimal = Field(default=Decimal("1.5"))
     signal_atr_stop_mult: Decimal = Field(default=Decimal("1.0"))
     telegram_enabled: bool = False

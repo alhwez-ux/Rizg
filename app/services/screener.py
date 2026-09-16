@@ -42,6 +42,7 @@ class ScreenerService:
             aggressive_ratio=settings.signal_aggressive_ratio,
             atr_target_mult=settings.signal_atr_target_mult,
             atr_stop_mult=settings.signal_atr_stop_mult,
+            exit_net_ceiling=settings.signal_exit_net_ceiling,
         )
         self._liquidity_engine = liquidity_engine
         self._rest = prefer_sahm_rest_url(

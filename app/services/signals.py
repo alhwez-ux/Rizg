@@ -59,21 +59,23 @@ class SignalDecision:
 
 
 class SignalEngine:
-    """Entry/exit from verified net money flow + aggressive buy/sell pressure.
+    """Fast day-trade entry/exit from net money flow + buy pressure.
 
-    Price suggestions use VWAP, top-of-book pressure, and ATR once a signal fires.
-    Price % and gainer lists never trigger a badge on their own.
+    EMA/RSI never gate a badge. Entry fires on a modest positive net print
+    with buy pressure when the split is known. Exit fires as soon as net
+    flow goes flat or negative so short-term gains are not given back.
     """
 
     def __init__(
         self,
         *,
-        net_flow_threshold: Decimal = Decimal("15000"),
-        aggressive_ratio: Decimal = Decimal("0.58"),
+        net_flow_threshold: Decimal = Decimal("3000"),
+        aggressive_ratio: Decimal = Decimal("0.51"),
         volume_surge: Decimal = Decimal("1.25"),
         atr_target_mult: Decimal = Decimal("1.5"),
         atr_stop_mult: Decimal = Decimal("1.0"),
         book_pressure_threshold: Decimal = Decimal("0.55"),
+        exit_net_ceiling: Decimal = Decimal("0"),
     ) -> None:
         self._net_threshold = net_flow_threshold
         self._aggressive = aggressive_ratio
@@ -81,6 +83,7 @@ class SignalEngine:
         self._atr_target = atr_target_mult
         self._atr_stop = atr_stop_mult
         self._book_threshold = book_pressure_threshold
+        self._exit_ceiling = exit_net_ceiling
 
     def evaluate(self, inputs: SignalInputs) -> SignalDecision:
         reasons: list[str] = []
@@ -120,12 +123,18 @@ class SignalEngine:
                 score += Decimal("0.4")
 
         aggressive_buy = buy_ratio is not None and buy_ratio >= self._aggressive
-        aggressive_sell = sell_ratio is not None and sell_ratio >= self._aggressive
-        strong_inflow = net is not None and net >= self._net_threshold
-        strong_outflow = net is not None and net <= -self._net_threshold
-
-        entry = bool(flow_verified and strong_inflow and aggressive_buy)
-        exit_signal = bool(flow_verified and strong_outflow and aggressive_sell)
+        tape_ready = _has_tape(inputs, inflow=inflow, outflow=outflow, net=net)
+        positive_flow = net is not None and net >= self._net_threshold
+        # Day-trade entry: any meaningful positive net flow plus buy pressure
+        # when the split is known. Missing ratios still fire on the net print.
+        entry = bool(positive_flow and (buy_ratio is None or aggressive_buy))
+        # Flatten / fade: lock gains as soon as net flow is flat or red.
+        exit_signal = bool(
+            (not entry)
+            and tape_ready
+            and net is not None
+            and net <= self._exit_ceiling
+        )
 
         plan = suggest_trade_plan(
             inputs,
@@ -149,9 +158,11 @@ class SignalEngine:
             score += Decimal("3.5")
             if sell_ratio is not None:
                 score += (sell_ratio - self._aggressive) * Decimal("4")
+        elif net is not None and net > self._exit_ceiling and buy_ratio is not None and not aggressive_buy:
+            reasons.append("صافي التدفق موجب لكن ضغط الشراء غير كافٍ للدخول")
         elif net is not None and (buy_ratio is None and sell_ratio is None):
             reasons.append("لا توجد بيانات كمية/قيمة كافية لتأكيد الضغط العدواني")
-        elif not flow_verified:
+        elif not tape_ready:
             reasons.append("بانتظار تدفق سيولة موثّق (صافي + شراء/بيع)")
 
         unexpected = (not inputs.tracked) and (entry or exit_signal)
@@ -294,6 +305,24 @@ def _exit_price(
     if last is not None and vwap is not None:
         return max(last, vwap)
     return last or vwap
+
+
+def _has_tape(
+    inputs: SignalInputs,
+    *,
+    inflow: Decimal | None,
+    outflow: Decimal | None,
+    net: Decimal | None,
+) -> bool:
+    if inputs.buy_volume is not None and inputs.buy_volume > 0:
+        return True
+    if inputs.sell_volume is not None and inputs.sell_volume > 0:
+        return True
+    if inflow is not None and inflow > 0:
+        return True
+    if outflow is not None and outflow > 0:
+        return True
+    return net is not None and net != _ZERO
 
 
 def _resolved_flow(inputs: SignalInputs) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
