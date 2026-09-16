@@ -43,7 +43,7 @@ export function SignalToasts({
                 : `${ar.exitPriceLabel}: ${formatPrice(toast.row.suggested_exit)}`}
             </p>
             {entry ? (
-              <p className="mt-1 text-xs text-emerald-200/80">
+              <p className="mt-1 text-xs text-white/75">
                 {ar.target} {formatPrice(toast.row.target_price)} · {ar.stopLoss}{" "}
                 {formatPrice(toast.row.stop_loss)}
               </p>

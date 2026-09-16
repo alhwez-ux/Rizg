@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import { RizgLogo } from "@/components/RizgLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
 import { CLIENT_BUILD, PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
@@ -105,6 +106,9 @@ export function LoginScreen() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-6 px-4 py-10">
+      <div className="flex justify-center">
+        <ThemeToggle />
+      </div>
       <div className="flex flex-col items-center text-center">
         <RizgLogo iconClassName="h-14 w-14" tone={tone} />
         <h1 className="mt-4 text-2xl font-semibold text-zinc-50">{ar.authTitle}</h1>

@@ -10,8 +10,8 @@ export function RecommendationStatus({ value }: { value: RecommendationFlag | nu
       <span
         className="inline-block shrink-0 text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
         style={{
-          color: "#00E676",
-          textShadow: "0 0 8px rgba(0, 230, 118, 0.55), 0 0 18px rgba(0, 230, 118, 0.22)",
+          color: "var(--rizg-gain)",
+          textShadow: "var(--rizg-gain-glow)",
         }}
       >
         {ar.radarStatusEntry}
@@ -23,8 +23,8 @@ export function RecommendationStatus({ value }: { value: RecommendationFlag | nu
       <span
         className="inline-block shrink-0 text-[15px] font-semibold tracking-tight [text-rendering:geometricPrecision]"
         style={{
-          color: "#F87171",
-          textShadow: "0 0 6px rgba(248, 113, 113, 0.28)",
+          color: "var(--rizg-loss)",
+          textShadow: "var(--rizg-loss-glow)",
         }}
       >
         {ar.radarStatusExit}

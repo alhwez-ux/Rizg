@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
+import { DailyLiquidityCard } from "@/components/DailyLiquidityCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { RankingRevealCard } from "@/components/RankingRevealCard";
 import { RecommendationsCard } from "@/components/RecommendationsCard";
@@ -19,10 +21,10 @@ import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "sectors" | "radar" | "recommendations" | "ranking";
+type DashboardTab = "sectors" | "radar" | "flow" | "recommendations" | "ranking";
 
 function parseTab(value: string | null): DashboardTab {
-  if (value === "radar" || value === "recommendations" || value === "ranking" || value === "sectors") {
+  if (value === "radar" || value === "flow" || value === "recommendations" || value === "ranking" || value === "sectors") {
     return value;
   }
   return "sectors";
@@ -45,6 +47,7 @@ function DashboardShell() {
       [
         { id: "sectors" as const, label: ar.tabsSectors, icon: "🌐" },
         { id: "radar" as const, label: ar.tabsRadar, icon: "⚡" },
+        { id: "flow" as const, label: ar.tabsFlow, icon: "💧" },
         {
           id: "recommendations" as const,
           label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod,
@@ -113,18 +116,19 @@ function DashboardShell() {
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pb-6 pt-24 text-zinc-100 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 shadow-glow backdrop-blur-md sm:p-6 md:flex-row md:items-center">
-        <div>
+    <section className="mx-auto flex w-full max-w-7xl flex-col items-center gap-6 px-4 pb-6 pt-24 text-center text-zinc-100 sm:px-6 lg:px-8">
+      <NotificationCenter />
+      <div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center shadow-glow backdrop-blur-md sm:p-6">
+        <div className="flex flex-col items-center">
           <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" tone={tone} />
           <h1 className="mt-3 bg-gradient-to-l from-sky-400 to-teal-400 bg-clip-text text-2xl font-black text-transparent">
             {ar.tabsTitle}
           </h1>
           <p className="mt-1 text-xs text-zinc-400">{ar.tabsWelcome}</p>
         </div>
-        <div className="flex w-full flex-col items-stretch gap-3 md:w-auto md:items-end">
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <NotificationCenter />
+        <div className="flex w-full flex-col items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <ThemeToggle />
             <TasiSchedulerChip />
             <AuthControls />
           </div>
@@ -140,7 +144,7 @@ function DashboardShell() {
       <div
         role="tablist"
         aria-label={ar.tabsTitle}
-        className="flex flex-wrap gap-2 border-b border-zinc-800 pb-4"
+        className="flex w-full flex-wrap items-center justify-center gap-2 border-b border-zinc-800 pb-4"
       >
         {tabs.map((tab, index) => {
           const selected = activeTab === tab.id;
@@ -156,8 +160,12 @@ function DashboardShell() {
               tabIndex={selected ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
-                tab.id === "recommendations"
+              className={`flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
+                tab.id === "flow"
+                  ? selected
+                    ? "bg-teal-100 text-teal-900 shadow-lg shadow-teal-900/20"
+                    : "border border-teal-500/30 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20 hover:text-teal-100"
+                  : tab.id === "recommendations"
                   ? selected
                     ? sessionLive
                       ? "bg-sky-100 text-sky-900 shadow-lg shadow-sky-900/20"
@@ -185,7 +193,7 @@ function DashboardShell() {
         id={`${tablistId}-panel-${activeTab}`}
         role="tabpanel"
         aria-labelledby={`${tablistId}-${activeTab}`}
-        className="animate-fadeIn"
+        className="w-full animate-fadeIn"
       >
         {activeTab === "sectors" ? (
           <SectorHeatmapCard
@@ -206,13 +214,13 @@ function DashboardShell() {
 
         {activeTab === "radar" ? (
           <div className="space-y-4">
-            <div>
+            <div className="text-center">
               <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
               <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
             </div>
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {radarCards.length === 0 ? (
-                <p className="text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
+                <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
               ) : (
                 radarCards.map((item) => (
                   <LiquidityRadarCard
@@ -225,6 +233,15 @@ function DashboardShell() {
               )}
             </div>
           </div>
+        ) : null}
+
+        {activeTab === "flow" ? (
+          <DailyLiquidityCard
+            onOpenSymbol={(company) => {
+              addCompany(company);
+              replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null });
+            }}
+          />
         ) : null}
 
         {activeTab === "recommendations" ? (

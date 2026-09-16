@@ -1,5 +1,7 @@
 import type { Config } from "tailwindcss";
 
+const rgb = (channel: string) => `rgb(var(${channel}) / <alpha-value>)`;
+
 const config: Config = {
   content: [
     "./app/**/*.{ts,tsx}",
@@ -9,14 +11,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        zinc: {
+          50: rgb("--zinc-50"),
+          100: rgb("--zinc-100"),
+          200: rgb("--zinc-200"),
+          300: rgb("--zinc-300"),
+          400: rgb("--zinc-400"),
+          500: rgb("--zinc-500"),
+          600: rgb("--zinc-600"),
+          700: rgb("--zinc-700"),
+          800: rgb("--zinc-800"),
+          900: rgb("--zinc-900"),
+          950: rgb("--zinc-950"),
+        },
         tape: {
-          bg: "#07090d",
-          panel: "#0e131b",
-          line: "#1c2533",
+          bg: rgb("--tape-bg"),
+          panel: rgb("--tape-panel"),
+          line: rgb("--tape-line"),
         },
       },
       boxShadow: {
-        glow: "0 0 40px rgba(16, 185, 129, 0.08)",
+        glow: "var(--shadow-glow)",
       },
       keyframes: {
         pulseDot: {

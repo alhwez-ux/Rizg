@@ -88,7 +88,7 @@ function TapeRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 overflow-hidden border-b border-zinc-800/80 px-4 py-1.5 last:border-b-0">
+    <div className="flex items-center justify-between gap-3 overflow-hidden border-b border-zinc-800/80 px-4 py-1.5 pl-14 last:border-b-0 sm:pl-4">
       <div className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold text-sky-400">
         <span className="h-2 w-2 animate-ping rounded-full bg-sky-400" />
         {label}

@@ -87,10 +87,8 @@ export default function NotificationCenter() {
     setLatestToast(null);
   };
 
-  return (
-    <div className="relative" dir="rtl" ref={root}>
-      {mounted ? createPortal(<PriceTicker alerts={notifications} />, document.body) : null}
-
+  const chrome = (
+    <div className="rizg-notify-anchor" dir="ltr" ref={root}>
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
@@ -102,7 +100,7 @@ export default function NotificationCenter() {
       >
         <span aria-hidden="true">🔔</span>
         {notifications.length > 0 ? (
-          <span className="absolute -top-1 -right-1 flex h-5 w-5 animate-pulse items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
+          <span className="absolute -top-1 left-auto right-0 flex h-5 w-5 animate-pulse items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
             {notifications.length > 9 ? "9+" : notifications.length}
           </span>
         ) : null}
@@ -111,7 +109,8 @@ export default function NotificationCenter() {
       {isOpen ? (
         <div
           role="menu"
-          className="absolute left-0 z-[70] mt-2 w-80 animate-fadeIn rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-right shadow-2xl md:w-96"
+          dir="rtl"
+          className="rizg-notify-panel animate-fadeIn rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-right shadow-2xl"
         >
           <div className="mb-3 flex items-center justify-between border-b border-zinc-800 pb-2">
             <h3 className="text-sm font-bold text-zinc-100">{ar.notifyTitle}</h3>
@@ -136,10 +135,16 @@ export default function NotificationCenter() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
 
+  return (
+    <>
+      {mounted ? createPortal(<PriceTicker alerts={notifications} />, document.body) : null}
+      {mounted ? createPortal(chrome, document.body) : chrome}
       {mounted && latestToast
         ? createPortal(
-            <div className="fixed bottom-6 left-6 z-[60] max-w-sm animate-bounce rounded-2xl border border-sky-500/40 bg-zinc-950 p-4 text-right shadow-2xl">
+            <div className="fixed bottom-6 left-6 right-auto z-[60] max-w-sm animate-bounce rounded-2xl border border-sky-500/40 bg-zinc-950 p-4 text-right shadow-2xl">
               <div className="flex items-start gap-3">
                 <span className="text-xl" aria-hidden="true">
                   ⚡
@@ -161,7 +166,7 @@ export default function NotificationCenter() {
             document.body,
           )
         : null}
-    </div>
+    </>
   );
 }
 

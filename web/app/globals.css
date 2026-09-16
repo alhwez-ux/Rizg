@@ -2,8 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+[data-theme="dark"] {
   color-scheme: dark;
+  --zinc-50: 250 250 250;
+  --zinc-100: 244 244 245;
+  --zinc-200: 228 228 231;
+  --zinc-300: 212 212 216;
+  --zinc-400: 161 161 170;
+  --zinc-500: 113 113 122;
+  --zinc-600: 82 82 91;
+  --zinc-700: 63 63 70;
+  --zinc-800: 39 39 42;
+  --zinc-900: 24 24 27;
+  --zinc-950: 9 9 11;
+  --tape-bg: 7 9 13;
+  --tape-panel: 14 19 27;
+  --tape-line: 28 37 51;
+  --shadow-glow: 0 0 40px rgba(16, 185, 129, 0.08);
+  --rizg-page:
+    radial-gradient(1200px 500px at 90% -10%, rgba(16, 185, 129, 0.08), transparent 50%),
+    radial-gradient(900px 400px at 0% 0%, rgba(244, 63, 94, 0.06), transparent 45%),
+    #07090d;
+  --rizg-fg: #f4f4f5;
+  --rizg-gain: #00e676;
+  --rizg-gain-glow: 0 0 8px rgba(0, 230, 118, 0.55), 0 0 18px rgba(0, 230, 118, 0.22);
+  --rizg-loss: #f87171;
+  --rizg-loss-glow: 0 0 6px rgba(248, 113, 113, 0.28);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --zinc-50: 15 23 42;
+  --zinc-100: 30 41 59;
+  --zinc-200: 51 65 85;
+  --zinc-300: 71 85 105;
+  --zinc-400: 71 85 105;
+  --zinc-500: 100 116 139;
+  --zinc-600: 148 163 184;
+  --zinc-700: 186 196 210;
+  --zinc-800: 214 222 232;
+  --zinc-900: 236 240 245;
+  --zinc-950: 255 255 255;
+  --tape-bg: 243 246 250;
+  --tape-panel: 255 255 255;
+  --tape-line: 214 222 232;
+  --shadow-glow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  --rizg-page:
+    radial-gradient(1200px 500px at 90% -10%, rgba(13, 148, 136, 0.1), transparent 52%),
+    radial-gradient(900px 400px at 0% 0%, rgba(190, 18, 60, 0.05), transparent 46%),
+    #f3f6fa;
+  --rizg-fg: #0f172a;
+  --rizg-gain: #047857;
+  --rizg-gain-glow: none;
+  --rizg-loss: #be123c;
+  --rizg-loss-glow: none;
 }
 
 html,
@@ -12,11 +65,67 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(1200px 500px at 90% -10%, rgba(16, 185, 129, 0.08), transparent 50%),
-    radial-gradient(900px 400px at 0% 0%, rgba(244, 63, 94, 0.06), transparent 45%),
-    #07090d;
-  color: #f4f4f5;
+  background: var(--rizg-page);
+  color: var(--rizg-fg);
+}
+
+/* Pale accent text used on dark cards becomes ink on the day theme. */
+[data-theme="light"] .text-emerald-100,
+[data-theme="light"] .text-emerald-200,
+[data-theme="light"] .text-emerald-300,
+[data-theme="light"] .text-emerald-400,
+[data-theme="light"] .hover\:text-emerald-100:hover,
+[data-theme="light"] .hover\:text-emerald-300:hover {
+  color: #047857;
+}
+
+[data-theme="light"] .text-rose-100,
+[data-theme="light"] .text-rose-200,
+[data-theme="light"] .text-rose-300,
+[data-theme="light"] .text-rose-400,
+[data-theme="light"] .hover\:text-rose-300:hover {
+  color: #be123c;
+}
+
+[data-theme="light"] .text-sky-100,
+[data-theme="light"] .text-sky-200,
+[data-theme="light"] .text-sky-300,
+[data-theme="light"] .text-sky-400,
+[data-theme="light"] .hover\:text-sky-100:hover,
+[data-theme="light"] .hover\:text-sky-400:hover,
+[data-theme="light"] .group:hover .group-hover\:text-sky-400 {
+  color: #0369a1;
+}
+
+[data-theme="light"] .text-amber-200,
+[data-theme="light"] .text-amber-300,
+[data-theme="light"] .text-amber-400,
+[data-theme="light"] .hover\:text-amber-200:hover {
+  color: #b45309;
+}
+
+[data-theme="light"] .from-sky-400 {
+  --tw-gradient-from: #0369a1 var(--tw-gradient-from-position);
+}
+
+[data-theme="light"] .to-teal-400 {
+  --tw-gradient-to: #0f766e var(--tw-gradient-to-position);
+}
+
+[data-theme="light"] .bg-emerald-950\/20 {
+  background-color: rgb(236 253 245 / 0.85);
+}
+
+[data-theme="light"] .hover\:bg-emerald-950\/30:hover {
+  background-color: rgb(209 250 229 / 0.95);
+}
+
+[data-theme="light"] .bg-rose-950\/30 {
+  background-color: rgb(255 241 242 / 0.9);
+}
+
+[data-theme="light"] .bg-sky-950\/30 {
+  background-color: rgb(224 242 254 / 0.75);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -25,4 +134,34 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Physical left — logical start/end is the RIGHT under html[dir=rtl]. */
+.rizg-notify-anchor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: 120;
+  width: max-content;
+  max-width: calc(100vw - 0.5rem);
+  padding: 0.25rem;
+}
+@media (min-width: 640px) {
+  .rizg-notify-anchor {
+    top: 4.75rem;
+    left: 1rem;
+    padding: 0;
+  }
+}
+.rizg-notify-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: auto;
+  z-index: 120;
+  margin-top: 0.5rem;
+  box-sizing: border-box;
+  width: min(22rem, calc(100vw - 1rem));
+  max-width: calc(100vw - 1rem);
 }

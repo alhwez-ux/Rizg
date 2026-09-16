@@ -214,7 +214,7 @@ export function SectorHeatmapCard({
 
   return (
     <section className="mx-auto max-w-6xl space-y-6 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">
-      <div className="flex flex-col items-start justify-between gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-center justify-center gap-3 border-b border-zinc-800 pb-4 text-center">
         <div>
           <h2 className="text-xl font-bold text-zinc-50">{ar.heatmapTitle}</h2>
           <p className="mt-1 text-xs text-zinc-500">{ar.heatmapHint}</p>

@@ -141,9 +141,9 @@ export function RecommendationsCard() {
 
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">
-      <div className="mb-5 flex flex-col items-start justify-between gap-4 border-b border-zinc-800 pb-4 md:flex-row md:items-center">
+      <div className="mb-5 flex flex-col items-center justify-center gap-4 border-b border-zinc-800 pb-4 text-center">
         <div>
-          <h2 className={`flex items-center gap-2 text-xl font-bold ${live ? "text-sky-100" : "text-emerald-100"}`}>
+          <h2 className={`flex items-center justify-center gap-2 text-xl font-bold ${live ? "text-sky-100" : "text-emerald-100"}`}>
             <span
               className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${
                 live ? "bg-sky-500/20 text-sky-300" : "bg-emerald-100 text-emerald-800"
@@ -155,7 +155,7 @@ export function RecommendationsCard() {
           </h2>
           <p className="mt-1 text-xs text-zinc-500">{hint}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
           <span
             className={`rounded-xl border px-3 py-1 text-xs font-semibold ${
               live
@@ -186,7 +186,7 @@ export function RecommendationsCard() {
       </div>
 
       {loaded ? (
-        <div className="mb-4 flex flex-wrap gap-2">
+        <div className="mb-4 flex flex-wrap justify-center gap-2">
           {(
             [
               ["all", ar.recoFilterAll],
