@@ -273,3 +273,53 @@ def test_exit_recommends_ask_or_vwap() -> None:
     assert decision.exit is True
     assert decision.suggested_exit == Decimal("24.50")
     assert decision.suggested_entry is None
+
+
+def test_relative_ranking_fires_top_share_below_absolute_floor() -> None:
+    from app.services.signals import positive_net_cutoff
+
+    peers = [Decimal(str(value)) for value in (100, 200, 300, 400, 500, 600, 700, 800, 900, 1000)]
+    assert positive_net_cutoff(peers, share=Decimal("0.15")) == Decimal("900")
+    engine = SignalEngine(net_flow_threshold=Decimal("15000"), entry_share=Decimal("0.15"))
+    top = engine.evaluate(SignalInputs(net_flow=Decimal("950"), symbol="1120"), peer_nets=peers)
+    missed = engine.evaluate(SignalInputs(net_flow=Decimal("400"), symbol="4030"), peer_nets=peers)
+    assert top.entry is True
+    assert missed.entry is False
+    assert any("15%" in reason for reason in top.reasons)
+
+
+def test_buying_spike_fires_on_quiet_positive_tape() -> None:
+    engine = SignalEngine(net_flow_threshold=Decimal("15000"))
+    aggressive = engine.evaluate(
+        SignalInputs(
+            net_flow=Decimal("400"),
+            buy_volume=Decimal("70"),
+            sell_volume=Decimal("30"),
+            symbol="2222",
+        )
+    )
+    book = engine.evaluate(
+        SignalInputs(
+            net_flow=Decimal("250"),
+            bid_size=Decimal("8000"),
+            ask_size=Decimal("2000"),
+            symbol="4190",
+        )
+    )
+    assert aggressive.entry is True
+    assert book.entry is True
+
+
+def test_proxy_green_print_ranks_against_peers() -> None:
+    engine = SignalEngine(net_flow_threshold=Decimal("999999"))
+    peers = [Decimal(str(value)) for value in range(10, 110, 10)]
+    decision = engine.evaluate(
+        SignalInputs(
+            change_percent=Decimal("1.5"),
+            price=Decimal("25"),
+            volume=Decimal("100000"),
+            symbol="1060",
+        ),
+        peer_nets=peers,
+    )
+    assert decision.entry is True

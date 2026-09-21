@@ -93,8 +93,8 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
     return report;
   }
   const flag = tick.recommendation;
-  const entry = flag === "دخول";
-  const exit = flag === "خروج";
+  const entry = flag === "دخول" ? true : flag === "خروج" ? false : report.entry;
+  const exit = flag === "خروج" ? true : flag === "دخول" ? false : report.exit;
   return {
     ...report,
     last_price: tick.lastPrice ?? report.last_price,
@@ -106,7 +106,7 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
     trade_count: tick.tradeCount || report.trade_count,
     entry,
     exit,
-    signal: entry ? "entry" : exit ? "exit" : report.trap ? "trap" : "neutral",
+    signal: entry ? "entry" : exit ? "exit" : report.trap ? "trap" : report.signal,
   };
 }
 

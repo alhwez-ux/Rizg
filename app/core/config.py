@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     signal_exit_net_ceiling: Decimal = Field(default=Decimal("0"))
     signal_atr_target_mult: Decimal = Field(default=Decimal("1.5"))
     signal_atr_stop_mult: Decimal = Field(default=Decimal("1.0"))
+    signal_entry_share: float = Field(default=0.15, ge=0.05, le=0.5)
     telegram_enabled: bool = False
     alert_window_seconds: int = Field(default=60, ge=5, le=600)
     alert_inflow_threshold: Decimal = Field(default=Decimal("25000"))

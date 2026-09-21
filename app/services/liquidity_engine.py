@@ -31,12 +31,18 @@ def _live_signal_engine():
     from app.services.signals import SignalEngine
 
     settings = get_settings()
+    share = getattr(settings, "signal_entry_share", Decimal("0.15"))
+    try:
+        entry_share = Decimal(str(share))
+    except InvalidOperation:
+        entry_share = Decimal("0.15")
     return SignalEngine(
         net_flow_threshold=settings.signal_net_flow_threshold,
         aggressive_ratio=settings.signal_aggressive_ratio,
         atr_target_mult=settings.signal_atr_target_mult,
         atr_stop_mult=settings.signal_atr_stop_mult,
         exit_net_ceiling=settings.signal_exit_net_ceiling,
+        entry_share=entry_share,
     )
 
 
@@ -252,9 +258,10 @@ class LiquidityEngine:
 
         with self._lock:
             state = self._sessions.setdefault(ticker, _TickerState(symbol=ticker))
+            reference = state.last_price if state.last_price is not None else state.prev_close
             side, tick = self.classify_tick(
                 quantized_price,
-                state.last_price,
+                reference,
                 state.last_different_price,
             )
             money_flow = self._apply_money_flow(state, side, quantized_price, quantized_volume)
@@ -350,11 +357,16 @@ class LiquidityEngine:
                 sell_volume=session.sell_volume,
                 price=session.last_price or levels.last_price,
                 tracked=True,
+                symbol=ticker,
             ),
             levels,
         )
-        decision = _live_signal_engine().evaluate(inputs)
+        decision = _live_signal_engine().evaluate(inputs, peer_nets=self._peer_nets())
         return recommendation_label(entry=decision.entry, exit_signal=decision.exit)
+
+    def _peer_nets(self) -> list[Decimal]:
+        with self._lock:
+            return [state.net_flow for state in self._sessions.values()]
 
     def stream_message(self, result: TradeResult) -> LiquidityStreamMessage:
         return LiquidityStreamMessage.from_trade(
@@ -675,7 +687,7 @@ class LiquidityRadarEngine(LiquidityEngine):
             self._primary_symbol = str(candles["symbol"].iloc[-1])
         return results
 
-    def get_latest_signal_report(self, symbol: str | None = None) -> dict[str, Any]:
+    def get_latest_signal_report(self, symbol: str | None = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         """Latest liquidity-flow / trap report after ingesting Sahm candles."""
 
         from app.services.signals import SignalInputs, apply_levels
@@ -699,22 +711,41 @@ class LiquidityRadarEngine(LiquidityEngine):
         levels = self.levels_snapshot(ticker)
         change_percent, volume, prev_volume = _candle_context(self._candles, ticker)
         trap = _detect_liquidity_trap(self._candles, ticker)
+        extra = extra or {}
+        overlay_net = _optional_decimal(extra.get("net_flow")) if "net_flow" in extra else None
+        overlay_inflow = _optional_decimal(extra.get("inflow"))
+        overlay_outflow = _optional_decimal(extra.get("outflow"))
+        session_net = overlay_net if overlay_net is not None else session.net_flow
+        if session.net_flow and overlay_net is not None and abs(session.net_flow) > abs(overlay_net):
+            session_net = session.net_flow
+        session_inflow = session.inflow if session.inflow else overlay_inflow
+        session_outflow = session.outflow if session.outflow else overlay_outflow
+        extra_change = _optional_decimal(extra.get("change_percent"))
+        extra_volume = _optional_decimal(extra.get("volume"))
+        extra_value = _optional_decimal(extra.get("session_value"))
+        peer_nets = extra.get("peer_nets")
+        if peer_nets is None:
+            peer_nets = list(self._peer_nets())
+            if overlay_net:
+                peer_nets.append(overlay_net)
         inputs = apply_levels(
             SignalInputs(
-                volume=volume,
+                volume=extra_volume if extra_volume is not None else volume,
                 prev_volume=prev_volume,
-                inflow=session.inflow,
-                outflow=session.outflow,
-                net_flow=session.net_flow,
+                inflow=session_inflow,
+                outflow=session_outflow,
+                net_flow=session_net,
                 buy_volume=session.buy_volume,
                 sell_volume=session.sell_volume,
-                change_percent=change_percent,
+                change_percent=extra_change if extra_change is not None else change_percent,
                 price=session.last_price or levels.last_price,
+                session_value=extra_value,
                 tracked=True,
+                symbol=ticker,
             ),
             levels,
         )
-        decision = _live_signal_engine().evaluate(inputs)
+        decision = _live_signal_engine().evaluate(inputs, peer_nets=peer_nets)
         signal = "entry" if decision.entry else "exit" if decision.exit else "trap" if trap else "neutral"
         reasons = list(decision.reasons)
         if trap and trap["label"] not in reasons:
@@ -727,9 +758,9 @@ class LiquidityRadarEngine(LiquidityEngine):
             "trap": trap,
             "flow_verified": decision.flow_verified,
             "score": _json_number(decision.score),
-            "net_flow": _json_number(session.net_flow),
-            "inflow": _json_number(session.inflow),
-            "outflow": _json_number(session.outflow),
+            "net_flow": _json_number(session_net if session_net is not None else session.net_flow),
+            "inflow": _json_number(session_inflow if session_inflow is not None else session.inflow),
+            "outflow": _json_number(session_outflow if session_outflow is not None else session.outflow),
             "buy_volume": _json_number(session.buy_volume),
             "sell_volume": _json_number(session.sell_volume),
             "buy_ratio": _json_number(decision.buy_ratio),
@@ -741,7 +772,7 @@ class LiquidityRadarEngine(LiquidityEngine):
             "suggested_exit": _json_number(decision.suggested_exit),
             "target_price": _json_number(decision.target_price),
             "stop_loss": _json_number(decision.stop_loss),
-            "change_percent": _json_number(change_percent),
+            "change_percent": _json_number(extra_change if extra_change is not None else change_percent),
             "trade_count": session.trade_count,
             "reasons": reasons,
         }

@@ -16,7 +16,7 @@ from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
 from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
 from app.services.shariah import is_prohibited
-from app.services.signals import SignalEngine, SignalInputs, apply_levels
+from app.services.signals import SignalEngine, SignalInputs, apply_levels, positive_net_cutoff
 from app.services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class ScreenerService:
             atr_target_mult=settings.signal_atr_target_mult,
             atr_stop_mult=settings.signal_atr_stop_mult,
             exit_net_ceiling=settings.signal_exit_net_ceiling,
+            entry_share=Decimal(str(getattr(settings, "signal_entry_share", 0.15))),
         )
         self._liquidity_engine = liquidity_engine
         self._rest = prefer_sahm_rest_url(
@@ -162,18 +163,28 @@ class ScreenerService:
 
         rows: dict[str, ScreenerRow] = {}
         priority: list[str] = []
+        prepared: list[tuple[str, dict[str, Any], Decimal, Decimal | None, Decimal | None, Decimal | None, Decimal | None, Decimal | None, SessionFlow | None]] = []
 
         for symbol, raw in movers.items():
             if is_prohibited(symbol):
                 continue
             volume_now = _decimal(raw.get("volume"))
-            prev = previous_volumes.get(symbol)
             existing = existing_rows.get(symbol)
             inflow, outflow, net, buy_volume, sell_volume = _flow_from_raw(raw, existing)
             session = self._session_for(symbol)
             inflow, outflow, net, buy_volume, sell_volume = _prefer_session(
                 inflow, outflow, net, buy_volume, sell_volume, session
             )
+            prepared.append(
+                (symbol, raw, volume_now, inflow, outflow, net, buy_volume, sell_volume, session)
+            )
+
+        peer_nets = [item[5] for item in prepared if item[5] is not None]
+        peer_nets.extend(row.net_flow for row in existing_rows.values())
+
+        for symbol, raw, volume_now, inflow, outflow, net, buy_volume, sell_volume, _session in prepared:
+            prev = previous_volumes.get(symbol)
+            existing = existing_rows.get(symbol)
             levels = None
             if self._liquidity_engine is not None:
                 levels = self._liquidity_engine.observe_market(symbol, raw)
@@ -189,6 +200,7 @@ class ScreenerService:
                         buy_volume=buy_volume,
                         sell_volume=sell_volume,
                         price=_optional_decimal(raw.get("price")),
+                        session_value=_optional_decimal(raw.get("value") or raw.get("traded_value")),
                         bid=_optional_decimal(raw.get("bid")),
                         ask=_optional_decimal(raw.get("ask")),
                         bid_size=_optional_decimal(raw.get("bid_size")),
@@ -197,9 +209,11 @@ class ScreenerService:
                         in_volume_leaders="volume" in raw.get("sources", ()),
                         in_value_leaders="value" in raw.get("sources", ()),
                         tracked=symbol in tracked,
+                        symbol=symbol,
                     ),
                     levels,
-                )
+                ),
+                peer_nets=peer_nets,
             )
             row = _build_row(
                 symbol=symbol,
@@ -223,6 +237,37 @@ class ScreenerService:
                 priority.append(symbol)
             elif symbol not in tracked and ("volume" in row.sources or "value" in row.sources):
                 priority.append(symbol)
+
+        promoted = 0
+        cutoff = positive_net_cutoff(
+            [row.net_flow for row in rows.values()],
+            share=Decimal(str(getattr(self._settings, "signal_entry_share", 0.15))),
+        )
+        if cutoff is not None:
+            for symbol, row in list(rows.items()):
+                if row.entry_signal or row.exit_signal:
+                    continue
+                if row.net_flow >= cutoff and (row.buy_ratio is None or row.buy_ratio >= Decimal("0.50")):
+                    rows[symbol] = row.model_copy(
+                        update={
+                            "entry_signal": True,
+                            "recommendation": recommendation_label(entry=True),
+                            "reasons": [
+                                "إشارة دخول 🚀",
+                                f"ضمن أعلى 15% من صافي التدفق الموجب بين الأقران",
+                                *list(row.reasons),
+                            ],
+                        }
+                    )
+                    priority.append(symbol)
+                    promoted += 1
+        logger.info(
+            "[entry-scan] screener movers=%s entries=%s promoted=%s cutoff=%s",
+            len(rows),
+            sum(1 for row in rows.values() if row.entry_signal),
+            promoted,
+            cutoff,
+        )
 
         pulse = MarketPulse(
             index=str((summary or {}).get("index") or "TASI"),
@@ -287,6 +332,10 @@ class ScreenerService:
         levels = None
         if self._liquidity_engine is not None:
             levels = self._liquidity_engine.observe_market(symbol, merged)
+        with self._guard:
+            peer_nets = [row.net_flow for row in self._rows.values()]
+        if net is not None:
+            peer_nets.append(net)
         decision = self._engine.evaluate(
             apply_levels(
                 SignalInputs(
@@ -299,6 +348,7 @@ class ScreenerService:
                     buy_volume=buy_volume,
                     sell_volume=sell_volume,
                     price=_optional_decimal(merged.get("price") or merged.get("last_price")),
+                    session_value=_optional_decimal(merged.get("value") or merged.get("traded_value")),
                     bid=_optional_decimal(merged.get("bid")),
                     ask=_optional_decimal(merged.get("ask")),
                     bid_size=_optional_decimal(merged.get("bid_size")),
@@ -307,9 +357,11 @@ class ScreenerService:
                     in_volume_leaders="volume" in sources,
                     in_value_leaders="value" in sources,
                     tracked=tracked,
+                    symbol=symbol,
                 ),
                 levels,
-            )
+            ),
+            peer_nets=peer_nets,
         )
         row = _build_row(
             symbol=symbol,
@@ -468,6 +520,11 @@ def _flow_from_raw(
             existing.buy_volume if existing.buy_volume else buy_volume,
             existing.sell_volume if existing.sell_volume else sell_volume,
         )
+    if net is None and inflow is None:
+        change = _optional_decimal(raw.get("change_percent"))
+        value = _optional_decimal(raw.get("value") or raw.get("traded_value"))
+        if change is not None and value is not None and value > 0 and change != 0:
+            net = (value * change) / Decimal("100")
     return inflow, outflow, net, buy_volume, sell_volume
 
 

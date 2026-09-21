@@ -122,6 +122,7 @@ class TickChartFeed:
         self._eod_reco_cache: tuple[str, list[dict[str, Any]]] | None = None
         self._live_reco_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._company_names: dict[str, str] | None = None
+        self._peer_nets_cache: tuple[float, list[float]] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -503,11 +504,45 @@ class TickChartFeed:
 
     def radar_report(self, symbol: str) -> dict[str, Any]:
         ticker = symbol.strip().upper()
-        report = self._engine.get_latest_signal_report(ticker)
         levels = self._engine.levels_snapshot(ticker)
         session = self._engine.session_snapshot(ticker)
         tape = self._tape(ticker)
         live = tape.snapshot()
+        stored = self._quotes.get(ticker) or {}
+        ranking = self._ranking_row(ticker) or {}
+        last_price = live.get("last_price") or _json_number(session.last_price) or _json_number(levels.last_price)
+        live_tick = last_price is not None
+        if last_price is None:
+            last_price = stored.get("last_price") or self._quotes.price(ticker)
+        if last_price is None:
+            last_price = ranking.get("last_price") or self._ranking_price(ticker)
+        change = stored.get("change_percent")
+        if change is None:
+            change = live.get("change_percent")
+        session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
+        if not session_volume:
+            session_volume = stored.get("volume") or ranking.get("volume")
+        session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
+        engine_flow = _json_number(session.net_flow) or 0
+        stored_flow = _json_number(stored.get("net_flow")) or 0
+        if abs(stored_flow) >= abs(engine_flow):
+            net_flow = stored_flow or engine_flow or 0
+        else:
+            net_flow = engine_flow or stored_flow or 0
+        if not net_flow and session_value and change:
+            net_flow = float(session_value) * (float(change) / 100.0)
+        report = self._engine.get_latest_signal_report(
+            ticker,
+            extra={
+                "net_flow": net_flow,
+                "inflow": stored.get("inflow"),
+                "outflow": stored.get("outflow"),
+                "change_percent": change,
+                "volume": session_volume,
+                "session_value": session_value,
+                "peer_nets": self._peer_nets(),
+            },
+        )
         trap = live.get("trap") or report.get("trap")
         if trap:
             report["trap"] = trap
@@ -525,14 +560,8 @@ class TickChartFeed:
         spread = None
         if bid is not None and ask is not None:
             spread = round(float(ask) - float(bid), 6)
-        last_price = report.get("last_price") or live.get("last_price")
-        live_tick = last_price is not None
-        stored = self._quotes.get(ticker) or {}
-        ranking = self._ranking_row(ticker) or {}
         if last_price is None:
-            last_price = stored.get("last_price") or self._quotes.price(ticker)
-        if last_price is None:
-            last_price = ranking.get("last_price") or self._ranking_price(ticker)
+            last_price = report.get("last_price")
         phase = session_phase(now_riyadh())
         if live_tick and phase == "open":
             quote_mode = "live"
@@ -550,23 +579,8 @@ class TickChartFeed:
             note = "في انتظار بيانات الجلسة"
             if note not in reasons:
                 reasons.insert(0, note)
-        change = stored.get("change_percent")
-        if change is None:
-            change = live.get("change_percent")
         if change is None:
             change = report.get("change_percent")
-        session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
-        if not session_volume:
-            session_volume = stored.get("volume") or ranking.get("volume")
-        session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
-        engine_flow = _json_number(report.get("net_flow")) or 0
-        stored_flow = _json_number(stored.get("net_flow")) or 0
-        if abs(stored_flow) >= abs(engine_flow):
-            net_flow = stored_flow or engine_flow or 0
-        else:
-            net_flow = engine_flow or stored_flow or 0
-        if not net_flow and session_value and change:
-            net_flow = float(session_value) * (float(change) / 100.0)
         report.update(
             {
                 "symbol": ticker,
@@ -777,19 +791,38 @@ class TickChartFeed:
 
     def _live_opportunities(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        scanned = 0
+        passed = 0
+        failed_positive = 0
         for report in (self.radar_report(symbol) for symbol in self._universe_symbols()):
             last = report.get("last_price")
             if not last:
                 continue
+            scanned += 1
             trap = report.get("trap") or {}
             kind = str(trap.get("kind") or "")
             signal = str(report.get("signal") or "neutral")
             inst = report.get("institutional_mfi")
-            bounce = kind == "silent_accumulation" or (signal == "entry" and (inst or 50) >= 55)
-            momentum = signal == "entry" and not bounce and (report.get("volume_ratio") or 0) >= 1.2
+            bounce = kind == "silent_accumulation" or (signal == "entry" and (inst or 50) >= 52)
+            momentum = signal == "entry" and not bounce
             trap_exit = kind in {"bull_trap", "bear_trap", "silent_distribution"} or signal in {"trap", "exit"}
-            if not (bounce or momentum or trap_exit):
+            entry = bool(report.get("entry") or signal == "entry" or bounce)
+            if not (entry or trap_exit):
+                net = report.get("net_flow") or 0
+                if net > 0 and failed_positive < 12:
+                    failed_positive += 1
+                    logger.info(
+                        "[entry-scan] live-skip %s net=%s signal=%s buy_ratio=%s mfi=%s vol_ratio=%s reasons=%s",
+                        report.get("symbol"),
+                        net,
+                        signal,
+                        report.get("buy_ratio"),
+                        inst,
+                        report.get("volume_ratio"),
+                        list(report.get("reasons") or [])[:3],
+                    )
                 continue
+            passed += 1
             atr = float(report.get("atr") or last * 0.012)
             if bounce:
                 signal_type = "ارتداد إيجابي من تجميع صامت 📈"
@@ -797,7 +830,7 @@ class TickChartFeed:
                 reason = trap.get("label") or "تجميع مؤسسي صامت مع جدار طلب"
                 target = last + atr * 1.4
                 stop = last - atr
-            elif trap_exit:
+            elif trap_exit and not entry:
                 signal_type = "فخ سيولة لحظي ⚠️"
                 signal_kind = "bounce" if kind == "bear_trap" else "momentum"
                 reason = trap.get("label") or "ضغط دفتر أوامر مقابل تضاعف الحجم"
@@ -809,6 +842,13 @@ class TickChartFeed:
                 reason = "تدفق مؤسسي مع تكات صاعدة وعمق سوق داعم"
                 target = last + atr * 1.6
                 stop = last - atr
+            if entry and not bounce:
+                reasons = report.get("reasons") or []
+                if reasons:
+                    reason = next(
+                        (item for item in reasons if "دخول" in str(item) or "تدفق" in str(item) or "ضغط" in str(item)),
+                        reason,
+                    )
             score = int(min(94, max(68, float(report.get("score") or 70))))
             if inst:
                 score = int(min(94, max(score, inst)))
@@ -834,7 +874,13 @@ class TickChartFeed:
                 }
             )
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
-        return rows
+        logger.info(
+            "[entry-scan] live-summary scanned=%s passed=%s returned=%s",
+            scanned,
+            passed,
+            min(len(rows), 12),
+        )
+        return rows[:12]
 
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
@@ -888,6 +934,29 @@ class TickChartFeed:
                 }
             )
         return snapshots
+
+    def _peer_nets(self) -> list[float]:
+        """Unique net-flow ranks used as the relative entry universe."""
+
+        now = time.monotonic()
+        cached = self._peer_nets_cache
+        if cached and now - cached[0] < 2:
+            return list(cached[1])
+        by_symbol: dict[str, float] = {}
+        for row in self._quotes.snapshot():
+            ticker = str(row.get("symbol") or "").strip().upper()
+            net = _json_number(row.get("net_flow"))
+            if ticker and net:
+                by_symbol[ticker] = net
+        snapshot_all = getattr(self._engine, "snapshot_all", None)
+        sessions = snapshot_all() if callable(snapshot_all) else {}
+        for ticker, session in sessions.items():
+            net = _json_number(getattr(session, "net_flow", None))
+            if net:
+                by_symbol[str(ticker)] = float(net)
+        nets = list(by_symbol.values())
+        self._peer_nets_cache = (now, nets)
+        return list(nets)
 
     def _ranking_index(self) -> dict[str, dict[str, Any]]:
         store = self._ranking

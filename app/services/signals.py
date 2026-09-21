@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+from typing import Iterable
 
 from app.services.liquidity_engine import MarketLevels
 
+logger = logging.getLogger(__name__)
+
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
+_HALF = Decimal("0.50")
 _RATIO_Q = Decimal("0.0001")
 _SCORE_Q = Decimal("0.01")
 _PRICE_Q = Decimal("0.01")
+_DEFAULT_ENTRY_SHARE = Decimal("0.15")
 
 
 @dataclass(frozen=True)
@@ -25,6 +32,7 @@ class SignalInputs:
     sell_volume: Decimal | None = None
     change_percent: Decimal = _ZERO
     price: Decimal | None = None
+    session_value: Decimal | None = None
     vwap: Decimal | None = None
     atr: Decimal | None = None
     bid: Decimal | None = None
@@ -36,6 +44,7 @@ class SignalInputs:
     in_volume_leaders: bool = False
     in_value_leaders: bool = False
     tracked: bool = False
+    symbol: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,9 +70,10 @@ class SignalDecision:
 class SignalEngine:
     """Fast day-trade entry/exit from net money flow + buy pressure.
 
-    EMA/RSI never gate a badge. Entry fires on a modest positive net print
-    with buy pressure when the split is known. Exit fires as soon as net
-    flow goes flat or negative so short-term gains are not given back.
+    EMA/RSI never gate a badge. Entry fires on the top 10–15% of positive
+    net flow, a buying-pressure spike, or a verified tape print. Exit fires
+    as soon as net flow goes flat or negative so short-term gains are not
+    given back.
     """
 
     def __init__(
@@ -76,6 +86,7 @@ class SignalEngine:
         atr_stop_mult: Decimal = Decimal("1.0"),
         book_pressure_threshold: Decimal = Decimal("0.55"),
         exit_net_ceiling: Decimal = Decimal("0"),
+        entry_share: Decimal = _DEFAULT_ENTRY_SHARE,
     ) -> None:
         self._net_threshold = net_flow_threshold
         self._aggressive = aggressive_ratio
@@ -84,26 +95,34 @@ class SignalEngine:
         self._atr_stop = atr_stop_mult
         self._book_threshold = book_pressure_threshold
         self._exit_ceiling = exit_net_ceiling
+        self._entry_share = entry_share if entry_share > 0 else _DEFAULT_ENTRY_SHARE
 
-    def evaluate(self, inputs: SignalInputs) -> SignalDecision:
+    def evaluate(
+        self,
+        inputs: SignalInputs,
+        *,
+        peer_nets: Iterable[Decimal | float | int | None] | None = None,
+    ) -> SignalDecision:
         reasons: list[str] = []
         score = _ZERO
 
-        inflow, outflow, net = _resolved_flow(inputs)
+        inflow, outflow, net, proxied = _resolved_flow(inputs)
         buy_ratio, sell_ratio, pressure_source = _pressure_ratios(inputs, inflow, outflow)
         surge = _volume_surge(inputs.volume, inputs.prev_volume)
         book_pressure = inputs.book_pressure
         if book_pressure is None:
             book_pressure = _ratio(inputs.bid_size, inputs.ask_size)
-        flow_verified = net is not None and (buy_ratio is not None or sell_ratio is not None)
+        flow_verified = (not proxied) and net is not None and (buy_ratio is not None or sell_ratio is not None)
 
+        if proxied and net is not None and net != _ZERO:
+            reasons.append("صافي تدفق تقديري من اتجاه السعر × قيمة التداول")
         if net is not None:
             if net > 0:
                 reasons.append("صافي تدفق أموال موجب")
-                score += Decimal("2.0") + min(net / self._net_threshold, Decimal("3"))
+                score += Decimal("2.0") + min(abs(net) / max(self._net_threshold, _ONE), Decimal("3"))
             elif net < 0:
                 reasons.append("صافي تدفق أموال سالب")
-                score += Decimal("1.2") + min(abs(net) / self._net_threshold, Decimal("3"))
+                score += Decimal("1.2") + min(abs(net) / max(self._net_threshold, _ONE), Decimal("3"))
 
         if buy_ratio is not None and pressure_source == "volume":
             reasons.append("ضغط شراء/بيع محسوب من الكمية العدوانية")
@@ -123,11 +142,21 @@ class SignalEngine:
                 score += Decimal("0.4")
 
         aggressive_buy = buy_ratio is not None and buy_ratio >= self._aggressive
+        book_buy = book_pressure is not None and book_pressure >= self._book_threshold
+        volume_spike = surge is not None and surge >= self._volume_surge
+        buying_spike = aggressive_buy or book_buy or volume_spike
+        not_selling = buy_ratio is None or buy_ratio >= _HALF
         tape_ready = _has_tape(inputs, inflow=inflow, outflow=outflow, net=net)
-        positive_flow = net is not None and net >= self._net_threshold
-        # Day-trade entry: any meaningful positive net flow plus buy pressure
-        # when the split is known. Missing ratios still fire on the net print.
-        entry = bool(positive_flow and (buy_ratio is None or aggressive_buy))
+        cutoff = positive_net_cutoff(peer_nets, share=self._entry_share) if peer_nets is not None else None
+        relative_hit = bool(cutoff is not None and net is not None and net >= cutoff and not_selling)
+        spike_hit = bool(net is not None and net > 0 and buying_spike and not_selling)
+        absolute_hit = bool(
+            (not proxied)
+            and net is not None
+            and net >= self._net_threshold
+            and (buy_ratio is None or aggressive_buy)
+        )
+        entry = bool(relative_hit or spike_hit or absolute_hit)
         # Flatten / fade: lock gains as soon as net flow is flat or red.
         exit_signal = bool(
             (not entry)
@@ -135,6 +164,11 @@ class SignalEngine:
             and net is not None
             and net <= self._exit_ceiling
         )
+        if relative_hit:
+            pct = int(self._entry_share * 100)
+            reasons.append(f"ضمن أعلى {pct}% من صافي التدفق الموجب بين الأقران")
+        if spike_hit and not relative_hit:
+            reasons.append("ضغط شراء لحظي (كمية عدوانية أو دفتر أو ارتفاع حجم)")
 
         plan = suggest_trade_plan(
             inputs,
@@ -160,10 +194,30 @@ class SignalEngine:
                 score += (sell_ratio - self._aggressive) * Decimal("4")
         elif net is not None and net > self._exit_ceiling and buy_ratio is not None and not aggressive_buy:
             reasons.append("صافي التدفق موجب لكن ضغط الشراء غير كافٍ للدخول")
+        elif net is not None and net > 0 and not entry:
+            reasons.append(
+                f"لم يصل لعتبة الدخول النسبية (cutoff={cutoff}) ولا يوجد ضغط شراء لحظي"
+            )
         elif net is not None and (buy_ratio is None and sell_ratio is None):
             reasons.append("لا توجد بيانات كمية/قيمة كافية لتأكيد الضغط العدواني")
         elif not tape_ready:
             reasons.append("بانتظار تدفق سيولة موثّق (صافي + شراء/بيع)")
+
+        _log_entry_decision(
+            inputs,
+            net=net,
+            buy_ratio=buy_ratio,
+            book_pressure=book_pressure,
+            surge=surge,
+            cutoff=cutoff,
+            proxied=proxied,
+            relative_hit=relative_hit,
+            spike_hit=spike_hit,
+            absolute_hit=absolute_hit,
+            entry=entry,
+            exit_signal=exit_signal,
+            reasons=reasons,
+        )
 
         unexpected = (not inputs.tracked) and (entry or exit_signal)
         if unexpected:
@@ -256,6 +310,7 @@ def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInp
         sell_volume=inputs.sell_volume,
         change_percent=inputs.change_percent,
         price=inputs.price or levels.last_price,
+        session_value=inputs.session_value,
         vwap=inputs.vwap or levels.vwap,
         atr=inputs.atr or levels.atr,
         bid=inputs.bid or levels.bid,
@@ -267,6 +322,7 @@ def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInp
         in_volume_leaders=inputs.in_volume_leaders,
         in_value_leaders=inputs.in_value_leaders,
         tracked=inputs.tracked,
+        symbol=inputs.symbol,
     )
 
 
@@ -325,15 +381,115 @@ def _has_tape(
     return net is not None and net != _ZERO
 
 
-def _resolved_flow(inputs: SignalInputs) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+def positive_net_cutoff(
+    nets: Iterable[Decimal | float | int | None] | None,
+    *,
+    share: Decimal = _DEFAULT_ENTRY_SHARE,
+) -> Decimal | None:
+    """Minimum net flow that still sits in the top `share` of positive peers."""
+
+    if nets is None:
+        return None
+    positive: list[Decimal] = []
+    for raw in nets:
+        number = _as_decimal(raw)
+        if number is not None and number > 0:
+            positive.append(number)
+    if not positive:
+        return None
+    keep = max(1, math.ceil(len(positive) * float(share if share > 0 else _DEFAULT_ENTRY_SHARE)))
+    positive.sort()
+    return positive[-keep]
+
+
+def _resolved_flow(
+    inputs: SignalInputs,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, bool]:
     inflow = inputs.inflow
     outflow = inputs.outflow
     net = inputs.net_flow
     if net is None and inflow is not None and outflow is not None:
         net = inflow - outflow
+    tape = _has_tape(inputs, inflow=inflow, outflow=outflow, net=net)
+    if tape and net not in (None, _ZERO):
+        return inflow, outflow, net, False
+    proxy = _proxy_net(inputs)
+    if proxy is not None and (net is None or net == _ZERO):
+        return inflow, outflow, proxy, True
     if inflow is None and outflow is None and net is None:
-        return None, None, None
-    return inflow, outflow, net
+        return None, None, None, False
+    return inflow, outflow, net, False
+
+
+def _proxy_net(inputs: SignalInputs) -> Decimal | None:
+    """Direction × traded value when the tick tape has not classified buys/sells yet."""
+
+    change = inputs.change_percent
+    if change is None or change == _ZERO:
+        return None
+    value = _positive(inputs.session_value)
+    if value is None:
+        price = _positive(inputs.price)
+        if price is not None and inputs.volume is not None and inputs.volume > 0:
+            value = price * inputs.volume
+    if value is None:
+        return None
+    return (value * change) / Decimal("100")
+
+
+def _as_decimal(value: Decimal | float | int | str | None) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, Decimal):
+        return value if value.is_finite() else None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return number if number.is_finite() else None
+
+
+def _log_entry_decision(
+    inputs: SignalInputs,
+    *,
+    net: Decimal | None,
+    buy_ratio: Decimal | None,
+    book_pressure: Decimal | None,
+    surge: Decimal | None,
+    cutoff: Decimal | None,
+    proxied: bool,
+    relative_hit: bool,
+    spike_hit: bool,
+    absolute_hit: bool,
+    entry: bool,
+    exit_signal: bool,
+    reasons: list[str],
+) -> None:
+    ticker = (inputs.symbol or "").strip().upper() or "-"
+    outcome = "ENTRY" if entry else "EXIT" if exit_signal else "SKIP"
+    if outcome == "SKIP" and (net is None or net <= 0):
+        logger.debug(
+            "[entry-scan] %s net=%s -> SKIP | %s",
+            ticker,
+            net,
+            "; ".join(reasons[:3]) or "no-reasons",
+        )
+        return
+    logger.info(
+        "[entry-scan] %s net=%s buy_ratio=%s book=%s surge=%s cutoff=%s proxied=%s relative=%s spike=%s absolute=%s -> %s | %s",
+        ticker,
+        net,
+        buy_ratio,
+        book_pressure,
+        surge,
+        cutoff,
+        proxied,
+        relative_hit,
+        spike_hit,
+        absolute_hit,
+        outcome,
+        "; ".join(reasons[:4]) or "no-reasons",
+    )
 
 
 def _pressure_ratios(

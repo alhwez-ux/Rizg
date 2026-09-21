@@ -292,3 +292,31 @@ def test_trigger_test_alert_fails_when_bot_not_configured() -> None:
         )
     assert response.status_code == 503
     assert "TELEGRAM_BOT_TOKEN" in response.json()["message"]
+
+
+def test_radar_entry_from_ranked_stored_net_flow(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _tickchart_feed(tmp_path)
+    feed._quotes.apply_closes(
+        [
+            {"symbol": "1120", "last_price": 96.4, "net_flow": 80_000_000, "change_percent": 1.8, "volume": 2_000_000},
+            {"symbol": "2222", "last_price": 25.7, "net_flow": 1_200, "change_percent": 0.1, "volume": 100_000},
+            {"symbol": "2010", "last_price": 52.0, "net_flow": 900, "change_percent": 0.05, "volume": 80_000},
+            {"symbol": "1180", "last_price": 38.0, "net_flow": 800, "change_percent": 0.04, "volume": 70_000},
+            {"symbol": "1010", "last_price": 28.0, "net_flow": 700, "change_percent": 0.03, "volume": 60_000},
+            {"symbol": "1150", "last_price": 22.0, "net_flow": 600, "change_percent": 0.02, "volume": 50_000},
+            {"symbol": "1211", "last_price": 18.0, "net_flow": 500, "change_percent": 0.02, "volume": 40_000},
+            {"symbol": "2082", "last_price": 14.0, "net_flow": 400, "change_percent": 0.01, "volume": 30_000},
+            {"symbol": "2280", "last_price": 12.0, "net_flow": 300, "change_percent": 0.01, "volume": 20_000},
+            {"symbol": "4190", "last_price": 10.0, "net_flow": 200, "change_percent": 0.01, "volume": 10_000},
+        ]
+    )
+    report = feed.radar_report("1120")
+    quiet = feed.radar_report("4190")
+    assert report["entry"] is True
+    assert report["signal"] == "entry"
+    assert quiet["entry"] is False
+    rows = feed.live_recommendations()
+    symbols = {row["symbol"] for row in rows}
+    assert "1120" in symbols
+    assert all(row.get("entry") is True for row in rows)
