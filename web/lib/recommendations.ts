@@ -1,4 +1,5 @@
 import { apiFetch, HEAVY_API_TIMEOUT_MS } from "@/lib/api";
+import { isValidLongPlan } from "@/lib/tradeGeometry";
 
 export type RecommendationKind = "bounce" | "momentum";
 export type RecommendationScanMode = "live" | "end_of_day";
@@ -52,5 +53,8 @@ async function pullMarketRecommendations(): Promise<RecommendationsResponse> {
   if (!response.ok || !payload) {
     throw new Error("تعذر جلب التوصيات");
   }
-  return payload;
+  const data = (payload.data || []).filter((row) =>
+    isValidLongPlan(row.entry_price || row.close_price, row.target_price, row.stop_loss),
+  );
+  return { ...payload, data, count: data.length };
 }

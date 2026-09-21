@@ -184,6 +184,58 @@ def test_recommendations_endpoint_live_during_open_session(monkeypatch) -> None:
     assert payload["data"][0]["entry"] is True
 
 
+def test_recommendations_endpoint_drops_inverted_long_geometry(monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "open")
+    monkeypatch.setattr("app.routers.market.phase_label", lambda phase: "جلسة تداول")
+
+    class _Feed:
+        def live_recommendations(self):
+            return [
+                {
+                    "symbol": "2222",
+                    "name": "أرامكو",
+                    "close_price": 25.7,
+                    "signal_type": "فخ سيولة لحظي",
+                    "signal_kind": "momentum",
+                    "confidence": "80%",
+                    "confidence_score": 80,
+                    "entry_price": "25.70",
+                    "target_price": "25.45",
+                    "stop_loss": "26.01",
+                    "reason": "دخول معكوس",
+                    "scan_mode": "live",
+                    "horizon": "intraday",
+                    "entry": True,
+                },
+                {
+                    "symbol": "1120",
+                    "name": "الراجحي",
+                    "close_price": 96.4,
+                    "signal_type": "استمرار صعود بسيولة مؤسسية 🚀",
+                    "signal_kind": "momentum",
+                    "confidence": "84%",
+                    "confidence_score": 84,
+                    "entry_price": "96.40",
+                    "target_price": "98.10",
+                    "stop_loss": "95.20",
+                    "reason": "تدفق مؤسسي",
+                    "scan_mode": "live",
+                    "horizon": "intraday",
+                    "entry": True,
+                },
+            ]
+
+    app = FastAPI()
+    app.state.tickchart = _Feed()
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations")
+    assert response.status_code == 200
+    payload = response.json()
+    assert [row["symbol"] for row in payload["data"]] == ["1120"]
+    row = payload["data"][0]
+    assert float(row["target_price"]) > float(row["entry_price"]) > float(row["stop_loss"])
+
+
 def test_recommendations_endpoint_end_of_day_uses_last_close(monkeypatch, tmp_path) -> None:
     import asyncio
     from datetime import date, timedelta

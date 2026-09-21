@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from app.models.screener import is_tasi_main_symbol
 from app.services.shariah import company_name_for, is_prohibited
+from app.services.signals import is_valid_long_plan, keep_long_recommendations, long_trade_levels
 
 SIGNAL_EOD_MOMENTUM = "توصية إغلاق — اختراق 🚀"
 SIGNAL_EOD_BOUNCE = "توصية إغلاق — اختراق بعد اختبار 📈"
@@ -32,7 +33,7 @@ def scan_end_of_day(snapshots: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
         if row is not None:
             rows.append(row)
     rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
-    return rows[:SCAN_LIMIT]
+    return keep_long_recommendations(rows)[:SCAN_LIMIT]
 
 
 def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float = 0.0) -> dict[str, Any] | None:
@@ -91,11 +92,12 @@ def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float =
     shakeout = low < close * 0.985 and low < resistance
     kind = KIND_BOUNCE if shakeout else KIND_MOMENTUM
     signal = SIGNAL_EOD_BOUNCE if shakeout else SIGNAL_EOD_MOMENTUM
-    target = close + max(atr * 1.6, close * 0.03)
-    stop = min(close - atr, resistance * 0.997, low * 0.995)
-    if stop >= close or target <= close:
+    target, stop = long_trade_levels(close, atr=atr, target_mult=1.6, stop_mult=1.0, swing_low=low)
+    target_f = float(target)
+    stop_f = float(stop)
+    if not is_valid_long_plan(close, target_f, stop_f):
         return None
-    reward = (target - close) / max(close - stop, 1e-9)
+    reward = (target_f - close) / max(close - stop_f, 1e-9)
     if reward < MIN_REWARD_RATIO:
         return None
     score = _confidence(
@@ -127,8 +129,8 @@ def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float =
         "confidence_score": score,
         "entry": True,
         "entry_price": f"{close:.2f}",
-        "target_price": f"{target:.2f}",
-        "stop_loss": f"{stop:.2f}",
+        "target_price": f"{target_f:.2f}",
+        "stop_loss": f"{stop_f:.2f}",
         "reason": reason,
         "entry_rule": rule,
         "volume_ratio": round(vol_ratio, 2),
@@ -166,6 +168,9 @@ def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | Non
     sma = (prev + close) / 2
     if close < opened:
         return None
+    vol_ratio = _number(snapshot.get("volume_ratio") or snapshot.get("liquidity_flow"))
+    if vol_ratio is None or vol_ratio < MIN_VOLUME_MULTIPLE:
+        return None
     if not _liquidity_ok(snapshot, net_flow=net_flow, mfi=mfi, trap_kind=trap_kind):
         return None
     blocked = _false_entry_reason(
@@ -177,7 +182,7 @@ def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | Non
         sma=sma,
         atr=atr,
         resistance=prev,
-        vol_ratio=max(_number(snapshot.get("liquidity_flow")) or 1.0, 1.0),
+        vol_ratio=vol_ratio,
         mfi=mfi,
         trap_kind=trap_kind,
         max_range_pct=0.095,
@@ -187,11 +192,12 @@ def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | Non
     shakeout = low < close * 0.985 and low < prev
     kind = KIND_BOUNCE if shakeout else KIND_MOMENTUM
     signal = SIGNAL_EOD_BOUNCE if shakeout else SIGNAL_EOD_MOMENTUM
-    target = close + max(atr * 1.6, close * 0.03)
-    stop = min(close - atr, prev * 0.997, low * 0.995)
-    if stop >= close or target <= close:
+    target, stop = long_trade_levels(close, atr=atr, target_mult=1.6, stop_mult=1.0, swing_low=low)
+    target_f = float(target)
+    stop_f = float(stop)
+    if not is_valid_long_plan(close, target_f, stop_f):
         return None
-    reward = (target - close) / max(close - stop, 1e-9)
+    reward = (target_f - close) / max(close - stop_f, 1e-9)
     if reward < MIN_REWARD_RATIO:
         return None
     score = _confidence(
@@ -215,8 +221,8 @@ def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | Non
         "confidence_score": score,
         "entry": True,
         "entry_price": f"{close:.2f}",
-        "target_price": f"{target:.2f}",
-        "stop_loss": f"{stop:.2f}",
+        "target_price": f"{target_f:.2f}",
+        "stop_loss": f"{stop_f:.2f}",
         "reason": (
             f"إغلاق جلسة اليوم {close:.2f} فوق إغلاق أمس {prev:.2f} "
             f"({change:.2f}%) مع سيولة غير تصريفية — ارتقاب جلسة الغد."
@@ -238,7 +244,7 @@ def _breakout_ok(close: float, resistance: float, atr: float) -> bool:
 
 def _volume_ok(volume: float, avg_volume: float, vol_ratio: float) -> bool:
     if volume <= 0 or avg_volume <= 0:
-        return volume <= 0 and avg_volume <= 0
+        return False
     return vol_ratio >= MIN_VOLUME_MULTIPLE
 
 

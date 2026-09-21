@@ -618,6 +618,25 @@ def _candle_context(candles: Any, symbol: str) -> tuple[Decimal, Decimal, Decima
     return change, volume, prev_volume
 
 
+def _volume_profile(candles: Any, symbol: str) -> tuple[Decimal | None, Decimal | None]:
+    frame = _candle_frame(candles, symbol)
+    if frame is None or len(frame) < 3:
+        return None, None
+    avg_volume = None
+    swing_low = None
+    if "volume" in frame.columns:
+        prior = [_optional_decimal(value) for value in frame["volume"].iloc[:-1].tolist()]
+        sample = [value for value in prior[-10:] if value is not None and value > 0]
+        if sample:
+            avg_volume = sum(sample, Decimal("0")) / Decimal(len(sample))
+    if "low" in frame.columns:
+        lows = [_optional_decimal(value) for value in frame["low"].iloc[-10:].tolist()]
+        valid = [value for value in lows if value is not None and value > 0]
+        if valid:
+            swing_low = min(valid)
+    return avg_volume, swing_low
+
+
 def _detect_liquidity_trap(candles: Any, symbol: str) -> dict[str, str] | None:
     frame = _candle_frame(candles, symbol)
     if frame is None or len(frame) < 3:
@@ -723,11 +742,14 @@ class LiquidityRadarEngine(LiquidityEngine):
         extra_change = _optional_decimal(extra.get("change_percent"))
         extra_volume = _optional_decimal(extra.get("volume"))
         extra_value = _optional_decimal(extra.get("session_value"))
+        extra_avg = _optional_decimal(extra.get("avg_volume"))
+        extra_swing = _optional_decimal(extra.get("swing_low"))
         peer_nets = extra.get("peer_nets")
         if peer_nets is None:
             peer_nets = list(self._peer_nets())
             if overlay_net:
                 peer_nets.append(overlay_net)
+        avg_volume, swing_low = _volume_profile(self._candles, ticker)
         inputs = apply_levels(
             SignalInputs(
                 volume=extra_volume if extra_volume is not None else volume,
@@ -740,6 +762,8 @@ class LiquidityRadarEngine(LiquidityEngine):
                 change_percent=extra_change if extra_change is not None else change_percent,
                 price=session.last_price or levels.last_price,
                 session_value=extra_value,
+                avg_volume=extra_avg if extra_avg is not None else avg_volume,
+                swing_low=extra_swing if extra_swing is not None else swing_low or levels.session_low,
                 tracked=True,
                 symbol=ticker,
             ),

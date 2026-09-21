@@ -14,6 +14,7 @@ from app.models.schemas import (
 )
 from app.services.ranking_store import RankingStore
 from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
+from app.services.signals import keep_long_recommendations
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
@@ -75,6 +76,7 @@ async def get_market_recommendations(
     else:
         rows = await asyncio.to_thread(_recommendation_rows, request, live=live)
         source = "TickChart"
+    rows = keep_long_recommendations(rows)
     page = rows[offset : offset + limit]
     return MarketRecommendationsResponse(
         success=True,
@@ -84,7 +86,7 @@ async def get_market_recommendations(
         scan_mode="live" if live else "end_of_day",
         session_phase=phase,
         session_label=phase_label(phase),
-        scan_build="eod-tape-1",
+        scan_build="smc-long-1",
         data=page,
     )
 

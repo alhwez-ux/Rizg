@@ -164,6 +164,9 @@ class SymbolTape:
                 "kind": "bear_trap",
                 "label": "فخ هبوط: تضاعف الحجم اللحظي مقابل جدار طلب (Level 2)",
             }
+        hidden = self.detect_hidden_accumulation()
+        if hidden is not None:
+            return hidden
         if silent and bid_wall is not None and rising and inst >= Decimal("55"):
             return {
                 "kind": "silent_accumulation",
@@ -175,6 +178,44 @@ class SymbolTape:
                 "label": "تصريف صامت: جدار عرض مع سيولة مؤسسية خارجة",
             }
         return None
+
+    def detect_hidden_accumulation(self) -> dict[str, str] | None:
+        """Clustered block prints parked on the bid / swing low before a break."""
+
+        if len(self.prices) < 12 or len(self.quantities) < 12:
+            return None
+        bid_wall = self.bid_wall()
+        support = bid_wall.price if bid_wall is not None else min(self.prices)
+        if support <= ZERO:
+            return None
+        typical = median(self.quantities)
+        if typical <= ZERO:
+            return None
+        band = support * Decimal("0.008")
+        clustered = 0
+        clustered_buy = 0
+        for price, qty, side in zip(self.prices, self.quantities, self.sides):
+            if qty < typical * Decimal("2"):
+                continue
+            near_support = abs(price - support) <= band
+            near_bid = bid_wall is not None and abs(price - bid_wall.price) <= band
+            if not (near_support or near_bid):
+                continue
+            clustered += 1
+            if side == TradeSide.BUY:
+                clustered_buy += 1
+        if clustered < 3 or clustered_buy < 2:
+            return None
+        last = self.prices[-1]
+        if last > support * Decimal("1.025"):
+            return None
+        inst = self.institutional_mfi() or Decimal("50")
+        if inst < Decimal("52"):
+            return None
+        return {
+            "kind": "silent_accumulation",
+            "label": "تجميع مؤسسي مخفي: صفقات كبيرة متجمعة قرب الدعم وجدار الطلب قبل الاختراق",
+        }
 
     def snapshot(self) -> dict[str, Any]:
         trap = self.detect_trap()

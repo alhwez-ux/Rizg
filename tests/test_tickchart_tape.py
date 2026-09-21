@@ -29,6 +29,30 @@ def test_silent_accumulation_from_quiet_prints_and_bid_wall() -> None:
     assert tape.institutional_mfi() >= Decimal("55")
 
 
+def test_hidden_accumulation_from_clustered_blocks_on_the_bid() -> None:
+    tape = SymbolTape(symbol="2010")
+    for _ in range(10):
+        tape.observe_print(Decimal("12.40"), Decimal("100"), side=TradeSide.BUY, block_floor=Decimal("100000"))
+    for _ in range(4):
+        tape.observe_print(Decimal("12.38"), Decimal("900"), side=TradeSide.BUY, block_floor=Decimal("100000"))
+    tape.observe_book(
+        [
+            BookLevel(Decimal("12.38"), Decimal("8000")),
+            BookLevel(Decimal("12.36"), Decimal("400")),
+            BookLevel(Decimal("12.34"), Decimal("350")),
+        ],
+        [
+            BookLevel(Decimal("12.42"), Decimal("300")),
+            BookLevel(Decimal("12.44"), Decimal("280")),
+            BookLevel(Decimal("12.46"), Decimal("260")),
+        ],
+    )
+    trap = tape.detect_trap()
+    assert trap is not None
+    assert trap["kind"] == "silent_accumulation"
+    assert "تجميع مؤسسي" in trap["label"]
+
+
 def test_bull_trap_when_volume_doubles_into_ask_wall() -> None:
     tape = SymbolTape(symbol="1120")
     for _ in range(20):

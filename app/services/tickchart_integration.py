@@ -531,6 +531,19 @@ class TickChartFeed:
             net_flow = engine_flow or stored_flow or 0
         if not net_flow and session_value and change:
             net_flow = float(session_value) * (float(change) / 100.0)
+        history = self._quotes.close_history(ticker)
+        prior_volumes = [bar.get("volume") for bar in history[:-1]][-10:] if history else []
+        avg_volume = None
+        if prior_volumes:
+            from app.services.institutional_strategy import volume_profile_average
+
+            profile = volume_profile_average(prior_volumes)
+            avg_volume = float(profile) if profile is not None else None
+        swing_low = stored.get("low") or live.get("session_low")
+        if swing_low is None:
+            lows = [bar.get("low") for bar in history if bar.get("low")]
+            if lows:
+                swing_low = min(float(value) for value in lows[-10:])
         report = self._engine.get_latest_signal_report(
             ticker,
             extra={
@@ -540,6 +553,8 @@ class TickChartFeed:
                 "change_percent": change,
                 "volume": session_volume,
                 "session_value": session_value,
+                "avg_volume": avg_volume,
+                "swing_low": swing_low,
                 "peer_nets": self._peer_nets(),
             },
         )
@@ -703,6 +718,9 @@ class TickChartFeed:
             if cached and now - cached[0] < 5:
                 return list(cached[1])
         rows = self._live_opportunities()
+        from app.services.signals import keep_long_recommendations
+
+        rows = keep_long_recommendations(rows)
         with self._reco_lock:
             self._live_reco_cache = (now, rows)
         return list(rows)
@@ -719,17 +737,24 @@ class TickChartFeed:
             if cached and cached[0] == key:
                 return list(cached[1])
         rows = scan_end_of_day(self._close_snapshots())
+        from app.services.signals import keep_long_recommendations
+
+        rows = keep_long_recommendations(rows)
         with self._reco_lock:
             self._eod_reco_cache = (key, rows)
         return list(rows)
 
     def cached_recommendations(self, *, live: bool) -> list[dict[str, Any]] | None:
+        from app.services.signals import keep_long_recommendations
+
         with self._reco_lock:
             if live:
                 cached = self._live_reco_cache
-                return list(cached[1]) if cached else None
-            cached = self._eod_reco_cache
-            return list(cached[1]) if cached else None
+                rows = list(cached[1]) if cached else None
+            else:
+                cached = self._eod_reco_cache
+                rows = list(cached[1]) if cached else None
+        return None if rows is None else keep_long_recommendations(rows)
 
     def recommendations_stale(self, *, live: bool) -> bool:
         with self._reco_lock:
@@ -790,6 +815,9 @@ class TickChartFeed:
             logger.warning("TASI close-history hydrate failed", exc_info=True)
 
     def _live_opportunities(self) -> list[dict[str, Any]]:
+        from app.services.institutional_strategy import MIN_REWARD_RATIO, reward_ratio, volume_confirms_entry
+        from app.services.signals import is_valid_long_plan, keep_long_recommendations, long_trade_levels
+
         rows: list[dict[str, Any]] = []
         scanned = 0
         passed = 0
@@ -804,9 +832,10 @@ class TickChartFeed:
             signal = str(report.get("signal") or "neutral")
             inst = report.get("institutional_mfi")
             bounce = kind == "silent_accumulation" or (signal == "entry" and (inst or 50) >= 52)
-            momentum = signal == "entry" and not bounce
             trap_exit = kind in {"bull_trap", "bear_trap", "silent_distribution"} or signal in {"trap", "exit"}
             entry = bool(report.get("entry") or signal == "entry" or bounce)
+            if kind in {"bull_trap", "silent_distribution"}:
+                continue
             if not (entry or trap_exit):
                 net = report.get("net_flow") or 0
                 if net > 0 and failed_positive < 12:
@@ -822,26 +851,59 @@ class TickChartFeed:
                         list(report.get("reasons") or [])[:3],
                     )
                 continue
+            if trap_exit and not entry and kind != "bear_trap":
+                continue
+            history = self._quotes.close_history(str(report.get("symbol") or ""))
+            prior_volumes = [bar.get("volume") for bar in history[:-1]][-10:] if history else []
+            accumulation = bounce or kind == "silent_accumulation"
+            have_profile = any(float(value or 0) > 0 for value in prior_volumes)
+            volume_ok = True
+            if have_profile or report.get("volume_ratio") is not None:
+                volume_ok = volume_confirms_entry(
+                    report.get("session_volume"),
+                    prior_volumes,
+                    buy_volume=report.get("buy_volume"),
+                    sell_volume=report.get("sell_volume"),
+                    tape_ratio=report.get("volume_ratio"),
+                )
+            if not volume_ok and not accumulation:
+                continue
             passed += 1
             atr = float(report.get("atr") or last * 0.012)
-            if bounce:
+            stored = self._quotes.get(str(report.get("symbol") or "")) or {}
+            swing_low = stored.get("low") or report.get("session_low")
+            if bounce or kind == "bear_trap":
                 signal_type = "ارتداد إيجابي من تجميع صامت 📈"
                 signal_kind = "bounce"
                 reason = trap.get("label") or "تجميع مؤسسي صامت مع جدار طلب"
-                target = last + atr * 1.4
-                stop = last - atr
-            elif trap_exit and not entry:
-                signal_type = "فخ سيولة لحظي ⚠️"
-                signal_kind = "bounce" if kind == "bear_trap" else "momentum"
-                reason = trap.get("label") or "ضغط دفتر أوامر مقابل تضاعف الحجم"
-                target = last + atr if kind == "bear_trap" else last - atr * 0.8
-                stop = last - atr if kind == "bear_trap" else last + atr
+                target_mult, stop_mult = 1.4, 1.0
             else:
                 signal_type = "استمرار صعود بسيولة مؤسسية 🚀"
                 signal_kind = "momentum"
                 reason = "تدفق مؤسسي مع تكات صاعدة وعمق سوق داعم"
-                target = last + atr * 1.6
-                stop = last - atr
+                target_mult, stop_mult = 1.6, 1.0
+            target, stop = long_trade_levels(
+                last,
+                atr=atr,
+                target_mult=target_mult,
+                stop_mult=stop_mult,
+                swing_low=swing_low,
+            )
+            entry_price = float(last)
+            target_price = float(target)
+            stop_price = float(stop)
+            if not is_valid_long_plan(entry_price, target_price, stop_price):
+                logger.warning(
+                    "[entry-scan] skipped inverted long %s entry=%s target=%s stop=%s",
+                    report.get("symbol"),
+                    entry_price,
+                    target_price,
+                    stop_price,
+                )
+                continue
+            rr = reward_ratio(entry_price, target_price, stop_price)
+            if rr is None or rr < MIN_REWARD_RATIO:
+                continue
             if entry and not bounce:
                 reasons = report.get("reasons") or []
                 if reasons:
@@ -861,9 +923,9 @@ class TickChartFeed:
                     "signal_kind": signal_kind,
                     "confidence": f"{score}%",
                     "confidence_score": score,
-                    "entry_price": f"{float(last):.2f}",
-                    "target_price": f"{float(target):.2f}",
-                    "stop_loss": f"{float(stop):.2f}",
+                    "entry_price": f"{entry_price:.2f}",
+                    "target_price": f"{target_price:.2f}",
+                    "stop_loss": f"{stop_price:.2f}",
                     "reason": reason,
                     "volume_ratio": report.get("volume_ratio"),
                     "mfi": report.get("institutional_mfi") or report.get("mfi"),
@@ -874,6 +936,9 @@ class TickChartFeed:
                 }
             )
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
+        from app.services.signals import keep_long_recommendations
+
+        rows = keep_long_recommendations(rows)
         logger.info(
             "[entry-scan] live-summary scanned=%s passed=%s returned=%s",
             scanned,

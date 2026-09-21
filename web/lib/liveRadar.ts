@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 import type { LiquidityTick } from "@/lib/liquidity";
 import { toFiniteNumber } from "@/lib/screener";
+import { isValidLongPlan } from "@/lib/tradeGeometry";
 
 export type LiveRadarSignal = "entry" | "exit" | "trap" | "neutral";
 
@@ -92,12 +93,18 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
   if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase()) {
     return report;
   }
+  const lastPrice = tick.lastPrice ?? report.last_price;
   const flag = tick.recommendation;
-  const entry = flag === "دخول" ? true : flag === "خروج" ? false : report.entry;
-  const exit = flag === "خروج" ? true : flag === "دخول" ? false : report.exit;
+  const longSafe = isValidLongPlan(
+    report.suggested_entry ?? lastPrice,
+    report.target_price,
+    report.stop_loss,
+  );
+  const entry = flag === "دخول" ? longSafe : flag === "خروج" ? false : report.entry && longSafe;
+  const exit = flag === "خروج" ? true : flag === "دخول" && longSafe ? false : report.exit;
   return {
     ...report,
-    last_price: tick.lastPrice ?? report.last_price,
+    last_price: lastPrice,
     net_flow: preferFlow(tick.netFlow, report.net_flow),
     inflow: preferFlow(tick.inflow, report.inflow),
     outflow: preferFlow(tick.outflow, report.outflow),
@@ -121,10 +128,21 @@ function parseReport(raw: unknown): LiveRadarReport | null {
   const row = raw as Record<string, unknown>;
   const trapRaw = row.trap && typeof row.trap === "object" ? (row.trap as Record<string, unknown>) : null;
   const signal = String(row.signal ?? "neutral");
+  const lastPrice = toFiniteNumber(row.last_price);
+  const entryPrice = toFiniteNumber(row.suggested_entry) ?? lastPrice;
+  const targetPrice = toFiniteNumber(row.target_price);
+  const stopLoss = toFiniteNumber(row.stop_loss);
+  const longSafe = isValidLongPlan(entryPrice, targetPrice, stopLoss);
+  const entry = Boolean(row.entry) && longSafe;
+  const resolvedSignal = entry
+    ? "entry"
+    : signal === "exit" || signal === "trap"
+      ? signal
+      : "neutral";
   return {
     symbol: String(row.symbol ?? ""),
-    signal: signal === "entry" || signal === "exit" || signal === "trap" ? signal : "neutral",
-    entry: Boolean(row.entry),
+    signal: resolvedSignal,
+    entry,
     exit: Boolean(row.exit),
     trap: trapRaw
       ? { kind: String(trapRaw.kind ?? ""), label: String(trapRaw.label ?? "") }
@@ -143,8 +161,8 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     atr: toFiniteNumber(row.atr),
     suggested_entry: toFiniteNumber(row.suggested_entry),
     suggested_exit: toFiniteNumber(row.suggested_exit),
-    target_price: toFiniteNumber(row.target_price),
-    stop_loss: toFiniteNumber(row.stop_loss),
+    target_price: targetPrice,
+    stop_loss: stopLoss,
     change_percent: toFiniteNumber(row.change_percent),
     trade_count: toFiniteNumber(row.trade_count) ?? 0,
     reasons: Array.isArray(row.reasons) ? row.reasons.map(String) : [],

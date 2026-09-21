@@ -10,8 +10,17 @@ import pandas as pd
 
 from app.core.exceptions import SahmApiError
 from app.services.company_ranker import MAJOR_TASI_COMPANIES
+from app.services.institutional_strategy import (
+    MIN_REWARD_RATIO,
+    hidden_accumulation_from_candles,
+    reward_ratio,
+    structural_swing_low,
+    volume_confirms_entry,
+    volume_profile_average,
+)
 from app.services.sahm_data_provider import SahmDataProvider
 from app.services.shariah import company_name_for, is_prohibited
+from app.services.signals import is_valid_long_plan, keep_long_recommendations, long_trade_levels
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +55,7 @@ class MarketRecommendationsEngine:
             if row is not None:
                 opportunities.append(row)
         opportunities.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
-        return opportunities
+        return keep_long_recommendations(opportunities)
 
     def _evaluate(self, symbol: str, raw: pd.DataFrame) -> dict[str, Any] | None:
         frame = _prepare_frame(raw, symbol)
@@ -69,10 +78,25 @@ class MarketRecommendationsEngine:
         last_sma = float(sma20.iloc[-1]) if pd.notna(sma20.iloc[-1]) else last_close
         last_atr = float(atr.iloc[-1]) if pd.notna(atr.iloc[-1]) else max(last_close * 0.015, 0.05)
         last_mfi = float(mfi.iloc[-1]) if pd.notna(mfi.iloc[-1]) else 50.0
-        vol_ratio = float(volume.iloc[-1] / vol_avg.iloc[-1]) if pd.notna(vol_avg.iloc[-1]) and vol_avg.iloc[-1] > 0 else 1.0
-        recent_low = float(low.tail(8).min())
+        prior_volumes = volume.iloc[-11:-1] if len(volume) >= 11 else volume.iloc[:-1]
+        avg_volume = float(volume_profile_average(prior_volumes.tolist()) or 0.0)
+        last_volume = float(volume.iloc[-1]) if pd.notna(volume.iloc[-1]) else 0.0
+        if avg_volume > 0:
+            vol_ratio = last_volume / avg_volume
+        elif pd.notna(vol_avg.iloc[-1]) and vol_avg.iloc[-1] > 0:
+            vol_ratio = float(volume.iloc[-1] / vol_avg.iloc[-1])
+        else:
+            vol_ratio = 1.0
+        recent_low = float(structural_swing_low(low.tail(10).tolist(), fallback=low.tail(8).min()) or last_low)
         recent_high = float(high.tail(20).max())
         prior_mfi = float(mfi.iloc[-5]) if len(mfi) >= 5 and pd.notna(mfi.iloc[-5]) else last_mfi
+        accumulation = hidden_accumulation_from_candles(
+            low.tolist(),
+            volume.tolist(),
+            closes=close.tolist(),
+        )
+        if not volume_confirms_entry(last_volume, prior_volumes.tolist()) and not accumulation:
+            return None
 
         bounce = _bounce_score(
             last_close=last_close,
@@ -102,18 +126,31 @@ class MarketRecommendationsEngine:
             signal = SIGNAL_BOUNCE
             score = bounce
             reason = _bounce_reason(vol_ratio, last_mfi, last_close, last_sma)
-            target = last_close + max(last_atr * 1.4, last_close * 0.025)
-            stop = min(last_close - last_atr, recent_low * 0.995)
+            target_mult, stop_mult = 1.4, 1.0
         elif momentum >= MIN_CONFIDENCE:
             kind = KIND_MOMENTUM
             signal = SIGNAL_MOMENTUM
             score = momentum
             reason = _momentum_reason(vol_ratio, last_mfi, last_close, last_sma)
-            target = last_close + max(last_atr * 1.6, last_close * 0.03)
-            stop = last_close - max(last_atr, last_close * 0.015)
+            target_mult, stop_mult = 1.6, 1.0
         else:
             return None
-        if stop >= last_close or target <= last_close:
+        if accumulation:
+            score = min(99, score + 8)
+            reason = "تجميع مؤسسي مخفي قرب الدعم ثم تأكيد حجم قبل الاختراق — " + reason
+        target, stop = long_trade_levels(
+            last_close,
+            atr=last_atr,
+            target_mult=target_mult,
+            stop_mult=stop_mult,
+            swing_low=recent_low,
+        )
+        target_f = float(target)
+        stop_f = float(stop)
+        if not is_valid_long_plan(last_close, target_f, stop_f):
+            return None
+        reward = reward_ratio(last_close, target_f, stop_f)
+        if reward is None or reward < MIN_REWARD_RATIO:
             return None
         return _opportunity_row(
             symbol=symbol,
@@ -123,8 +160,8 @@ class MarketRecommendationsEngine:
             signal_kind=kind,
             score=score,
             entry=last_close,
-            target=target,
-            stop=stop,
+            target=target_f,
+            stop=stop_f,
             reason=reason,
             volume_ratio=vol_ratio,
             mfi=last_mfi,
@@ -178,7 +215,8 @@ async def live_market_recommendations(provider: SahmDataProvider, *, use_cache: 
     engine = MarketRecommendationsEngine(frames, names=names)
     rows = engine.scan_for_opportunities()
     if quotes:
-        rows = [_apply_quote(row, quotes.get(str(row["symbol"]))) for row in rows]
+        rows = [updated for row in rows if (updated := _apply_quote(row, quotes.get(str(row["symbol"]))))]
+    rows = keep_long_recommendations(rows)
     _cache = (now, list(rows))
     return rows
 
@@ -360,7 +398,7 @@ def _opportunity_row(
     }
 
 
-def _apply_quote(row: dict[str, Any], quote: Mapping[str, Any] | None) -> dict[str, Any]:
+def _apply_quote(row: dict[str, Any], quote: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not quote:
         return row
     nested = quote.get("data") if isinstance(quote.get("data"), dict) else quote
@@ -371,12 +409,15 @@ def _apply_quote(row: dict[str, Any], quote: Mapping[str, Any] | None) -> dict[s
         return row
     if live <= 0:
         return row
-    delta = live - float(row["close_price"])
+    atr = max(abs(live - float(row["close_price"])), live * 0.012, 0.05)
+    target, stop = long_trade_levels(live, atr=atr, target_mult=1.5, stop_mult=1.0)
+    if not is_valid_long_plan(live, target, stop):
+        return None
     updated = dict(row)
     updated["close_price"] = round(live, 2)
     updated["entry_price"] = _fmt(live)
-    updated["target_price"] = _fmt(float(row["target_price"]) + delta)
-    updated["stop_loss"] = _fmt(float(row["stop_loss"]) + delta)
+    updated["target_price"] = _fmt(float(target))
+    updated["stop_loss"] = _fmt(float(stop))
     return updated
 
 

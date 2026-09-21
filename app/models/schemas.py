@@ -248,7 +248,7 @@ class MarketRecommendationsResponse(BaseModel):
     scan_mode: str = "end_of_day"
     session_phase: str | None = None
     session_label: str | None = None
-    scan_build: str = "eod-tape-1"
+    scan_build: str = "smc-long-1"
     total: int = 0
     data: list[MarketRecommendation]
 

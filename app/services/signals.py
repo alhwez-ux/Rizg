@@ -4,7 +4,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
-from typing import Iterable
+from typing import Any, Iterable
 
 from app.services.liquidity_engine import MarketLevels
 
@@ -40,6 +40,8 @@ class SignalInputs:
     bid_size: Decimal | None = None
     ask_size: Decimal | None = None
     book_pressure: Decimal | None = None
+    avg_volume: Decimal | None = None
+    swing_low: Decimal | None = None
     in_gainers: bool = False
     in_volume_leaders: bool = False
     in_value_leaders: bool = False
@@ -108,7 +110,8 @@ class SignalEngine:
 
         inflow, outflow, net, proxied = _resolved_flow(inputs)
         buy_ratio, sell_ratio, pressure_source = _pressure_ratios(inputs, inflow, outflow)
-        surge = _volume_surge(inputs.volume, inputs.prev_volume)
+        profile = _positive(inputs.avg_volume) or inputs.prev_volume
+        surge = _volume_surge(inputs.volume, profile)
         book_pressure = inputs.book_pressure
         if book_pressure is None:
             book_pressure = _ratio(inputs.bid_size, inputs.ask_size)
@@ -156,7 +159,12 @@ class SignalEngine:
             and net >= self._net_threshold
             and (buy_ratio is None or aggressive_buy)
         )
+        volume_confirmed = surge is not None and surge >= Decimal("1.5")
+        has_volume_profile = _positive(inputs.avg_volume) is not None
         entry = bool(relative_hit or spike_hit or absolute_hit)
+        if has_volume_profile and entry and not volume_confirmed:
+            reasons.append("كسر بدون تأكيد حجم مقابل متوسط 10 جلسات — احتمال اختراق وهمي")
+            entry = False
         # Flatten / fade: lock gains as soon as net flow is flat or red.
         exit_signal = bool(
             (not entry)
@@ -169,6 +177,8 @@ class SignalEngine:
             reasons.append(f"ضمن أعلى {pct}% من صافي التدفق الموجب بين الأقران")
         if spike_hit and not relative_hit:
             reasons.append("ضغط شراء لحظي (كمية عدوانية أو دفتر أو ارتفاع حجم)")
+        if entry and volume_confirmed:
+            reasons.append("تأكيد سيولة: الكمية العدوانية أعلى من متوسط 10 جلسات")
 
         plan = suggest_trade_plan(
             inputs,
@@ -277,13 +287,14 @@ def suggest_trade_plan(
 
     if entry:
         suggested_entry = _entry_price(last=last, vwap=vwap, bid=bid)
-        if suggested_entry is not None and atr is not None:
-            target = suggested_entry + (atr * atr_target_mult)
-            stop = suggested_entry - (atr * atr_stop_mult)
-            if stop <= _ZERO:
-                stop = suggested_entry * Decimal("0.98")
-            if target <= suggested_entry:
-                target = suggested_entry + atr
+        if suggested_entry is not None:
+            target, stop = long_trade_levels(
+                suggested_entry,
+                atr=atr,
+                target_mult=atr_target_mult,
+                stop_mult=atr_stop_mult,
+                swing_low=inputs.swing_low,
+            )
     if exit_signal:
         suggested_exit = _exit_price(last=last, vwap=vwap, ask=ask)
 
@@ -295,6 +306,105 @@ def suggest_trade_plan(
         target_price=_price(target),
         stop_loss=_price(stop),
     )
+
+
+def long_trade_levels(
+    entry: Decimal | float | int | str,
+    *,
+    atr: Decimal | float | int | str | None = None,
+    target_mult: Decimal | float = Decimal("1.5"),
+    stop_mult: Decimal | float = Decimal("1.0"),
+    swing_low: Decimal | float | int | str | None = None,
+    min_reward: Decimal | float | None = Decimal("1.3"),
+) -> tuple[Decimal, Decimal]:
+    """Long/BUY geometry: target is strictly above entry, stop strictly below.
+
+    Target sits Entry + 1.5%–3% (volatility-scaled, ATR-aware). Stop sits below
+    the structural swing low when available, otherwise Entry − ATR. Operators
+    are never inverted.
+    """
+
+    price = _as_decimal(entry)
+    if price is None or price <= _ZERO:
+        raise ValueError("long entry price must be positive")
+    span = _as_decimal(atr)
+    if span is None or span <= _ZERO:
+        span = price * Decimal("0.012")
+    t_mult = _as_decimal(target_mult) or Decimal("1.5")
+    s_mult = _as_decimal(stop_mult) or Decimal("1.0")
+    if t_mult <= _ZERO:
+        t_mult = Decimal("1.5")
+    if s_mult <= _ZERO:
+        s_mult = Decimal("1.0")
+    volatility = span / price
+    if volatility <= Decimal("0.01"):
+        target_pct = Decimal("0.015")
+    elif volatility >= Decimal("0.03"):
+        target_pct = Decimal("0.03")
+    else:
+        target_pct = Decimal("0.015") + (volatility - Decimal("0.01")) * Decimal("0.75")
+    # Long only: add for target, subtract for stop.
+    target = price + max(span * t_mult, price * target_pct)
+    stop = price - max(span * s_mult, price * Decimal("0.008"))
+    floor = _as_decimal(swing_low)
+    if floor is not None and _ZERO < floor < price:
+        structural = floor * Decimal("0.995")
+        near = (price - structural) <= max(span * Decimal("2"), price * Decimal("0.025"))
+        if near and _ZERO < structural < price:
+            stop = min(stop, structural)
+    if stop <= _ZERO:
+        stop = price * Decimal("0.98")
+    if stop >= price:
+        stop = price * Decimal("0.985")
+    if target <= price:
+        target = price * (Decimal("1") + target_pct)
+    reward_floor = _as_decimal(min_reward)
+    risk = price - stop
+    if reward_floor is not None and reward_floor > _ZERO and risk > 0:
+        needed = price + reward_floor * risk
+        if target < needed:
+            target = min(needed, max(target, price * Decimal("1.08")))
+    if target <= price:
+        target = price * Decimal("1.015")
+    if not (target > price > stop > _ZERO):
+        target = price * Decimal("1.02")
+        stop = price * Decimal("0.985")
+    return target, stop
+
+
+def is_valid_long_plan(entry: Any, target: Any, stop: Any) -> bool:
+    """True only when target > entry > stop > 0 for a long recommendation."""
+
+    price = _as_decimal(entry)
+    target_price = _as_decimal(target)
+    stop_price = _as_decimal(stop)
+    return (
+        price is not None
+        and target_price is not None
+        and stop_price is not None
+        and target_price > price > stop_price > _ZERO
+    )
+
+
+def keep_long_recommendations(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Drop any recommendation whose long target/stop geometry is inverted or missing."""
+
+    kept: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        entry = row.get("entry_price") or row.get("close_price")
+        if is_valid_long_plan(entry, row.get("target_price"), row.get("stop_loss")):
+            kept.append(row)
+            continue
+        logger.warning(
+            "[entry-scan] dropped inverted long plan %s entry=%s target=%s stop=%s",
+            row.get("symbol"),
+            entry,
+            row.get("target_price"),
+            row.get("stop_loss"),
+        )
+    return kept
 
 
 def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInputs:
@@ -318,6 +428,8 @@ def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInp
         bid_size=inputs.bid_size or levels.bid_size,
         ask_size=inputs.ask_size or levels.ask_size,
         book_pressure=inputs.book_pressure or levels.book_pressure,
+        avg_volume=inputs.avg_volume,
+        swing_low=inputs.swing_low or getattr(levels, "session_low", None) or getattr(levels, "low", None),
         in_gainers=inputs.in_gainers,
         in_volume_leaders=inputs.in_volume_leaders,
         in_value_leaders=inputs.in_value_leaders,

@@ -61,6 +61,7 @@ def test_eod_scan_requires_ten_session_breakout_with_volume_and_flow() -> None:
     assert kinds["2222"] == KIND_BOUNCE
     assert all(row["entry"] is True for row in rows)
     assert all(row["scan_mode"] == "end_of_day" for row in rows)
+    assert all(float(row["target_price"]) > float(row["entry_price"]) > float(row["stop_loss"]) > 0 for row in rows)
 
 
 def test_eod_scan_blocks_false_breakout_wicks_and_limit_chases() -> None:
@@ -119,7 +120,7 @@ def test_eod_scan_uses_today_session_when_history_is_short() -> None:
     assert rows[0]["scan_mode"] == "end_of_day"
 
 
-def test_eod_scan_allows_breakout_when_volume_and_flow_are_unknown() -> None:
+def test_eod_scan_rejects_breakout_without_volume_confirmation() -> None:
     prior = _prior_closes(30.0)
     row = {
         "symbol": "7200",
@@ -134,4 +135,4 @@ def test_eod_scan_allows_breakout_when_volume_and_flow_are_unknown() -> None:
         "mfi": 50,
     }
     rows = scan_end_of_day([row])
-    assert "7200" in {item["symbol"] for item in rows}
+    assert rows == []

@@ -11,6 +11,7 @@ import {
 import type { RankingRow, RankingMatrixResponse } from "@/lib/rankingMatrix";
 import type { MarketRecommendation, RecommendationsResponse } from "@/lib/recommendations";
 import type { LiveRadarResponse } from "@/lib/liveRadar";
+import { isValidLongPlan } from "@/lib/tradeGeometry";
 import type {
   SectorCompany,
   SectorCompaniesResponse,
@@ -248,11 +249,12 @@ export function recommendationsFromMarket(
     }
   }
   recs.sort((left, right) => right.confidence_score - left.confidence_score);
+  const data = recs.filter((row) => isValidLongPlan(row.entry_price, row.target_price, row.stop_loss));
   return {
     success: true,
-    count: recs.length,
+    count: data.length,
     source,
-    data: recs,
+    data,
   };
 }
 
