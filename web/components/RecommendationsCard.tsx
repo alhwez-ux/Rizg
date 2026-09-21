@@ -14,6 +14,7 @@ import {
   type RecommendationScanMode,
 } from "@/lib/recommendations";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
+import { useTapeLastPrices } from "@/hooks/useTapeLastPrices";
 
 type FilterKind = "all" | RecommendationKind;
 type SortKey = "confidence" | "close" | "symbol";
@@ -41,6 +42,8 @@ export function RecommendationsCard() {
   const [selected, setSelected] = useState<MarketRecommendation | null>(null);
   const inflight = useRef(false);
   const rowsRef = useRef<MarketRecommendation[]>([]);
+  const symbols = useMemo(() => rows.map((row) => row.symbol), [rows]);
+  const liveLast = useTapeLastPrices(symbols);
 
   const load = useCallback(async () => {
     if (inflight.current) return;
@@ -104,8 +107,17 @@ export function RecommendationsCard() {
     return () => window.clearInterval(timer);
   }, [load, scanMode, sessionLive]);
 
+  const priced = useMemo(() => {
+    if (liveLast.size === 0) return rows;
+    return rows.map((row) => {
+      const last = liveLast.get(row.symbol.toUpperCase());
+      if (last == null) return row;
+      return { ...row, last_price: last, close_price: last };
+    });
+  }, [rows, liveLast]);
+
   const visible = useMemo(() => {
-    const filtered = filter === "all" ? rows : rows.filter((row) => row.signal_kind === filter);
+    const filtered = filter === "all" ? priced : priced.filter((row) => row.signal_kind === filter);
     const copy = [...filtered];
     copy.sort((left, right) => {
       const direction = sortDir === "asc" ? 1 : -1;
@@ -118,7 +130,7 @@ export function RecommendationsCard() {
       return (left.confidence_score - right.confidence_score) * direction;
     });
     return copy;
-  }, [filter, rows, sortDir, sortKey]);
+  }, [filter, priced, sortDir, sortKey]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -277,7 +289,7 @@ export function RecommendationsCard() {
                       </span>
                     </td>
                     <td className="p-3 font-bold" dir="ltr">
-                      {formatPrice(row.close_price)}
+                      {formatPrice(row.last_price ?? row.close_price)}
                     </td>
                     <td className="p-3 text-zinc-200" dir="ltr">
                       {row.entry_price}

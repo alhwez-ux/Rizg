@@ -8,6 +8,7 @@ export interface MarketRecommendation {
   symbol: string;
   name: string;
   close_price: number;
+  last_price?: number | null;
   signal_type: string;
   signal_kind: RecommendationKind;
   confidence: string;
@@ -22,6 +23,7 @@ export interface MarketRecommendation {
   horizon?: string | null;
   entry?: boolean;
   entry_rule?: string | null;
+  entry_locked_at?: string | null;
 }
 
 export interface RecommendationsResponse {

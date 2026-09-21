@@ -36,6 +36,16 @@ MIN_CONFIDENCE = 68
 
 _NAME_BY_SYMBOL = {item["symbol"]: item["name"] for item in MAJOR_TASI_COMPANIES}
 _cache: tuple[float, list[dict[str, Any]]] | None = None
+_entry_store = None
+
+
+def _entry_snapshot_store():
+    global _entry_store
+    if _entry_store is None:
+        from app.services.entry_snapshot_store import EntrySnapshotStore
+
+        _entry_store = EntrySnapshotStore()
+    return _entry_store
 
 
 class MarketRecommendationsEngine:
@@ -216,7 +226,14 @@ async def live_market_recommendations(provider: SahmDataProvider, *, use_cache: 
     rows = engine.scan_for_opportunities()
     if quotes:
         rows = [updated for row in rows if (updated := _apply_quote(row, quotes.get(str(row["symbol"]))))]
-    rows = keep_long_recommendations(rows)
+    from app.services.entry_snapshot_store import apply_locked_entries
+
+    last_prices = {
+        str(row["symbol"]): float(row.get("last_price") or row.get("close_price") or 0)
+        for row in rows
+        if row.get("symbol")
+    }
+    rows = apply_locked_entries(rows, store=_entry_snapshot_store(), scan_mode="live", last_prices=last_prices)
     _cache = (now, list(rows))
     return rows
 
@@ -409,15 +426,9 @@ def _apply_quote(row: dict[str, Any], quote: Mapping[str, Any] | None) -> dict[s
         return row
     if live <= 0:
         return row
-    atr = max(abs(live - float(row["close_price"])), live * 0.012, 0.05)
-    target, stop = long_trade_levels(live, atr=atr, target_mult=1.5, stop_mult=1.0)
-    if not is_valid_long_plan(live, target, stop):
-        return None
     updated = dict(row)
     updated["close_price"] = round(live, 2)
-    updated["entry_price"] = _fmt(live)
-    updated["target_price"] = _fmt(float(target))
-    updated["stop_loss"] = _fmt(float(stop))
+    updated["last_price"] = round(live, 2)
     return updated
 
 

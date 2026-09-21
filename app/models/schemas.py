@@ -239,6 +239,8 @@ class MarketRecommendation(BaseModel):
     horizon: str | None = None
     entry: bool = False
     entry_rule: str | None = None
+    last_price: float | None = None
+    entry_locked_at: str | None = None
 
 
 class MarketRecommendationsResponse(BaseModel):

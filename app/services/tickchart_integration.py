@@ -82,6 +82,7 @@ class TickChartFeed:
         screener: ScreenerService | None = None,
         client: httpx.AsyncClient | None = None,
         quotes: LastQuoteBook | None = None,
+        entry_store: Any = None,
     ) -> None:
         self._engine = engine
         self._manager = manager
@@ -123,6 +124,9 @@ class TickChartFeed:
         self._live_reco_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._company_names: dict[str, str] | None = None
         self._peer_nets_cache: tuple[float, list[float]] | None = None
+        from app.services.entry_snapshot_store import EntrySnapshotStore
+
+        self._entry_store = entry_store or EntrySnapshotStore()
 
     @property
     def enabled(self) -> bool:
@@ -718,9 +722,16 @@ class TickChartFeed:
             if cached and now - cached[0] < 5:
                 return list(cached[1])
         rows = self._live_opportunities()
+        from app.services.entry_snapshot_store import apply_locked_entries, live_last_index
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
+        rows = apply_locked_entries(
+            rows,
+            store=self._entry_store,
+            scan_mode="live",
+            last_prices=live_last_index(self._quotes, self._tapes),
+        )
         with self._reco_lock:
             self._live_reco_cache = (now, rows)
         return list(rows)
@@ -737,9 +748,16 @@ class TickChartFeed:
             if cached and cached[0] == key:
                 return list(cached[1])
         rows = scan_end_of_day(self._close_snapshots())
+        from app.services.entry_snapshot_store import apply_locked_entries, live_last_index
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
+        rows = apply_locked_entries(
+            rows,
+            store=self._entry_store,
+            scan_mode="end_of_day",
+            last_prices=live_last_index(self._quotes, self._tapes),
+        )
         with self._reco_lock:
             self._eod_reco_cache = (key, rows)
         return list(rows)
@@ -882,14 +900,15 @@ class TickChartFeed:
                 signal_kind = "momentum"
                 reason = "تدفق مؤسسي مع تكات صاعدة وعمق سوق داعم"
                 target_mult, stop_mult = 1.6, 1.0
+            suggested = report.get("suggested_entry")
+            entry_price = float(suggested or last)
             target, stop = long_trade_levels(
-                last,
+                entry_price,
                 atr=atr,
                 target_mult=target_mult,
                 stop_mult=stop_mult,
                 swing_low=swing_low,
             )
-            entry_price = float(last)
             target_price = float(target)
             stop_price = float(stop)
             if not is_valid_long_plan(entry_price, target_price, stop_price):
@@ -919,6 +938,7 @@ class TickChartFeed:
                     "symbol": report["symbol"],
                     "name": report.get("name") or report["symbol"],
                     "close_price": float(last),
+                    "last_price": float(last),
                     "signal_type": signal_type,
                     "signal_kind": signal_kind,
                     "confidence": f"{score}%",
