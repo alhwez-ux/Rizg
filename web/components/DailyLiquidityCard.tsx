@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ar } from "@/lib/ar";
 import { fetchDailyLiquidity, type DailyLiquidityRow, type LiquidityGrade } from "@/lib/dailyLiquidity";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
+import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
 const GRADE_TONE: Record<LiquidityGrade, string> = {
   A: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200",
@@ -22,8 +23,10 @@ const GRADE_LABEL: Record<LiquidityGrade, string> = {
 
 export function DailyLiquidityCard({
   onOpenSymbol,
+  shariahFilter = "all",
 }: {
   onOpenSymbol?: (company: { symbol: string; name: string }) => void;
+  shariahFilter?: ShariahFilter;
 }) {
   const [rows, setRows] = useState<DailyLiquidityRow[]>([]);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -67,8 +70,11 @@ export function DailyLiquidityCard({
   }, [isRevealed]);
 
   const visible = useMemo(
-    () => (filter === "all" ? rows : rows.filter((row) => row.grade === filter)),
-    [filter, rows],
+    () =>
+      (filter === "all" ? rows : rows.filter((row) => row.grade === filter)).filter((row) =>
+        passesShariahFilter(row.symbol, shariahFilter),
+      ),
+    [filter, rows, shariahFilter],
   );
 
   return (

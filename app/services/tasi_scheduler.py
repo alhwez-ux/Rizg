@@ -212,6 +212,24 @@ class TasiMarketScheduler:
                     "notified": sent,
                 }
             )
+        scanner = getattr(feed, "scan_explosive_watch", None)
+        if callable(scanner):
+            try:
+                for row in scanner() or []:
+                    alerts.append(
+                        {
+                            "symbol": row.get("symbol"),
+                            "name": row.get("name") or row.get("symbol"),
+                            "signal": row.get("flag") or "تحت المراقبة",
+                            "trap": False,
+                            "score": row.get("score"),
+                            "volume": row.get("volume"),
+                            "change_percent": row.get("change_percent"),
+                            "notified": False,
+                        }
+                    )
+            except Exception:
+                logger.exception("explosive under-watch scan failed")
         getter = getattr(feed, "opportunities", None) if feed is not None else None
         if callable(getter):
             try:
@@ -359,7 +377,7 @@ class TasiMarketScheduler:
 
 
 def _is_actionable(report: dict[str, Any]) -> bool:
-    if report.get("trap"):
+    if report.get("trap") or report.get("under_watch") or report.get("explosive"):
         return True
     signal = str(report.get("signal") or "neutral")
     if signal in {"entry", "exit", "trap"}:

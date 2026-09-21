@@ -12,17 +12,20 @@ import {
   type SectorData,
 } from "@/lib/sectorRotation";
 import { SESSION_REFRESHED_EVENT, refreshTickChartLive } from "@/lib/tickchartStatus";
+import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
 export function SectorHeatmapCard({
   selectedSector = null,
   radarSymbol = null,
   radarName = null,
+  shariahFilter = "all",
   onSelectSector,
   onOpenRadar,
 }: {
   selectedSector?: string | null;
   radarSymbol?: string | null;
   radarName?: string | null;
+  shariahFilter?: ShariahFilter;
   onSelectSector?: (sector: string | null) => void;
   onOpenRadar?: (company: { symbol: string; name: string } | null) => void;
 }) {
@@ -43,6 +46,12 @@ export function SectorHeatmapCard({
       ? { symbol: radarSymbol, name: radarName || radarSymbol }
       : null
     : localRadar;
+  const visibleCompanies = useMemo(
+    () => companies.filter((comp) => passesShariahFilter(comp.symbol, shariahFilter)),
+    [companies, shariahFilter],
+  );
+  const radarAllowed =
+    activeSymbolForRadar != null && passesShariahFilter(activeSymbolForRadar.symbol, shariahFilter);
   const inflowSectors = useMemo(
     () => sectors.filter((row) => row.net_flow > 0).sort((left, right) => right.net_flow - left.net_flow),
     [sectors],
@@ -248,7 +257,7 @@ export function SectorHeatmapCard({
             ))}
           </div>
         )
-      ) : activeSymbolForRadar ? (
+      ) : radarAllowed && activeSymbolForRadar ? (
         <div ref={radarRef} className="animate-fadeIn space-y-4 scroll-mt-6">
           <div className="flex items-center justify-between gap-3">
             <button
@@ -268,7 +277,7 @@ export function SectorHeatmapCard({
       ) : (
         <CompanyTable
           sector={activeSector}
-          companies={companies}
+          companies={visibleCompanies}
           loading={loadingCompanies}
           error={companyError}
           onSelectCompany={openRadar}

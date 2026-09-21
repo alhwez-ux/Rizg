@@ -19,6 +19,7 @@ import {
 } from "@/lib/recommendations";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 import { useTapeLastPrices } from "@/hooks/useTapeLastPrices";
+import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
 type FilterKind = "all" | RecommendationKind;
 type SortKey = "confidence" | "close" | "symbol";
@@ -31,7 +32,7 @@ function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
-export function RecommendationsCard() {
+export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?: ShariahFilter }) {
   const [rows, setRows] = useState<MarketRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -182,7 +183,9 @@ export function RecommendationsCard() {
   }, [priced, selected]);
 
   const visible = useMemo(() => {
-    const filtered = filter === "all" ? priced : priced.filter((row) => row.signal_kind === filter);
+    const filtered = (filter === "all" ? priced : priced.filter((row) => row.signal_kind === filter)).filter((row) =>
+      passesShariahFilter(row.symbol, shariahFilter),
+    );
     const copy = [...filtered];
     copy.sort((left, right) => {
       const direction = sortDir === "asc" ? 1 : -1;
@@ -195,7 +198,7 @@ export function RecommendationsCard() {
       return (left.confidence_score - right.confidence_score) * direction;
     });
     return copy;
-  }, [filter, priced, sortDir, sortKey]);
+  }, [filter, priced, shariahFilter, sortDir, sortKey]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {

@@ -22,6 +22,7 @@ data/company_rankings.json
 data/tickchart_last_quotes.json
 data/tasi_daily_tape.json
 data/entry_snapshots.json
+data/under_watch.json
 .pytest_cache/
 *.tsbuildinfo
 web/tsconfig.tsbuildinfo

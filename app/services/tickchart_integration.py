@@ -26,7 +26,9 @@ from app.services.screener import ScreenerService
 from app.services.shariah import company_name_for, is_prohibited, sector_for
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 from app.services.tickchart_tape import SymbolTape, parse_book_levels
+from app.services.explosive_momentum import evaluate_explosive, inputs_from_snapshot
 from app.services.last_quotes import LastQuoteBook
+from app.services.under_watch import UnderWatchService
 from app.services.watchlist import WatchlistService
 
 DEFAULT_TICKCHART_SYMBOLS = [
@@ -80,6 +82,7 @@ class TickChartFeed:
         alerts: AlertService | None = None,
         watchlist: WatchlistService | None = None,
         screener: ScreenerService | None = None,
+        under_watch: UnderWatchService | None = None,
         client: httpx.AsyncClient | None = None,
         quotes: LastQuoteBook | None = None,
         entry_store: Any = None,
@@ -89,6 +92,7 @@ class TickChartFeed:
         self._alerts = alerts
         self._watchlist = watchlist
         self._screener = screener
+        self._under_watch = under_watch or UnderWatchService()
         self._settings = settings
         self._api_key = _resolve_tickchart_key(settings)
         self._rest_url = _sanitize_rest_url(settings.tickchart_rest_url)
@@ -354,6 +358,8 @@ class TickChartFeed:
         self.mark_desktop_live()
         self._last_cloud_count += len(accepted)
         self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
+        for extras in accepted:
+            self.observe_explosive(str(extras.get("symbol") or ""))
         return len(accepted)
 
     async def hydrate_symbol(self, symbol: str) -> int:
@@ -422,6 +428,7 @@ class TickChartFeed:
             "quote_mode": quote_mode,
             "last_sync_at": self._last_cloud_ingest,
             "data": rows,
+            "under_watch": self.scan_explosive_watch(),
         }
 
     async def _bootstrap_session(self) -> None:
@@ -633,6 +640,21 @@ class TickChartFeed:
                 "source": "TickChart",
             }
         )
+        watch_inputs = inputs_from_snapshot(self._explosive_snapshot(ticker))
+        if watch_inputs is not None and watch_inputs.price is not None:
+            watch = evaluate_explosive(watch_inputs)
+            report["under_watch"] = watch.watch
+            report["watch_flag"] = watch.flag
+            report["explosive"] = watch.explosive
+            if watch.watch:
+                extra_reasons = [item for item in watch.reasons if item not in reasons]
+                if extra_reasons:
+                    report["reasons"] = [*extra_reasons[:2], *reasons]
+        else:
+            stored_watch = next((row for row in self._under_watch.snapshot() if row.get("symbol") == ticker), None)
+            report["under_watch"] = bool(stored_watch)
+            report["watch_flag"] = (stored_watch or {}).get("flag")
+            report["explosive"] = bool((stored_watch or {}).get("explosive"))
         return report
 
     def market_rows(self) -> list[dict[str, Any]]:
@@ -667,9 +689,81 @@ class TickChartFeed:
                     "signal": report.get("signal"),
                     "live": report.get("quote_mode") == "live",
                     "quote_mode": report.get("quote_mode"),
-                }
-            )
+                    "under_watch": bool(report.get("under_watch")),
+                    "watch_flag": report.get("watch_flag"),
+                    "explosive": bool(report.get("explosive")),
+            }
+        )
         return rows
+
+    @property
+    def under_watch(self) -> UnderWatchService:
+        return self._under_watch
+
+    def under_watch_rows(self) -> list[dict[str, Any]]:
+        return self._under_watch.snapshot()
+
+    def observe_explosive(self, symbol: str) -> dict[str, Any] | None:
+        ticker = str(symbol or "").strip().upper()
+        if not ticker or not is_tasi_main_symbol(ticker) or is_prohibited(ticker):
+            return None
+        payload = self._explosive_snapshot(ticker)
+        inputs = inputs_from_snapshot(payload)
+        if inputs is None or inputs.price is None:
+            return None
+        return self._under_watch.observe(
+            inputs,
+            extra={"name": payload.get("name"), "sector": sector_for(ticker)},
+        )
+
+    def scan_explosive_watch(self) -> list[dict[str, Any]]:
+        from app.services.tasi_clock import is_tasi_weekday
+
+        if not is_tasi_weekday():
+            kept = [str(row.get("symbol") or "") for row in self._under_watch.snapshot() if row.get("symbol")]
+            return self._under_watch.retain(kept)
+
+        flagged: list[str] = []
+        for symbol in self._universe_symbols():
+            row = self.observe_explosive(symbol)
+            if row:
+                flagged.append(row["symbol"])
+        return self._under_watch.retain(flagged)
+
+    def _explosive_snapshot(self, symbol: str) -> dict[str, Any]:
+        ticker = symbol.strip().upper()
+        stored = self._quotes.get(ticker) or {}
+        ranking = self._ranking_row(ticker) or {}
+        tape = self._tapes.get(ticker)
+        live = tape.snapshot() if tape is not None else {}
+        session = self._engine.session_snapshot(ticker)
+        levels = self._engine.levels_snapshot(ticker)
+        history = self._quotes.close_history(ticker)
+        prior = history[:-1] if history else []
+        last = live.get("last_price") or stored.get("last_price") or _json_number(session.last_price) or ranking.get("last_price")
+        return {
+            "symbol": ticker,
+            "name": company_name_for(ticker) or stored.get("name") or ranking.get("name") or ticker,
+            "last_price": last,
+            "session_volume": live.get("session_volume") or stored.get("volume") or ranking.get("volume"),
+            "volume": stored.get("volume") or live.get("session_volume") or ranking.get("volume"),
+            "window_volumes": [bar.get("volume") for bar in prior],
+            "prior_closes": [bar.get("close") for bar in prior],
+            "minute_volume_ratio": live.get("volume_ratio"),
+            "session_high": stored.get("high") or live.get("session_high") or _json_number(getattr(levels, "session_high", None)),
+            "session_low": stored.get("low") or live.get("session_low") or _json_number(getattr(levels, "session_low", None)),
+            "prev_close": stored.get("prev_close") or live.get("prev_close"),
+            "session_open": stored.get("open"),
+            "change_percent": stored.get("change_percent") if stored.get("change_percent") is not None else live.get("change_percent"),
+            "net_flow": stored.get("net_flow") or _json_number(session.net_flow),
+            "inflow": stored.get("inflow") or _json_number(session.inflow),
+            "outflow": stored.get("outflow") or _json_number(session.outflow),
+            "buy_volume": _json_number(session.buy_volume),
+            "sell_volume": _json_number(session.sell_volume),
+            "last_side": getattr(session, "last_side", None),
+            "bid": live.get("bid") or _json_number(levels.bid),
+            "ask": live.get("ask") or _json_number(levels.ask),
+        }
 
     def quote_tape(self) -> list[dict[str, Any]]:
         """Lightweight last-quote strip for the top price ticker."""
@@ -1145,6 +1239,23 @@ class TickChartFeed:
                 }
             )
             seen.add(symbol)
+        for row in self._under_watch.snapshot():
+            symbol = str(row.get("symbol") or "")
+            if not symbol or symbol in seen:
+                continue
+            flag = str(row.get("flag") or "تحت المراقبة")
+            reason = next((item for item in (row.get("reasons") or []) if item != flag), "")
+            items.append(
+                {
+                    "id": f"watch-{symbol}-{flag}",
+                    "kind": "opportunity",
+                    "symbol": symbol,
+                    "name": row.get("name") or symbol,
+                    "title": flag,
+                    "message": reason or f"{flag} على {row.get('name') or symbol}",
+                }
+            )
+            seen.add(symbol)
         return items
 
     def _tape(self, symbol: str) -> SymbolTape:
@@ -1386,6 +1497,7 @@ class TickChartFeed:
             else:
                 self._quotes.remember(symbol, price, volume=volume)
             self.mark_desktop_live()
+            self.observe_explosive(symbol)
             return True
         except asyncio.CancelledError:
             raise

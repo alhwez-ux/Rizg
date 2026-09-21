@@ -1,4 +1,5 @@
 import { parseRecommendation, type RecommendationFlag } from "@/lib/liquidity";
+import type { UnderWatchRow } from "@/lib/underWatch";
 
 export type SignalKind = "entry" | "exit" | "none";
 
@@ -50,6 +51,7 @@ export interface MarketPulse {
 export interface ScreenerSnapshot {
   watchlist: ScreenerRow[];
   radar: ScreenerRow[];
+  under_watch?: UnderWatchRow[];
   pulse: MarketPulse;
   scanned: number;
   delayed: boolean;

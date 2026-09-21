@@ -1,6 +1,7 @@
 "use client";
 
 import { RecommendationStatus } from "@/components/SignalBadge";
+import { WatchPulse } from "@/components/UnderWatchSection";
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
 import {
@@ -66,6 +67,11 @@ export function LiquidityRadarCard({
           <p className="hidden text-sm font-medium text-zinc-500 sm:block">{ar.liveRadarTitle}</p>
           <h3 className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-xl font-semibold text-zinc-50 sm:mt-1 sm:justify-start sm:text-2xl">
             {title ? <span>{title}</span> : null}
+            {report?.under_watch ? (
+              <span className="inline-flex items-center gap-1 text-base">
+                <WatchPulse explosive={Boolean(report.explosive)} />
+              </span>
+            ) : null}
             {report ? (
               <span className="hidden sm:inline">
                 <RecommendationStatus value={report.entry ? "دخول" : report.exit ? "خروج" : null} />

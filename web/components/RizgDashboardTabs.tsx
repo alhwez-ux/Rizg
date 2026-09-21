@@ -14,17 +14,30 @@ import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { TickChartSyncChip } from "@/components/TickChartSyncChip";
+import { UnderWatchBanner, UnderWatchSection, WatchPulse } from "@/components/UnderWatchSection";
+import { ShariahFilterBar } from "@/components/ShariahFilterBar";
+import { DividendsCalendarCard } from "@/components/DividendsCalendarCard";
 import NotificationCenter from "./NotificationCenter";
 import { useMarketRadarList } from "@/hooks/useMarketRadarList";
+import { useUnderWatch } from "@/hooks/useUnderWatch";
+import { useDividends } from "@/hooks/useDividends";
 import { listedNameFor } from "@/lib/listedCompanies";
+import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "sectors" | "radar" | "flow" | "recommendations" | "ranking";
+type DashboardTab = "sectors" | "radar" | "flow" | "recommendations" | "ranking" | "dividends";
 
 function parseTab(value: string | null): DashboardTab {
-  if (value === "radar" || value === "flow" || value === "recommendations" || value === "ranking" || value === "sectors") {
+  if (
+    value === "radar" ||
+    value === "flow" ||
+    value === "recommendations" ||
+    value === "ranking" ||
+    value === "sectors" ||
+    value === "dividends"
+  ) {
     return value;
   }
   return "sectors";
@@ -42,6 +55,18 @@ function DashboardShell() {
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
   const { companies: radarCards, addCompany, removeCompany, ready: radarReady } = useMarketRadarList();
+  const { rows: underWatchRows, loading: underWatchLoading } = useUnderWatch();
+  const shariahFilter = parseShariahFilter(searchParams.get("shariah"));
+  const { rows: dividendRows, hint: dividendHint, asOf: dividendAsOf, error: dividendError, loading: dividendLoading } =
+    useDividends(shariahFilter === "pure");
+  const visibleRadarCards = useMemo(
+    () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
+    [radarCards, shariahFilter],
+  );
+  const visibleWatchRows = useMemo(
+    () => underWatchRows.filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
+    [shariahFilter, underWatchRows],
+  );
   const tabs = useMemo(
     () =>
       [
@@ -53,6 +78,7 @@ function DashboardShell() {
           label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod,
           icon: sessionLive ? "⚡" : "🎯",
         },
+        { id: "dividends" as const, label: ar.tabsDividends, icon: "💰" },
         { id: "ranking" as const, label: ar.tabsRanking, icon: "🏰" },
       ] satisfies { id: DashboardTab; label: string; icon: string }[],
     [sessionLive],
@@ -95,6 +121,14 @@ function DashboardShell() {
       }
     },
     [radarSymbol, removeCompany, replaceQuery],
+  );
+
+  const openWatchedCompany = useCallback(
+    (company: { symbol: string; name: string }) => {
+      addCompany(company);
+      replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null });
+    },
+    [addCompany, replaceQuery],
   );
 
   const onTabKeyDown = useCallback(
@@ -179,6 +213,8 @@ function DashboardShell() {
             >
               {tab.id === "recommendations" && !sessionLive ? (
                 <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
+              ) : tab.id === "radar" && visibleWatchRows.length ? (
+                <WatchPulse explosive={visibleWatchRows.some((row) => row.explosive)} />
               ) : (
                 <span aria-hidden="true">{tab.icon}</span>
               )}
@@ -187,6 +223,18 @@ function DashboardShell() {
           );
         })}
       </div>
+
+      {activeTab !== "radar" ? (
+        <UnderWatchBanner
+          count={visibleWatchRows.length}
+          onOpen={() => setActiveTab("radar")}
+        />
+      ) : null}
+
+      <ShariahFilterBar
+        value={shariahFilter}
+        onChange={(next) => replaceQuery({ shariah: next === "pure" ? "pure" : null })}
+      />
 
       <div
         id={`${tablistId}-panel-${activeTab}`}
@@ -199,6 +247,7 @@ function DashboardShell() {
             selectedSector={selectedSector}
             radarSymbol={radarSymbol}
             radarName={radarName}
+            shariahFilter={shariahFilter}
             onSelectSector={(sector) => replaceQuery({ tab: "sectors", sector, symbol: null, name: null })}
             onOpenRadar={(company) =>
               replaceQuery({
@@ -213,6 +262,11 @@ function DashboardShell() {
 
         {activeTab === "radar" ? (
           <div className="space-y-4">
+            <UnderWatchSection
+              rows={visibleWatchRows}
+              loading={underWatchLoading}
+              onOpen={openWatchedCompany}
+            />
             <div className="text-center">
               <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
               <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
@@ -220,8 +274,10 @@ function DashboardShell() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {radarCards.length === 0 ? (
                 <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
+              ) : visibleRadarCards.length === 0 ? (
+                <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
               ) : (
-                radarCards.map((item) => (
+                visibleRadarCards.map((item) => (
                   <LiquidityRadarCard
                     key={item.symbol}
                     symbol={item.symbol}
@@ -236,6 +292,7 @@ function DashboardShell() {
 
         {activeTab === "flow" ? (
           <DailyLiquidityCard
+            shariahFilter={shariahFilter}
             onOpenSymbol={(company) => {
               addCompany(company);
               replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null });
@@ -245,11 +302,22 @@ function DashboardShell() {
 
         {activeTab === "recommendations" ? (
           <div className="space-y-6">
-            <RecommendationsCard />
+            <RecommendationsCard shariahFilter={shariahFilter} />
           </div>
         ) : null}
 
-        {activeTab === "ranking" ? <RankingRevealCard /> : null}
+        {activeTab === "dividends" ? (
+          <DividendsCalendarCard
+            rows={dividendRows}
+            loading={dividendLoading}
+            error={dividendError}
+            hint={dividendHint}
+            asOf={dividendAsOf}
+            onOpen={openWatchedCompany}
+          />
+        ) : null}
+
+        {activeTab === "ranking" ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
       </div>
     </section>
   );

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 import { parseRow, toFiniteNumber, type ScreenerSnapshot } from "@/lib/screener";
+import { parseUnderWatchRow } from "@/lib/underWatch";
 
 const POLL_MS = 2_000;
 
@@ -36,6 +37,11 @@ export function useScreener(): UseScreenerState {
           : [],
         radar: Array.isArray(payload.radar)
           ? payload.radar.map((row) => parseRow(row as Record<string, unknown>))
+          : [],
+        under_watch: Array.isArray(payload.under_watch)
+          ? payload.under_watch
+              .map((row) => parseUnderWatchRow(row))
+              .filter((row): row is NonNullable<typeof row> => row != null)
           : [],
         pulse: {
           index: String((payload.pulse as { index?: string } | undefined)?.index ?? "TASI"),

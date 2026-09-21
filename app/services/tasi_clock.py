@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 try:
@@ -26,6 +26,30 @@ def now_riyadh(moment: datetime | None = None) -> datetime:
 
 def is_tasi_weekday(moment: datetime | None = None) -> bool:
     return now_riyadh(moment).weekday() not in {FRIDAY, SATURDAY}
+
+
+def is_tasi_session_date(day: date) -> bool:
+    return day.weekday() not in {FRIDAY, SATURDAY}
+
+
+def next_tasi_session_date(day: date | None = None) -> date:
+    """Snap a calendar date onto the next Sunday–Thursday TASI session."""
+
+    current = day or now_riyadh().date()
+    while current.weekday() in {FRIDAY, SATURDAY}:
+        current += timedelta(days=1)
+    return current
+
+
+def add_tasi_calendar_days(start: date, days: int) -> date:
+    """Shift by calendar days, then land on a TASI weekday (Sun–Thu)."""
+
+    target = start + timedelta(days=days)
+    if days < 0:
+        while target.weekday() in {FRIDAY, SATURDAY}:
+            target -= timedelta(days=1)
+        return target
+    return next_tasi_session_date(target)
 
 
 def session_phase(moment: datetime | None = None) -> str:

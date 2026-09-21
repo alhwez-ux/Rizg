@@ -52,6 +52,9 @@ export interface LiveRadarReport {
   block_trades?: number;
   bid_wall?: { price: number; quantity: number } | null;
   ask_wall?: { price: number; quantity: number } | null;
+  under_watch?: boolean;
+  watch_flag?: string | null;
+  explosive?: boolean;
 }
 
 export interface LiveRadarResponse {
@@ -190,6 +193,9 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     block_trades: toFiniteNumber(row.block_trades) ?? 0,
     bid_wall: parseWall(row.bid_wall),
     ask_wall: parseWall(row.ask_wall),
+    under_watch: Boolean(row.under_watch),
+    watch_flag: row.watch_flag == null ? null : String(row.watch_flag),
+    explosive: Boolean(row.explosive),
   };
 }
 

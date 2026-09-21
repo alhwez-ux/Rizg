@@ -1,16 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ar } from "@/lib/ar";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
+import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
-export function RankingRevealCard() {
+export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: ShariahFilter }) {
   const [companies, setCompanies] = useState<RankingRow[]>([]);
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
+  const visible = useMemo(
+    () => companies.filter((comp) => passesShariahFilter(comp.symbol, shariahFilter)),
+    [companies, shariahFilter],
+  );
 
   const fetchRankedCompanies = async () => {
     if (isRevealed) {
@@ -76,8 +81,8 @@ export function RankingRevealCard() {
             <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
               {error}
             </p>
-          ) : companies.length === 0 ? (
-            <p className="text-sm text-zinc-500">{ar.rankingEmpty}</p>
+          ) : visible.length === 0 ? (
+            <p className="text-sm text-zinc-500">{shariahFilter === "pure" ? ar.shariahFilterEmpty : ar.rankingEmpty}</p>
           ) : (
             <table className="w-full border-collapse text-start">
               <thead>
@@ -93,7 +98,7 @@ export function RankingRevealCard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60 text-sm">
-                {companies.map((comp, index) => (
+                {visible.map((comp, index) => (
                   <tr key={comp.symbol} className="transition-colors hover:bg-zinc-950/40">
                     <td className="p-3">
                       <span className="inline-flex items-center gap-2 font-bold">

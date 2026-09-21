@@ -27,6 +27,7 @@ from app.services.tickchart_integration import DEFAULT_TICKCHART_SYMBOLS, TickCh
 from app.services.tickchart_autosync import TickChartAutoSync
 from app.services.tasi_scheduler import TasiMarketScheduler
 from app.services.watchlist import WatchlistService
+from app.services.under_watch import UnderWatchService
 
 
 @asynccontextmanager
@@ -48,7 +49,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     watchlist = WatchlistService(
         initial=settings.tickchart_symbols or settings.sahmk_symbols or DEFAULT_TICKCHART_SYMBOLS
     )
-    screener = ScreenerService(settings, watchlist, liquidity_engine=liquidity_engine)
+    under_watch = UnderWatchService()
+    screener = ScreenerService(settings, watchlist, liquidity_engine=liquidity_engine, under_watch=under_watch)
     tickchart = TickChartFeed(
         liquidity_engine,
         broadcaster,
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         alerts=alerts,
         watchlist=watchlist,
         screener=screener,
+        under_watch=under_watch,
     )
     mock_feed = MockTickFeed(liquidity_engine, broadcaster, settings, alerts=alerts)
     tick_feed = tickchart if tickchart.enabled else mock_feed
@@ -90,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.telegram_alerts = telegram.alerts
     app.state.alerts = alerts
     app.state.watchlist = watchlist
+    app.state.under_watch = under_watch
     app.state.screener = screener
     app.state.live_feed = None
     app.state.tickchart = tickchart

@@ -58,6 +58,14 @@ const config: Config = {
           "0%": { transform: "translateX(-50%)" },
           "100%": { transform: "translateX(0)" },
         },
+        rocketPulse: {
+          "0%, 100%": { transform: "scale(1) translateY(0)", filter: "drop-shadow(0 0 4px rgba(250,204,21,0.35))" },
+          "50%": { transform: "scale(1.22) translateY(-3px)", filter: "drop-shadow(0 0 14px rgba(250,204,21,0.95))" },
+        },
+        lightningPulse: {
+          "0%, 100%": { opacity: "1", transform: "scale(1) rotate(0deg)" },
+          "50%": { opacity: "0.55", transform: "scale(1.28) rotate(-8deg)" },
+        },
       },
       animation: {
         pulseDot: "pulseDot 1.4s ease-in-out infinite",
@@ -66,6 +74,8 @@ const config: Config = {
         revealIn: "revealIn 0.45s ease-out",
         fadeIn: "fadeIn 0.4s ease-out",
         ticker: "ticker 2400s linear infinite",
+        rocketPulse: "rocketPulse 1.15s ease-in-out infinite",
+        lightningPulse: "lightningPulse 1.05s ease-in-out infinite",
       },
     },
   },

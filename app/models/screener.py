@@ -44,6 +44,34 @@ class WatchlistResponse(BaseModel):
     count: int
 
 
+class UnderWatchRow(BaseModel):
+    symbol: str
+    name: str = ""
+    price: float | None = None
+    change_percent: float | None = None
+    volume: float | None = None
+    volume_ratio: float | None = None
+    net_flow: float | None = None
+    buy_ratio: float | None = None
+    flag: str = "تحت المراقبة"
+    explosive: bool = False
+    compressed: bool = False
+    upward: bool = False
+    aggressive_buy: bool = False
+    flow_spike: bool = False
+    resistance_break: bool = False
+    score: float = 0
+    reasons: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
+class UnderWatchResponse(BaseModel):
+    success: bool = True
+    count: int = 0
+    data: list[UnderWatchRow] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
 class ScreenerRow(BaseModel):
     symbol: str
     name: str = ""
@@ -92,6 +120,7 @@ class MarketPulse(BaseModel):
 class ScreenerSnapshot(BaseModel):
     watchlist: list[ScreenerRow]
     radar: list[ScreenerRow]
+    under_watch: list[UnderWatchRow] = Field(default_factory=list)
     pulse: MarketPulse
     scanned: int
     delayed: bool = True

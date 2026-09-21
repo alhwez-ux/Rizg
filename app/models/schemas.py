@@ -302,6 +302,45 @@ class DailySyncStatusResponse(BaseModel):
     last: dict[str, Any] = Field(default_factory=dict)
 
 
+class DividendRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    cash_dividend: float
+    eligibility_date: str
+    payment_date: str
+    shariah_status: str | None = None
+    shariah_label: str = ""
+    days_to_eligibility: int = 0
+
+
+class DividendsResponse(BaseModel):
+    success: bool = True
+    count: int = 0
+    as_of: str
+    timezone: str = "Asia/Riyadh"
+    hint: str = "تُحذف الشركة تلقائياً بعد مرور تاريخ الأحقية"
+    data: list[DividendRow] = Field(default_factory=list)
+
+
+class ShariahScreenRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    status: str
+    status_ar: str = ""
+    debt_ratio: float | None = None
+    impure_income_ratio: float | None = None
+    purification_rate: float | None = None
+
+
+class ShariahScreenResponse(BaseModel):
+    success: bool = True
+    filter: str = "all"
+    count: int = 0
+    data: list[ShariahScreenRow] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str

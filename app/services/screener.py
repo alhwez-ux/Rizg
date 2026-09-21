@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
-from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot
+from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot, UnderWatchRow
 from app.models.trade import SessionFlow, recommendation_label
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
@@ -34,9 +34,11 @@ class ScreenerService:
         *,
         engine: SignalEngine | None = None,
         liquidity_engine: LiquidityEngine | None = None,
+        under_watch: Any = None,
     ) -> None:
         self._settings = settings
         self._watchlist = watchlist
+        self._under_watch = under_watch
         self._engine = engine or SignalEngine(
             net_flow_threshold=settings.signal_net_flow_threshold,
             aggressive_ratio=settings.signal_aggressive_ratio,
@@ -91,6 +93,7 @@ class ScreenerService:
         return ScreenerSnapshot(
             watchlist=watchlist,
             radar=radar[:12],
+            under_watch=_under_watch_rows(self._under_watch),
             pulse=pulse,
             scanned=len(rows_by_symbol),
             delayed=self._mode != "realtime",
@@ -618,6 +621,21 @@ def _int(value: Any) -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _under_watch_rows(store: Any) -> list[UnderWatchRow]:
+    getter = getattr(store, "snapshot", None)
+    if not callable(getter):
+        return []
+    rows: list[UnderWatchRow] = []
+    for item in getter() or []:
+        if not isinstance(item, dict) or not item.get("symbol"):
+            continue
+        try:
+            rows.append(UnderWatchRow.model_validate(item))
+        except Exception:
+            continue
+    return rows
 
 
 def _parse_time(value: Any) -> datetime | None:

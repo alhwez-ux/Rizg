@@ -11,6 +11,7 @@ from app.models.schemas import (
     DailySyncStatusResponse,
     SchedulerRunResponse,
     SchedulerStatusResponse,
+    DividendsResponse,
 )
 from app.services.ranking_store import RankingStore
 from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
@@ -27,6 +28,28 @@ _EMPTY_MESSAGE = "لا توجد بيانات تكرتشارت حية حاليا�
 @router.get("/ranking-matrix", response_model=RankingMatrixResponse)
 async def get_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
     return await _live_rankings_response(request)
+
+
+@router.get("/dividends", response_model=DividendsResponse)
+async def get_active_dividends(
+    request: Request,
+    pure_only: bool = Query(default=False, description="الأسهم النقية فقط"),
+) -> DividendsResponse:
+    """Upcoming TASI cash dividends. Eligibility date < today is dropped."""
+
+    del request
+    from app.services.dividends import active_dividends
+
+    today = now_riyadh().date()
+    rows = active_dividends(today=today, pure_only=pure_only)
+    return DividendsResponse(
+        success=True,
+        count=len(rows),
+        as_of=today.isoformat(),
+        timezone="Asia/Riyadh",
+        hint="تُحذف الشركة تلقائياً بعد مرور تاريخ الأحقية (توقيت الرياض، الأحد–الخميس)",
+        data=rows,
+    )
 
 
 @router.get("/live-rankings", response_model=RankingMatrixResponse)
