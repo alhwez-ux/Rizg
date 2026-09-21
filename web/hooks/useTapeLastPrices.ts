@@ -8,9 +8,21 @@ import { parseTick } from "@/lib/liquidity";
 const MAX_BACKOFF_MS = 10_000;
 
 export function useTapeLastPrices(symbols: string[]): Map<string, number> {
-  const wanted = useMemo(
-    () => new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean)),
+  const wantedKey = useMemo(
+    () =>
+      [
+        ...new Set(
+          symbols
+            .map((symbol) => symbol.trim().toUpperCase())
+            .filter(Boolean)
+            .sort(),
+        ),
+      ].join(","),
     [symbols],
+  );
+  const wanted = useMemo(
+    () => new Set(wantedKey ? wantedKey.split(",") : []),
+    [wantedKey],
   );
   const [live, setLive] = useState<Map<string, number>>(new Map());
   const pending = useRef(new Map<string, number>());

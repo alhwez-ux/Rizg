@@ -213,6 +213,8 @@ export const ar = {
   recoHorizon: "ارتقاب الغد",
   recoHorizonLive: "خلال الجلسة",
   recoEntryMet: "شرط الدخول محقق",
+  recoTargetHit: "تحقق الهدف",
+  recoStopHit: "وقف الخسارة",
   recoGuards: "محمي من فخ الاختراق الكاذب",
   recoColCloseEod: "الإغلاق النهائي",
   recoColPriceLive: "آخر سعر",

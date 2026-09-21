@@ -241,6 +241,8 @@ class MarketRecommendation(BaseModel):
     entry_rule: str | None = None
     last_price: float | None = None
     entry_locked_at: str | None = None
+    target_hit: bool = False
+    stop_hit: bool = False
 
 
 class MarketRecommendationsResponse(BaseModel):

@@ -9,6 +9,10 @@ import { ar } from "@/lib/ar";
 import { formatPrice } from "@/lib/liquidity";
 import {
   fetchMarketRecommendations,
+  freezeRecommendationEntry,
+  recommendationResolved,
+  riyadhSessionDate,
+  type FrozenEntry,
   type MarketRecommendation,
   type RecommendationKind,
   type RecommendationScanMode,
@@ -42,8 +46,44 @@ export function RecommendationsCard() {
   const [selected, setSelected] = useState<MarketRecommendation | null>(null);
   const inflight = useRef(false);
   const rowsRef = useRef<MarketRecommendation[]>([]);
+  const entryLocks = useRef(new Map<string, FrozenEntry>());
+  const completedRef = useRef(new Set<string>());
+  const sessionDateRef = useRef("");
+  const [resolvedTick, setResolvedTick] = useState(0);
   const symbols = useMemo(() => rows.map((row) => row.symbol), [rows]);
   const liveLast = useTapeLastPrices(symbols);
+
+  const mergeIncoming = useCallback((data: MarketRecommendation[]) => {
+    const day = riyadhSessionDate();
+    if (sessionDateRef.current !== day) {
+      sessionDateRef.current = day;
+      entryLocks.current.clear();
+      completedRef.current.clear();
+    }
+    const incoming = new Set(data.map((row) => row.symbol.trim().toUpperCase()).filter(Boolean));
+    for (const done of [...completedRef.current]) {
+      if (!incoming.has(done)) {
+        completedRef.current.delete(done);
+        entryLocks.current.delete(done);
+      }
+    }
+    const merged: MarketRecommendation[] = [];
+    for (const row of data) {
+      const key = row.symbol.trim().toUpperCase();
+      if (!key || completedRef.current.has(key) || recommendationResolved(row)) {
+        if (key) completedRef.current.add(key);
+        continue;
+      }
+      const frozen = freezeRecommendationEntry(row, entryLocks.current.get(key));
+      entryLocks.current.set(key, frozen.lock);
+      if (recommendationResolved(frozen.row)) {
+        completedRef.current.add(key);
+        continue;
+      }
+      merged.push(frozen.row);
+    }
+    return merged;
+  }, []);
 
   const load = useCallback(async () => {
     if (inflight.current) return;
@@ -55,7 +95,7 @@ export function RecommendationsCard() {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
         try {
           const result = await fetchMarketRecommendations();
-          const data = result.data;
+          const data = mergeIncoming(result.data);
           rowsRef.current = data;
           setRows(data);
           setCached(result.source === "cached");
@@ -86,7 +126,7 @@ export function RecommendationsCard() {
       inflight.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [mergeIncoming]);
 
   useEffect(() => {
     void load();
@@ -107,14 +147,39 @@ export function RecommendationsCard() {
     return () => window.clearInterval(timer);
   }, [load, scanMode, sessionLive]);
 
-  const priced = useMemo(() => {
-    if (liveLast.size === 0) return rows;
-    return rows.map((row) => {
-      const last = liveLast.get(row.symbol.toUpperCase());
-      if (last == null) return row;
-      return { ...row, last_price: last, close_price: last };
-    });
+  useEffect(() => {
+    let changed = false;
+    for (const row of rows) {
+      const key = row.symbol.toUpperCase();
+      const last = liveLast.get(key);
+      if (recommendationResolved(row, last ?? row.last_price ?? row.close_price)) {
+        if (!completedRef.current.has(key)) {
+          completedRef.current.add(key);
+          changed = true;
+        }
+      }
+    }
+    if (changed) setResolvedTick((tick) => tick + 1);
   }, [rows, liveLast]);
+
+  const priced = useMemo(() => {
+    const next: MarketRecommendation[] = [];
+    for (const row of rows) {
+      const key = row.symbol.toUpperCase();
+      if (completedRef.current.has(key)) continue;
+      const last = liveLast.get(key);
+      const overlay = last == null ? row : { ...row, last_price: last, close_price: last };
+      if (recommendationResolved(overlay, overlay.last_price ?? overlay.close_price)) continue;
+      next.push(overlay);
+    }
+    return next;
+  }, [rows, liveLast, resolvedTick]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const stillVisible = priced.some((row) => row.symbol === selected.symbol);
+    if (!stillVisible) setSelected(null);
+  }, [priced, selected]);
 
   const visible = useMemo(() => {
     const filtered = filter === "all" ? priced : priced.filter((row) => row.signal_kind === filter);

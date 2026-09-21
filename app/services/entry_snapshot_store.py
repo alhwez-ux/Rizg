@@ -84,34 +84,44 @@ class EntrySnapshotStore:
                 "stop_loss": round(float(stop), 4),
                 "atr": _positive(atr),
                 "signal_kind": signal_kind,
+                "status": "open",
                 "triggered_at": now_riyadh().isoformat(),
             }
             self._rows[token] = row
             self._save()
             return dict(row)
 
-    def retain(self, scan_mode: str, session_date: str, symbols: Iterable[str]) -> None:
+    def complete(self, *, symbol: str, scan_mode: str, session_date: str) -> None:
+        ticker = str(symbol or "").strip().upper()
         mode = str(scan_mode or "live").strip() or "live"
         day = str(session_date or "").strip()
-        keep = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
-        prefix = f"{mode}:{day}:"
+        token = _key(mode, day, ticker)
         with self._guard:
-            stale = [
-                token
-                for token, row in self._rows.items()
-                if str(row.get("scan_mode")) == mode
-                and str(row.get("session_date")) == day
-                and str(row.get("symbol") or "") not in keep
-            ]
-            # Also drop leftover keys from other dates of the same mode.
-            stale.extend(
-                token
-                for token, row in self._rows.items()
-                if token not in stale
-                and str(row.get("scan_mode")) == mode
-                and str(row.get("session_date")) != day
-            )
-            if not stale and not any(token.startswith(prefix) for token in self._rows):
+            row = self._rows.get(token)
+            if not row:
+                return
+            row["status"] = "completed"
+            row["completed_at"] = now_riyadh().isoformat()
+            self._save()
+
+    def retain(self, scan_mode: str, session_date: str, symbols: Iterable[str]) -> None:
+        """Keep open locks for the session. Forget completed names once they leave the scan."""
+
+        mode = str(scan_mode or "live").strip() or "live"
+        day = str(session_date or "").strip()
+        scanned = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+        with self._guard:
+            stale: list[str] = []
+            for token, row in self._rows.items():
+                if str(row.get("scan_mode")) != mode:
+                    continue
+                if str(row.get("session_date")) != day:
+                    stale.append(token)
+                    continue
+                ticker = str(row.get("symbol") or "").upper()
+                if str(row.get("status") or "open") == "completed" and ticker not in scanned:
+                    stale.append(token)
+            if not stale:
                 return
             for token in stale:
                 self._rows.pop(token, None)
@@ -157,18 +167,19 @@ def apply_locked_entries(
     session_date: str | None = None,
     last_prices: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Stamp last_price live while freezing entry/target/stop at first trigger."""
+    """Freeze entry/target/stop, hide names that already hit target, and allow a later fresh setup."""
 
     day = session_date or now_riyadh().date().isoformat()
     mode = str(scan_mode or "live")
     kept: list[dict[str, Any]] = []
-    active: list[str] = []
+    scanned: list[str] = []
     for raw in rows or []:
         if not isinstance(raw, dict):
             continue
         symbol = str(raw.get("symbol") or "").strip().upper()
         if not symbol:
             continue
+        scanned.append(symbol)
         last = _positive((last_prices or {}).get(symbol))
         if last is None:
             last = _positive(raw.get("last_price") or raw.get("close_price") or raw.get("entry_price"))
@@ -185,17 +196,25 @@ def apply_locked_entries(
         )
         if locked is None:
             continue
+        if str(locked.get("status") or "open") == "completed":
+            continue
+        last_now = float(last if last is not None else locked["entry_price"])
+        target_now = float(locked["target_price"])
+        stop_now = float(locked["stop_loss"])
+        if last_now >= target_now or last_now <= stop_now:
+            store.complete(symbol=symbol, scan_mode=mode, session_date=day)
+            continue
         row = dict(raw)
-        if last is not None:
-            row["last_price"] = round(last, 2)
-            row["close_price"] = round(last, 2)
+        row["last_price"] = round(last_now, 2)
+        row["close_price"] = round(last_now, 2)
         row["entry_price"] = _fmt(float(locked["entry_price"]))
-        row["target_price"] = _fmt(float(locked["target_price"]))
-        row["stop_loss"] = _fmt(float(locked["stop_loss"]))
+        row["target_price"] = _fmt(target_now)
+        row["stop_loss"] = _fmt(stop_now)
         row["entry_locked_at"] = locked.get("triggered_at")
+        row["target_hit"] = False
+        row["stop_hit"] = False
         kept.append(row)
-        active.append(symbol)
-    store.retain(mode, day, active)
+    store.retain(mode, day, scanned)
     return keep_long_recommendations(kept)
 
 
