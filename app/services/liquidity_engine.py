@@ -26,24 +26,24 @@ MONEY_QUANTUM = Decimal("0.00000001")
 ZERO = Decimal("0")
 
 
+_LIVE_SIGNAL_ENGINE = None
+
+
 def _live_signal_engine():
     from app.core.config import get_settings
-    from app.services.signals import SignalEngine
+    from app.services.signals import signal_engine_from_settings
 
-    settings = get_settings()
-    share = getattr(settings, "signal_entry_share", Decimal("0.15"))
-    try:
-        entry_share = Decimal(str(share))
-    except InvalidOperation:
-        entry_share = Decimal("0.15")
-    return SignalEngine(
-        net_flow_threshold=settings.signal_net_flow_threshold,
-        aggressive_ratio=settings.signal_aggressive_ratio,
-        atr_target_mult=settings.signal_atr_target_mult,
-        atr_stop_mult=settings.signal_atr_stop_mult,
-        exit_net_ceiling=settings.signal_exit_net_ceiling,
-        entry_share=entry_share,
-    )
+    global _LIVE_SIGNAL_ENGINE
+    if _LIVE_SIGNAL_ENGINE is None:
+        _LIVE_SIGNAL_ENGINE = signal_engine_from_settings(get_settings())
+    return _LIVE_SIGNAL_ENGINE
+
+
+def reset_live_signal_engine(engine=None) -> None:
+    """Replace or drop the process-wide live signal latch (tests)."""
+
+    global _LIVE_SIGNAL_ENGINE
+    _LIVE_SIGNAL_ENGINE = engine
 
 
 def _to_decimal(value: Number, *, field_name: str) -> Decimal:

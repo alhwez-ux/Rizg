@@ -82,6 +82,36 @@ class Settings(BaseSettings):
     signal_atr_target_mult: Decimal = Field(default=Decimal("1.5"))
     signal_atr_stop_mult: Decimal = Field(default=Decimal("1.0"))
     signal_entry_share: float = Field(default=0.15, ge=0.05, le=0.5)
+    signal_confirm_hits: int = Field(
+        default=3,
+        ge=1,
+        le=8,
+        validation_alias=AliasChoices("SIGNAL_CONFIRM_HITS", "signal_confirm_hits"),
+    )
+    signal_exit_confirm_hits: int = Field(
+        default=3,
+        ge=1,
+        le=8,
+        validation_alias=AliasChoices("SIGNAL_EXIT_CONFIRM_HITS", "signal_exit_confirm_hits"),
+    )
+    signal_sample_seconds: float = Field(
+        default=45,
+        ge=0,
+        le=600,
+        validation_alias=AliasChoices("SIGNAL_SAMPLE_SECONDS", "signal_sample_seconds"),
+    )
+    signal_entry_cooldown_seconds: float = Field(
+        default=180,
+        ge=0,
+        le=3600,
+        validation_alias=AliasChoices("SIGNAL_ENTRY_COOLDOWN_SECONDS", "signal_entry_cooldown_seconds"),
+    )
+    signal_exit_cooldown_seconds: float = Field(
+        default=120,
+        ge=0,
+        le=3600,
+        validation_alias=AliasChoices("SIGNAL_EXIT_COOLDOWN_SECONDS", "signal_exit_cooldown_seconds"),
+    )
     telegram_enabled: bool = False
     alert_window_seconds: int = Field(default=60, ge=5, le=600)
     alert_inflow_threshold: Decimal = Field(default=Decimal("25000"))

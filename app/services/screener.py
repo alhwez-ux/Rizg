@@ -16,7 +16,7 @@ from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
 from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
 from app.services.shariah import is_prohibited
-from app.services.signals import SignalEngine, SignalInputs, apply_levels, positive_net_cutoff
+from app.services.signals import SignalEngine, SignalInputs, apply_levels, positive_net_cutoff, signal_engine_from_settings
 from app.services.watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,7 @@ class ScreenerService:
         self._settings = settings
         self._watchlist = watchlist
         self._under_watch = under_watch
-        self._engine = engine or SignalEngine(
-            net_flow_threshold=settings.signal_net_flow_threshold,
-            aggressive_ratio=settings.signal_aggressive_ratio,
-            atr_target_mult=settings.signal_atr_target_mult,
-            atr_stop_mult=settings.signal_atr_stop_mult,
-            exit_net_ceiling=settings.signal_exit_net_ceiling,
-            entry_share=Decimal(str(getattr(settings, "signal_entry_share", 0.15))),
-        )
+        self._engine = engine or signal_engine_from_settings(settings)
         self._liquidity_engine = liquidity_engine
         self._rest = prefer_sahm_rest_url(
             settings.sahmk_rest_url,
@@ -255,7 +248,7 @@ class ScreenerService:
             [row.net_flow for row in rows.values()],
             share=Decimal(str(getattr(self._settings, "signal_entry_share", 0.15))),
         )
-        if cutoff is not None:
+        if cutoff is not None and getattr(self._engine, "confirm_hits", 1) <= 1:
             for symbol, row in list(rows.items()):
                 if row.entry_signal or row.exit_signal:
                     continue

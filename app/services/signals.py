@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from app.services.liquidity_engine import MarketLevels
 
@@ -17,6 +18,9 @@ _RATIO_Q = Decimal("0.0001")
 _SCORE_Q = Decimal("0.01")
 _PRICE_Q = Decimal("0.01")
 _DEFAULT_ENTRY_SHARE = Decimal("0.15")
+_EXIT_SELL_FLOOR = Decimal("0.55")
+_VOLUME_EXHAUST = Decimal("0.80")
+_QUIET_CLEAR_HITS = 3
 
 
 @dataclass(frozen=True)
@@ -69,13 +73,23 @@ class SignalDecision:
     reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
-class SignalEngine:
-    """Fast day-trade entry/exit from net money flow + buy pressure.
+@dataclass
+class _SymbolLatch:
+    entry_streak: int = 0
+    exit_streak: int = 0
+    quiet_streak: int = 0
+    last_sample_at: float = 0.0
+    last_entry_at: float = 0.0
+    last_exit_at: float = 0.0
+    published: str = ""
 
-    EMA/RSI never gate a badge. Entry fires on the top 10–15% of positive
-    net flow, a buying-pressure spike, or a verified tape print. Exit fires
-    as soon as net flow goes flat or negative so short-term gains are not
-    given back.
+
+class SignalEngine:
+    """Day-trade entry/exit from persistent net money flow + buy pressure.
+
+    EMA/RSI never gate a badge. A raw candidate still needs a multi-check
+    confirmation window so a single spike does not flicker دخول/خروج.
+    Exit requires a confirmed reversal or volume exhaustion, not a flat tape.
     """
 
     def __init__(
@@ -89,6 +103,12 @@ class SignalEngine:
         book_pressure_threshold: Decimal = Decimal("0.55"),
         exit_net_ceiling: Decimal = Decimal("0"),
         entry_share: Decimal = _DEFAULT_ENTRY_SHARE,
+        confirm_hits: int = 1,
+        exit_confirm_hits: int = 1,
+        sample_seconds: float = 0,
+        entry_cooldown_seconds: float = 0,
+        exit_cooldown_seconds: float = 0,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._net_threshold = net_flow_threshold
         self._aggressive = aggressive_ratio
@@ -98,6 +118,23 @@ class SignalEngine:
         self._book_threshold = book_pressure_threshold
         self._exit_ceiling = exit_net_ceiling
         self._entry_share = entry_share if entry_share > 0 else _DEFAULT_ENTRY_SHARE
+        self._confirm_hits = max(1, int(confirm_hits))
+        self._exit_confirm_hits = max(1, int(exit_confirm_hits))
+        self._sample_seconds = max(0.0, float(sample_seconds))
+        self._entry_cooldown = max(0.0, float(entry_cooldown_seconds))
+        self._exit_cooldown = max(0.0, float(exit_cooldown_seconds))
+        self._clock = clock or time.monotonic
+        self._latches: dict[str, _SymbolLatch] = {}
+
+    @property
+    def confirm_hits(self) -> int:
+        return self._confirm_hits
+
+    def reset(self, symbol: str | None = None) -> None:
+        if symbol is None:
+            self._latches.clear()
+            return
+        self._latches.pop(str(symbol).strip().upper(), None)
 
     def evaluate(
         self,
@@ -161,17 +198,30 @@ class SignalEngine:
         )
         volume_confirmed = surge is not None and surge >= Decimal("1.5")
         has_volume_profile = _positive(inputs.avg_volume) is not None
-        entry = bool(relative_hit or spike_hit or absolute_hit)
-        if has_volume_profile and entry and not volume_confirmed:
+        raw_entry = bool(relative_hit or spike_hit or absolute_hit)
+        if has_volume_profile and raw_entry and not volume_confirmed:
             reasons.append("كسر بدون تأكيد حجم مقابل متوسط 10 جلسات — احتمال اختراق وهمي")
-            entry = False
-        # Flatten / fade: lock gains as soon as net flow is flat or red.
-        exit_signal = bool(
-            (not entry)
-            and tape_ready
-            and net is not None
-            and net <= self._exit_ceiling
+            raw_entry = False
+        raw_exit = _raw_exit(
+            net=net,
+            tape_ready=tape_ready,
+            raw_entry=raw_entry,
+            sell_ratio=sell_ratio,
+            book_pressure=book_pressure,
+            surge=surge,
+            exit_ceiling=self._exit_ceiling,
+            net_threshold=self._net_threshold,
+            aggressive=self._aggressive,
+            book_threshold=self._book_threshold,
         )
+        entry, exit_signal = self._stabilize(
+            inputs.symbol,
+            raw_entry=raw_entry,
+            raw_exit=raw_exit,
+            reasons=reasons,
+        )
+        if raw_exit:
+            reasons.append("انعكاس زخم أو استنزاف سيولة وليس ضجيجاً لحظياً")
         if relative_hit:
             pct = int(self._entry_share * 100)
             reasons.append(f"ضمن أعلى {pct}% من صافي التدفق الموجب بين الأقران")
@@ -252,6 +302,80 @@ class SignalEngine:
             stop_loss=plan.stop_loss,
             reasons=tuple(reasons),
         )
+
+    def _stabilize(
+        self,
+        symbol: str | None,
+        *,
+        raw_entry: bool,
+        raw_exit: bool,
+        reasons: list[str],
+    ) -> tuple[bool, bool]:
+        ticker = str(symbol or "").strip().upper()
+        latch_on = (
+            self._confirm_hits > 1
+            or self._exit_confirm_hits > 1
+            or self._sample_seconds > 0
+            or self._entry_cooldown > 0
+            or self._exit_cooldown > 0
+        )
+        if not ticker or not latch_on:
+            return raw_entry, raw_exit
+
+        now = float(self._clock())
+        state = self._latches.setdefault(ticker, _SymbolLatch())
+        if state.last_sample_at and (now - state.last_sample_at) < self._sample_seconds:
+            return state.published == "entry", state.published == "exit"
+
+        state.last_sample_at = now
+        if raw_entry:
+            state.entry_streak += 1
+            state.exit_streak = 0
+            state.quiet_streak = 0
+        elif raw_exit:
+            state.exit_streak += 1
+            state.entry_streak = 0
+            state.quiet_streak = 0
+        else:
+            state.entry_streak = 0
+            state.exit_streak = 0
+            state.quiet_streak += 1
+
+        entry_ready = raw_entry and state.entry_streak >= self._confirm_hits
+        exit_ready = raw_exit and state.exit_streak >= self._exit_confirm_hits
+        if raw_entry and not entry_ready:
+            reasons.append(f"بانتظار تأكيد الدخول ({state.entry_streak}/{self._confirm_hits})")
+        if raw_exit and not exit_ready:
+            reasons.append(f"بانتظار تأكيد الخروج ({state.exit_streak}/{self._exit_confirm_hits})")
+
+        if entry_ready:
+            if state.published != "entry" and state.last_entry_at and (now - state.last_entry_at) < self._entry_cooldown:
+                reasons.append("تهدئة بعد إشارة دخول سابقة — تجاهل التكرار")
+                state.entry_streak = 0
+                return False, False
+            if state.published != "entry":
+                state.last_entry_at = now
+            state.published = "entry"
+            return True, False
+
+        if exit_ready:
+            if state.published != "exit" and state.last_exit_at and (now - state.last_exit_at) < self._exit_cooldown:
+                reasons.append("تهدئة بعد إشارة خروج سابقة — تجاهل التكرار")
+                state.exit_streak = 0
+                return False, False
+            if state.published != "exit":
+                state.last_exit_at = now
+            state.published = "exit"
+            return False, True
+
+        if state.published == "entry":
+            reasons.append("المحافظة على الدخول حتى تأكيد انعكاس الزخم أو استنزاف السيولة")
+            return True, False
+        if state.published == "exit" and state.quiet_streak < _QUIET_CLEAR_HITS:
+            return False, True
+        if state.quiet_streak >= _QUIET_CLEAR_HITS:
+            state.published = ""
+        return False, False
 
 
 @dataclass(frozen=True)
@@ -436,6 +560,58 @@ def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInp
         tracked=inputs.tracked,
         symbol=inputs.symbol,
     )
+
+
+def signal_engine_from_settings(settings: Any, *, clock: Callable[[], float] | None = None) -> SignalEngine:
+    """Build a SignalEngine with the production confirmation / cooldown settings."""
+
+    share = getattr(settings, "signal_entry_share", Decimal("0.15"))
+    try:
+        entry_share = Decimal(str(share))
+    except (InvalidOperation, TypeError, ValueError):
+        entry_share = Decimal("0.15")
+    return SignalEngine(
+        net_flow_threshold=settings.signal_net_flow_threshold,
+        aggressive_ratio=settings.signal_aggressive_ratio,
+        atr_target_mult=settings.signal_atr_target_mult,
+        atr_stop_mult=settings.signal_atr_stop_mult,
+        exit_net_ceiling=settings.signal_exit_net_ceiling,
+        entry_share=entry_share,
+        confirm_hits=int(getattr(settings, "signal_confirm_hits", 3) or 3),
+        exit_confirm_hits=int(getattr(settings, "signal_exit_confirm_hits", 3) or 3),
+        sample_seconds=float(getattr(settings, "signal_sample_seconds", 45) or 0),
+        entry_cooldown_seconds=float(getattr(settings, "signal_entry_cooldown_seconds", 180) or 0),
+        exit_cooldown_seconds=float(getattr(settings, "signal_exit_cooldown_seconds", 120) or 0),
+        clock=clock,
+    )
+
+
+def _raw_exit(
+    *,
+    net: Decimal | None,
+    tape_ready: bool,
+    raw_entry: bool,
+    sell_ratio: Decimal | None,
+    book_pressure: Decimal | None,
+    surge: Decimal | None,
+    exit_ceiling: Decimal,
+    net_threshold: Decimal,
+    aggressive: Decimal,
+    book_threshold: Decimal,
+) -> bool:
+    """True only on a real fade: negative net plus selling pressure or volume exhaustion."""
+
+    if raw_entry or not tape_ready or net is None:
+        return False
+    floor = exit_ceiling if exit_ceiling < _ZERO else _ZERO
+    if net >= floor:
+        return False
+    sell_floor = aggressive if aggressive >= _EXIT_SELL_FLOOR else _EXIT_SELL_FLOOR
+    aggressive_sell = sell_ratio is not None and sell_ratio >= sell_floor
+    book_sell = book_pressure is not None and book_pressure <= (_ONE - book_threshold)
+    volume_exhaust = surge is not None and surge <= _VOLUME_EXHAUST
+    strong_outflow = net <= -abs(net_threshold)
+    return bool(aggressive_sell or book_sell or volume_exhaust or strong_outflow)
 
 
 def _entry_price(

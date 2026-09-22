@@ -90,7 +90,7 @@ def test_agile_entry_on_modest_net_flow_and_buy_pressure() -> None:
     assert decision.reasons[0] == "إشارة دخول 🚀"
 
 
-def test_agile_exit_when_net_flow_turns_flat_or_negative() -> None:
+def test_agile_exit_ignores_flat_or_minor_fade() -> None:
     engine = SignalEngine()
     flat = engine.evaluate(
         SignalInputs(
@@ -101,7 +101,7 @@ def test_agile_exit_when_net_flow_turns_flat_or_negative() -> None:
         )
     )
     assert flat.entry is False
-    assert flat.exit is True
+    assert flat.exit is False
 
     fade = engine.evaluate(
         SignalInputs(
@@ -112,8 +112,7 @@ def test_agile_exit_when_net_flow_turns_flat_or_negative() -> None:
         )
     )
     assert fade.entry is False
-    assert fade.exit is True
-    assert fade.reasons[0] == "إشارة خروج / تصريف ⚠️"
+    assert fade.exit is False
 
 
 def test_exit_requires_net_outflow_and_heavy_selling() -> None:
@@ -148,7 +147,18 @@ def test_untracked_entry_is_unexpected_radar_candidate() -> None:
 
 def test_watchlist_and_radar_share_the_same_flow_rules(tmp_path) -> None:
     watchlist = WatchlistService(path=tmp_path / "watchlist.json", initial=["4030"])
-    screener = ScreenerService(Settings(signal_net_flow_threshold=Decimal("15000")), watchlist)
+    screener = ScreenerService(
+        Settings(
+            _env_file=None,
+            signal_net_flow_threshold=Decimal("15000"),
+            signal_confirm_hits=1,
+            signal_exit_confirm_hits=1,
+            signal_sample_seconds=0,
+            signal_entry_cooldown_seconds=0,
+            signal_exit_cooldown_seconds=0,
+        ),
+        watchlist,
+    )
     screener.observe_quote(
         {
             "symbol": "4030",
@@ -203,7 +213,18 @@ def test_watchlist_add_and_remove_roundtrip(tmp_path) -> None:
 
 def test_prohibited_symbol_never_reaches_radar(tmp_path) -> None:
     watchlist = WatchlistService(path=tmp_path / "watchlist.json", initial=["4030"])
-    screener = ScreenerService(Settings(signal_net_flow_threshold=Decimal("15000")), watchlist)
+    screener = ScreenerService(
+        Settings(
+            _env_file=None,
+            signal_net_flow_threshold=Decimal("15000"),
+            signal_confirm_hits=1,
+            signal_exit_confirm_hits=1,
+            signal_sample_seconds=0,
+            signal_entry_cooldown_seconds=0,
+            signal_exit_cooldown_seconds=0,
+        ),
+        watchlist,
+    )
     payload = {
         "symbol": "1010",
         "name": "بنك الرياض",
