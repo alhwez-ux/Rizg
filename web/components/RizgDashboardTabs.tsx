@@ -17,20 +17,23 @@ import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import { UnderWatchBanner, UnderWatchSection, WatchPulse } from "@/components/UnderWatchSection";
 import { ShariahFilterBar } from "@/components/ShariahFilterBar";
 import { DividendsCalendarCard } from "@/components/DividendsCalendarCard";
+import { PreOpenCard } from "@/components/PreOpenCard";
 import NotificationCenter from "./NotificationCenter";
 import { useMarketRadarList } from "@/hooks/useMarketRadarList";
 import { useUnderWatch } from "@/hooks/useUnderWatch";
 import { useDividends } from "@/hooks/useDividends";
+import { usePreOpen } from "@/hooks/usePreOpen";
 import { listedNameFor } from "@/lib/listedCompanies";
 import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "sectors" | "radar" | "flow" | "recommendations" | "ranking" | "dividends";
+type DashboardTab = "preopen" | "sectors" | "radar" | "flow" | "recommendations" | "ranking" | "dividends";
 
 function parseTab(value: string | null): DashboardTab {
   if (
+    value === "preopen" ||
     value === "radar" ||
     value === "flow" ||
     value === "recommendations" ||
@@ -59,6 +62,7 @@ function DashboardShell() {
   const shariahFilter = parseShariahFilter(searchParams.get("shariah"));
   const { rows: dividendRows, hint: dividendHint, asOf: dividendAsOf, error: dividendError, loading: dividendLoading } =
     useDividends(shariahFilter === "pure");
+  const { payload: preopenPayload, loading: preopenLoading, error: preopenError } = usePreOpen();
   const visibleRadarCards = useMemo(
     () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
     [radarCards, shariahFilter],
@@ -70,6 +74,7 @@ function DashboardShell() {
   const tabs = useMemo(
     () =>
       [
+        { id: "preopen" as const, label: ar.tabsPreopen, icon: "🌅" },
         { id: "sectors" as const, label: ar.tabsSectors, icon: "🌐" },
         { id: "radar" as const, label: ar.tabsRadar, icon: "⚡" },
         { id: "flow" as const, label: ar.tabsFlow, icon: "💧" },
@@ -194,7 +199,11 @@ function DashboardShell() {
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
               className={`flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
-                tab.id === "flow"
+                tab.id === "preopen"
+                  ? selected
+                    ? "bg-amber-200 text-amber-950 shadow-lg shadow-amber-900/30"
+                    : "border border-amber-400/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 hover:text-amber-50"
+                  : tab.id === "flow"
                   ? selected
                     ? "bg-teal-100 text-teal-900 shadow-lg shadow-teal-900/20"
                     : "border border-teal-500/30 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20 hover:text-teal-100"
@@ -215,6 +224,11 @@ function DashboardShell() {
                 <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
               ) : tab.id === "radar" && visibleWatchRows.length ? (
                 <WatchPulse explosive={visibleWatchRows.some((row) => row.explosive)} />
+              ) : tab.id === "preopen" && preopenPayload?.in_window ? (
+                <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-300" />
+                </span>
               ) : (
                 <span aria-hidden="true">{tab.icon}</span>
               )}
@@ -242,6 +256,16 @@ function DashboardShell() {
         aria-labelledby={`${tablistId}-${activeTab}`}
         className="w-full animate-fadeIn"
       >
+        {activeTab === "preopen" ? (
+          <PreOpenCard
+            payload={preopenPayload}
+            loading={preopenLoading}
+            error={preopenError}
+            shariahFilter={shariahFilter}
+            onOpenSymbol={openWatchedCompany}
+          />
+        ) : null}
+
         {activeTab === "sectors" ? (
           <SectorHeatmapCard
             selectedSector={selectedSector}

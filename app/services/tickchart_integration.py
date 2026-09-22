@@ -696,6 +696,56 @@ class TickChartFeed:
         )
         return rows
 
+    def preopen_snapshots(self) -> list[dict[str, Any]]:
+        """Level-2 book + quote snapshots for the 09:30–10:00 opening auction scanner."""
+
+        rows: list[dict[str, Any]] = []
+        for symbol in self._universe_symbols():
+            ticker = str(symbol).strip().upper()
+            if not is_tasi_main_symbol(ticker) or is_prohibited(ticker):
+                continue
+            tape = self._tapes.get(ticker)
+            live = tape.snapshot() if tape is not None else {}
+            stored = self._quotes.get(ticker) or {}
+            session = self._engine.session_snapshot(ticker)
+            levels = self._engine.levels_snapshot(ticker)
+            bid = live.get("bid") if live.get("bid") is not None else _json_number(levels.bid)
+            ask = live.get("ask") if live.get("ask") is not None else _json_number(levels.ask)
+            last = (
+                live.get("last_price")
+                or stored.get("last_price")
+                or _json_number(session.last_price)
+                or _json_number(levels.last_price)
+            )
+            bid_size = _json_number(levels.bid_size) or (float(tape.bid_size()) if tape is not None else 0) or 0
+            ask_size = _json_number(levels.ask_size) or (float(tape.ask_size()) if tape is not None else 0) or 0
+            buy_volume = _json_number(session.buy_volume) or 0
+            sell_volume = _json_number(session.sell_volume) or 0
+            if not any((last, bid, ask, buy_volume, sell_volume, bid_size, ask_size)):
+                continue
+            rows.append(
+                {
+                    "symbol": ticker,
+                    "name": company_name_for(ticker) or stored.get("name") or ticker,
+                    "sector": sector_for(ticker),
+                    "last_price": last,
+                    "bid": bid,
+                    "ask": ask,
+                    "bid_size": bid_size or 0,
+                    "ask_size": ask_size or 0,
+                    "buy_volume": buy_volume or bid_size or 0,
+                    "sell_volume": sell_volume or ask_size or 0,
+                    "prev_close": stored.get("prev_close") or live.get("prev_close"),
+                    "block_trades": live.get("block_trades") or 0,
+                    "last_block_value": live.get("last_block_value"),
+                    "institutional_inflow": live.get("institutional_inflow"),
+                    "institutional_outflow": live.get("institutional_outflow"),
+                    "bid_wall": live.get("bid_wall"),
+                    "ask_wall": live.get("ask_wall"),
+                }
+            )
+        return rows
+
     @property
     def under_watch(self) -> UnderWatchService:
         return self._under_watch

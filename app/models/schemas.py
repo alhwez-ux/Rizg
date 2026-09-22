@@ -323,6 +323,43 @@ class DividendsResponse(BaseModel):
     data: list[DividendRow] = Field(default_factory=list)
 
 
+class PreOpenRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    expected_open: float | None = None
+    prev_close: float | None = None
+    open_variation_pct: float | None = None
+    buy_volume: float = 0
+    sell_volume: float = 0
+    book_imbalance: float | None = None
+    buy_share: float | None = None
+    block_trades: int = 0
+    last_block_value: float | None = None
+    large_block_side: str | None = None
+    signal: str
+    signal_kind: str
+    liquidity_state: str
+    score: float = 0
+
+
+class PreOpenScanResponse(BaseModel):
+    success: bool = True
+    session_phase: str
+    session_label: str
+    in_window: bool
+    window_start: str = "09:30"
+    window_end: str = "10:00"
+    timezone: str = "Asia/Riyadh"
+    source: str = "TickChart"
+    count: int = 0
+    accumulation_count: int = 0
+    distribution_count: int = 0
+    hint: str = ""
+    scanned_at: str
+    data: list[PreOpenRow] = Field(default_factory=list)
+
+
 class ShariahScreenRow(BaseModel):
     symbol: str
     name: str

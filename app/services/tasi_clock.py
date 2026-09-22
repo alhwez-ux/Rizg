@@ -74,6 +74,12 @@ def is_intraday_window(moment: datetime | None = None) -> bool:
     return session_phase(moment) == "open"
 
 
+def is_preopen_window(moment: datetime | None = None) -> bool:
+    """TASI opening auction: 09:30–10:00 Asia/Riyadh, Sunday–Thursday."""
+
+    return session_phase(moment) == "preopen"
+
+
 def phase_label(phase: str) -> str:
     return {
         "weekend": "عطلة تاسي",
