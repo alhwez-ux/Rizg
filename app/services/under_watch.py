@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -21,16 +24,56 @@ _GRACE_SECONDS = 8 * 60
 _MAX_AGE_SECONDS = 6 * 60 * 60
 _MAX_SYMBOLS = 24
 
+KIND_NONE = ""
+KIND_WATCH = "watch"
+KIND_HIDDEN = "hidden"
+KIND_EXPLOSIVE = "explosive"
+_KIND_RANK = {KIND_NONE: 0, KIND_WATCH: 1, KIND_HIDDEN: 2, KIND_EXPLOSIVE: 3}
+
+
+@dataclass
+class _WatchLatch:
+    streak: int = 0
+    miss_streak: int = 0
+    last_sample_at: float = 0.0
+    last_drop_at: float = 0.0
+    candidate: str = ""
+    published: str = ""
+
 
 class UnderWatchService:
-    """Session-scoped auto watchlist. Names drop when the setup fades."""
+    """Session-scoped auto watchlist. Names drop when the setup fades.
 
-    def __init__(self, path: Path | None = None, *, max_symbols: int = _MAX_SYMBOLS) -> None:
+    A raw volume spike still needs a multi-check window so iceberg / watch
+    badges do not flicker on a single print.
+    """
+
+    def __init__(
+        self,
+        path: Path | None = None,
+        *,
+        max_symbols: int = _MAX_SYMBOLS,
+        confirm_hits: int = 1,
+        miss_hits: int = 1,
+        sample_seconds: float = 0,
+        cooldown_seconds: float = 0,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._path = path or _DEFAULT_PATH
         self._max = max_symbols
+        self._confirm_hits = max(1, int(confirm_hits))
+        self._miss_hits = max(1, int(miss_hits))
+        self._sample_seconds = max(0.0, float(sample_seconds))
+        self._cooldown = max(0.0, float(cooldown_seconds))
+        self._clock = clock or time.monotonic
         self._guard = threading.RLock()
         self._rows: dict[str, dict[str, Any]] = {}
+        self._latches: dict[str, _WatchLatch] = {}
         self._load()
+
+    @property
+    def confirm_hits(self) -> int:
+        return self._confirm_hits
 
     def symbols(self) -> list[str]:
         with self._guard:
@@ -76,6 +119,7 @@ class UnderWatchService:
                 existing is None
                 or existing.get("flag") != payload["flag"]
                 or existing.get("explosive") != payload["explosive"]
+                or bool(existing.get("hidden_accumulation")) != bool(payload.get("hidden_accumulation"))
             )
             self._rows[ticker] = payload
             self._cap_locked()
@@ -86,18 +130,66 @@ class UnderWatchService:
 
     def observe(self, inputs: ExplosiveInputs, *, extra: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         decision = evaluate_explosive(inputs)
-        if decision.watch:
-            return self.upsert(inputs, decision, extra=extra)
-        self.miss(inputs.symbol)
-        return None
+        ticker = str(inputs.symbol or "").strip().upper()
+        try:
+            ticker = normalize_tasi_symbol(ticker)
+        except ValueError:
+            if not is_tasi_main_symbol(ticker):
+                return None
+        kind = _kind_of(decision)
+        now = self._clock()
+        with self._guard:
+            action = self._latch_locked(ticker, kind, now)
+            if action == "keep":
+                row = self._rows.get(ticker)
+                if row and kind:
+                    row["last_hit_at"] = datetime.now(timezone.utc).isoformat()
+                return dict(row) if row else None
+            if action != "publish":
+                return None
+        return self.upsert(inputs, decision, extra=extra)
 
     def miss(self, symbol: str) -> None:
         ticker = str(symbol or "").strip().upper()
         with self._guard:
-            row = self._rows.get(ticker)
-            if row is None:
-                return
-            # Keep the card until grace expires; last_hit_at stays as the last confirmation.
+            self._latch_locked(ticker, KIND_NONE, self._clock())
+
+    def _latch_locked(self, ticker: str, kind: str, now: float) -> str:
+        latch = self._latches.setdefault(ticker, _WatchLatch())
+        if self._sample_seconds > 0 and latch.last_sample_at and (now - latch.last_sample_at) < self._sample_seconds:
+            return "keep" if latch.published else "wait"
+        latch.last_sample_at = now
+        if not kind:
+            latch.miss_streak += 1
+            if not latch.published:
+                latch.streak = 0
+                latch.candidate = ""
+                return "wait"
+            if latch.miss_streak >= self._miss_hits:
+                self._rows.pop(ticker, None)
+                latch.published = ""
+                latch.candidate = ""
+                latch.streak = 0
+                latch.last_drop_at = now
+                self._save_locked()
+                return "drop"
+            return "keep"
+        latch.miss_streak = 0
+        if kind == latch.candidate:
+            latch.streak += 1
+        else:
+            latch.candidate = kind
+            latch.streak = 1
+        if not latch.published and self._cooldown > 0 and latch.last_drop_at and (now - latch.last_drop_at) < self._cooldown:
+            latch.streak = 0
+            latch.candidate = ""
+            return "wait"
+        if latch.streak < self._confirm_hits:
+            return "keep" if latch.published else "wait"
+        if latch.published and _KIND_RANK.get(kind, 0) < _KIND_RANK.get(latch.published, 0):
+            return "keep"
+        latch.published = kind
+        return "publish"
 
     def retain(self, active: Iterable[str]) -> list[dict[str, Any]]:
         alive = {str(symbol or "").strip().upper() for symbol in active if str(symbol or "").strip()}
@@ -112,6 +204,12 @@ class UnderWatchService:
                     drop.append(ticker)
             for ticker in drop:
                 self._rows.pop(ticker, None)
+                latch = self._latches.get(ticker)
+                if latch is not None:
+                    latch.published = ""
+                    latch.candidate = ""
+                    latch.streak = 0
+                    latch.last_drop_at = self._clock()
             if drop:
                 self._save_locked()
             return [dict(row) for row in self._sorted_locked()]
@@ -119,7 +217,12 @@ class UnderWatchService:
     def _sorted_locked(self) -> list[dict[str, Any]]:
         return sorted(
             self._rows.values(),
-            key=lambda row: (bool(row.get("explosive")), float(row.get("score") or 0), abs(float(row.get("net_flow") or 0))),
+            key=lambda row: (
+                bool(row.get("explosive")),
+                bool(row.get("hidden_accumulation")),
+                float(row.get("score") or 0),
+                abs(float(row.get("net_flow") or 0)),
+            ),
             reverse=True,
         )
 
@@ -191,8 +294,10 @@ def _row_payload(
         "buy_ratio": _buy_ratio(inputs),
         "flag": decision.flag,
         "explosive": decision.explosive,
+        "hidden_accumulation": bool(decision.hidden_accumulation),
         "compressed": decision.compressed,
         "upward": decision.upward,
+        "supported": bool(decision.supported),
         "aggressive_buy": decision.aggressive_buy,
         "flow_spike": decision.flow_spike,
         "resistance_break": decision.resistance_break,
@@ -250,3 +355,13 @@ def _json_number(value: Decimal | float | int | None) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _kind_of(decision: ExplosiveDecision) -> str:
+    if not decision.watch:
+        return KIND_NONE
+    if decision.explosive:
+        return KIND_EXPLOSIVE
+    if decision.hidden_accumulation:
+        return KIND_HIDDEN
+    return KIND_WATCH

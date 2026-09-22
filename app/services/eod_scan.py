@@ -262,7 +262,7 @@ def _liquidity_ok(snapshot: Mapping[str, Any], *, net_flow: float, mfi: float, t
     book = _number(snapshot.get("book_pressure"))
     bid_size = _positive(_number(snapshot.get("bid_size")))
     ask_size = _positive(_number(snapshot.get("ask_size")))
-    accumulation = trap_kind == "silent_accumulation" or mfi >= 55
+    accumulation = trap_kind in {"silent_accumulation", "hidden_accumulation"} or mfi >= 55
     balanced = book is not None and book >= 0
     if bid_size and ask_size and bid_size >= ask_size * 0.95:
         balanced = True

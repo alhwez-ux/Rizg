@@ -164,7 +164,7 @@ class SymbolTape:
                 "kind": "bear_trap",
                 "label": "فخ هبوط: تضاعف الحجم اللحظي مقابل جدار طلب (Level 2)",
             }
-        hidden = self.detect_hidden_accumulation()
+        hidden = self.detect_iceberg() or self.detect_hidden_accumulation()
         if hidden is not None:
             return hidden
         if silent and bid_wall is not None and rising and inst >= Decimal("55"):
@@ -179,32 +179,69 @@ class SymbolTape:
             }
         return None
 
+    def cluster_stats(self) -> dict[str, Any]:
+        """Count institutional-size prints parked near support or the bid wall."""
+
+        empty = {
+            "clustered": 0,
+            "clustered_buys": 0,
+            "clustered_sells": 0,
+            "cluster_run": 0,
+            "support": None,
+            "near_bid_wall": False,
+        }
+        if len(self.prices) < 8 or len(self.quantities) < 8:
+            return empty
+        bid_wall = self.bid_wall()
+        support = bid_wall.price if bid_wall is not None else min(self.prices)
+        if support <= ZERO:
+            return empty
+        typical = median(self.quantities)
+        if typical <= ZERO:
+            return empty
+        band = support * Decimal("0.008")
+        clustered = 0
+        clustered_buy = 0
+        clustered_sell = 0
+        run = 0
+        max_run = 0
+        near_bid_wall = False
+        for price, qty, side in zip(self.prices, self.quantities, self.sides):
+            large = qty >= typical * Decimal("2")
+            near_support = abs(price - support) <= band
+            near_bid = bid_wall is not None and abs(price - bid_wall.price) <= band
+            if not (large and (near_support or near_bid)):
+                run = 0
+                continue
+            clustered += 1
+            run += 1
+            if run > max_run:
+                max_run = run
+            if side == TradeSide.BUY:
+                clustered_buy += 1
+            elif side == TradeSide.SELL:
+                clustered_sell += 1
+            if near_bid:
+                near_bid_wall = True
+        return {
+            "clustered": clustered,
+            "clustered_buys": clustered_buy,
+            "clustered_sells": clustered_sell,
+            "cluster_run": max_run,
+            "support": float(support),
+            "near_bid_wall": near_bid_wall,
+        }
+
     def detect_hidden_accumulation(self) -> dict[str, str] | None:
         """Clustered block prints parked on the bid / swing low before a break."""
 
         if len(self.prices) < 12 or len(self.quantities) < 12:
             return None
-        bid_wall = self.bid_wall()
-        support = bid_wall.price if bid_wall is not None else min(self.prices)
-        if support <= ZERO:
+        stats = self.cluster_stats()
+        if stats["clustered"] < 3 or stats["clustered_buys"] < 2:
             return None
-        typical = median(self.quantities)
-        if typical <= ZERO:
-            return None
-        band = support * Decimal("0.008")
-        clustered = 0
-        clustered_buy = 0
-        for price, qty, side in zip(self.prices, self.quantities, self.sides):
-            if qty < typical * Decimal("2"):
-                continue
-            near_support = abs(price - support) <= band
-            near_bid = bid_wall is not None and abs(price - bid_wall.price) <= band
-            if not (near_support or near_bid):
-                continue
-            clustered += 1
-            if side == TradeSide.BUY:
-                clustered_buy += 1
-        if clustered < 3 or clustered_buy < 2:
+        support = _dec(stats.get("support"))
+        if support is None or support <= ZERO:
             return None
         last = self.prices[-1]
         if last > support * Decimal("1.025"):
@@ -213,12 +250,38 @@ class SymbolTape:
         if inst < Decimal("52"):
             return None
         return {
-            "kind": "silent_accumulation",
-            "label": "تجميع مؤسسي مخفي: صفقات كبيرة متجمعة قرب الدعم وجدار الطلب قبل الاختراق",
+            "kind": "hidden_accumulation",
+            "label": "تجميع مؤسسي خفي: صفقات كبيرة متجمعة قرب الدعم وجدار الطلب قبل الاختراق",
+        }
+
+    def detect_iceberg(self) -> dict[str, str] | None:
+        """Volume surge absorbed in a tight range — iceberg / hidden institutional buying."""
+
+        ratio = self.volume_ratio()
+        if ratio is None or ratio < Decimal("1.5"):
+            return None
+        if len(self.prices) < 8:
+            return None
+        last = self.prices[-1]
+        if last <= ZERO:
+            return None
+        low = min(self.prices)
+        high = max(self.prices)
+        compressed = (high - low) / last <= Decimal("0.018")
+        supported = abs(last - low) <= last * Decimal("0.008")
+        if not (compressed or supported):
+            return None
+        inst = self.institutional_mfi()
+        if inst is not None and inst < Decimal("48"):
+            return None
+        return {
+            "kind": "hidden_accumulation",
+            "label": "تجميع مؤسسي خفي: حجم يتجاوز 150% من المتوسط مع ضغط سعري عند الدعم (أوامر جبل الجليد)",
         }
 
     def snapshot(self) -> dict[str, Any]:
         trap = self.detect_trap()
+        clusters = self.cluster_stats()
         bid = self.bids[0].price if self.bids else None
         ask = self.asks[0].price if self.asks else None
         last = self.prices[-1] if self.prices else None
@@ -236,6 +299,12 @@ class SymbolTape:
             "volume_ratio": _json(self.volume_ratio()),
             "block_trades": self.block_trades,
             "last_block_value": _json(self.last_block_value),
+            "clustered": clusters["clustered"],
+            "clustered_buys": clusters["clustered_buys"],
+            "clustered_sells": clusters["clustered_sells"],
+            "cluster_run": clusters["cluster_run"],
+            "support": clusters["support"],
+            "near_bid_wall": clusters["near_bid_wall"],
             "session_volume": _json(self.session_quantity),
             "session_value": _json(self.session_value),
             "bid_wall": _level_json(self.bid_wall()),

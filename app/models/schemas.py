@@ -362,6 +362,123 @@ class PreOpenScanResponse(BaseModel):
     data: list[PreOpenRow] = Field(default_factory=list)
 
 
+class SmartMoneyRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    last_price: float | None = None
+    institutional_flow_score: float = 0
+    inst_share_pct: float = 0
+    retail_share_pct: float = 0
+    institutional_mfi: float | None = None
+    retail_mfi: float | None = None
+    block_trades: int = 0
+    last_block_value: float | None = None
+    clustered: int = 0
+    clustered_buys: int = 0
+    cluster_run: int = 0
+    near_bid_wall: bool = False
+    bid_wall: dict[str, float] | None = None
+    ask_wall: dict[str, float] | None = None
+    signal: str
+    signal_kind: str
+    badge: str
+    reason: str = ""
+    entry: float | None = None
+    target: float | None = None
+    stop: float | None = None
+    plan_ok: bool = False
+    score: float = 0
+
+
+class SmartMoneyScanResponse(BaseModel):
+    success: bool = True
+    session_phase: str
+    session_label: str
+    source: str = "TickChart"
+    count: int = 0
+    accumulation_count: int = 0
+    distribution_count: int = 0
+    watch_count: int = 0
+    hint: str = ""
+    scanned_at: str
+    data: list[SmartMoneyRow] = Field(default_factory=list)
+
+
+class RecoveryPlanRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    symbol: str = Field(..., min_length=1, max_length=12, examples=["1120"])
+    quantity: float = Field(..., gt=0, examples=[500])
+    avg_price: float = Field(..., gt=0, examples=[95.4])
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        return value.upper()
+
+
+class RecoveryPosition(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    quantity: float
+    avg_price: float
+    last_price: float
+    cost_basis: float
+    market_value: float
+    unrealized_pnl: float
+    loss_amount: float
+    pnl_pct: float
+    in_loss: bool
+
+
+class RecoveryAverage(BaseModel):
+    recommended: bool = True
+    extra_quantity: int
+    extra_cost: float
+    new_quantity: float
+    new_avg_price: float
+    entry: float
+    target: float
+    stop: float
+    reason: str = ""
+
+
+class RecoveryAllocation(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    score: float = 0
+    tags: list[str] = Field(default_factory=list)
+    weight_pct: float = 0
+    allocation: float
+    shares: int
+    entry: float
+    target: float
+    stop: float
+    expected_gain: float = 0
+    reason: str = ""
+
+
+class RecoveryPlanResponse(BaseModel):
+    success: bool = True
+    session_phase: str
+    session_label: str
+    source: str = "TickChart"
+    stance: str
+    stance_label: str
+    hint: str = ""
+    scanned_at: str
+    position: RecoveryPosition
+    averaging: RecoveryAverage | None = None
+    rotation_budget: float = 0
+    expected_recovery: float = 0
+    cover_pct: float = 0
+    count: int = 0
+    data: list[RecoveryAllocation] = Field(default_factory=list)
+
+
 class ShariahScreenRow(BaseModel):
     symbol: str
     name: str

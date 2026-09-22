@@ -18,23 +18,29 @@ import { UnderWatchBanner, UnderWatchSection, WatchPulse } from "@/components/Un
 import { ShariahFilterBar } from "@/components/ShariahFilterBar";
 import { DividendsCalendarCard } from "@/components/DividendsCalendarCard";
 import { PreOpenCard } from "@/components/PreOpenCard";
+import { SmartMoneyCard } from "@/components/SmartMoneyCard";
+import { SmartMoneyIcon } from "@/components/SmartMoneyIcon";
+import { RecoveryCard } from "@/components/RecoveryCard";
 import NotificationCenter from "./NotificationCenter";
 import { useMarketRadarList } from "@/hooks/useMarketRadarList";
 import { useUnderWatch } from "@/hooks/useUnderWatch";
 import { useDividends } from "@/hooks/useDividends";
 import { usePreOpen } from "@/hooks/usePreOpen";
+import { useSmartMoney } from "@/hooks/useSmartMoney";
 import { listedNameFor } from "@/lib/listedCompanies";
 import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "preopen" | "sectors" | "radar" | "flow" | "recommendations" | "ranking" | "dividends";
+type DashboardTab = "preopen" | "sectors" | "radar" | "funds" | "recovery" | "flow" | "recommendations" | "ranking" | "dividends";
 
 function parseTab(value: string | null): DashboardTab {
   if (
     value === "preopen" ||
     value === "radar" ||
+    value === "funds" ||
+    value === "recovery" ||
     value === "flow" ||
     value === "recommendations" ||
     value === "ranking" ||
@@ -63,6 +69,7 @@ function DashboardShell() {
   const { rows: dividendRows, hint: dividendHint, asOf: dividendAsOf, error: dividendError, loading: dividendLoading } =
     useDividends(shariahFilter === "pure");
   const { payload: preopenPayload, loading: preopenLoading, error: preopenError } = usePreOpen();
+  const { payload: fundsPayload, loading: fundsLoading, error: fundsError } = useSmartMoney();
   const visibleRadarCards = useMemo(
     () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
     [radarCards, shariahFilter],
@@ -77,6 +84,8 @@ function DashboardShell() {
         { id: "preopen" as const, label: ar.tabsPreopen, icon: "🌅" },
         { id: "sectors" as const, label: ar.tabsSectors, icon: "🌐" },
         { id: "radar" as const, label: ar.tabsRadar, icon: "⚡" },
+        { id: "funds" as const, label: ar.tabsFunds, icon: "🏦" },
+        { id: "recovery" as const, label: ar.tabsRecovery, icon: "🧮" },
         { id: "flow" as const, label: ar.tabsFlow, icon: "💧" },
         {
           id: "recommendations" as const,
@@ -203,6 +212,14 @@ function DashboardShell() {
                   ? selected
                     ? "bg-amber-200 text-amber-950 shadow-lg shadow-amber-900/30"
                     : "border border-amber-400/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 hover:text-amber-50"
+                  : tab.id === "funds"
+                  ? selected
+                    ? "bg-indigo-100 text-indigo-950 shadow-lg shadow-indigo-900/25"
+                    : "border border-indigo-400/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25 hover:text-indigo-50"
+                  : tab.id === "recovery"
+                  ? selected
+                    ? "bg-cyan-100 text-cyan-950 shadow-lg shadow-cyan-900/25"
+                    : "border border-cyan-400/40 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25 hover:text-cyan-50"
                   : tab.id === "flow"
                   ? selected
                     ? "bg-teal-100 text-teal-900 shadow-lg shadow-teal-900/20"
@@ -223,7 +240,12 @@ function DashboardShell() {
               {tab.id === "recommendations" && !sessionLive ? (
                 <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
               ) : tab.id === "radar" && visibleWatchRows.length ? (
-                <WatchPulse explosive={visibleWatchRows.some((row) => row.explosive)} />
+                <WatchPulse
+                  explosive={visibleWatchRows.some((row) => row.explosive)}
+                  hidden={visibleWatchRows.some((row) => row.hidden_accumulation)}
+                />
+              ) : tab.id === "funds" ? (
+                <SmartMoneyIcon className="h-5 w-5 shrink-0" />
               ) : tab.id === "preopen" && preopenPayload?.in_window ? (
                 <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
@@ -264,6 +286,20 @@ function DashboardShell() {
             shariahFilter={shariahFilter}
             onOpenSymbol={openWatchedCompany}
           />
+        ) : null}
+
+        {activeTab === "funds" ? (
+          <SmartMoneyCard
+            payload={fundsPayload}
+            loading={fundsLoading}
+            error={fundsError}
+            shariahFilter={shariahFilter}
+            onOpenSymbol={openWatchedCompany}
+          />
+        ) : null}
+
+        {activeTab === "recovery" ? (
+          <RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} />
         ) : null}
 
         {activeTab === "sectors" ? (

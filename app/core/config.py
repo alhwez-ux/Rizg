@@ -112,6 +112,30 @@ class Settings(BaseSettings):
         le=3600,
         validation_alias=AliasChoices("SIGNAL_EXIT_COOLDOWN_SECONDS", "signal_exit_cooldown_seconds"),
     )
+    watch_confirm_hits: int = Field(
+        default=3,
+        ge=1,
+        le=8,
+        validation_alias=AliasChoices("WATCH_CONFIRM_HITS", "watch_confirm_hits"),
+    )
+    watch_miss_hits: int = Field(
+        default=3,
+        ge=1,
+        le=8,
+        validation_alias=AliasChoices("WATCH_MISS_HITS", "watch_miss_hits"),
+    )
+    watch_sample_seconds: float = Field(
+        default=45,
+        ge=0,
+        le=600,
+        validation_alias=AliasChoices("WATCH_SAMPLE_SECONDS", "watch_sample_seconds"),
+    )
+    watch_cooldown_seconds: float = Field(
+        default=180,
+        ge=0,
+        le=3600,
+        validation_alias=AliasChoices("WATCH_COOLDOWN_SECONDS", "watch_cooldown_seconds"),
+    )
     telegram_enabled: bool = False
     alert_window_seconds: int = Field(default=60, ge=5, le=600)
     alert_inflow_threshold: Decimal = Field(default=Decimal("25000"))

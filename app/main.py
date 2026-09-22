@@ -49,7 +49,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     watchlist = WatchlistService(
         initial=settings.tickchart_symbols or settings.sahmk_symbols or DEFAULT_TICKCHART_SYMBOLS
     )
-    under_watch = UnderWatchService()
+    under_watch = UnderWatchService(
+        confirm_hits=settings.watch_confirm_hits,
+        miss_hits=settings.watch_miss_hits,
+        sample_seconds=settings.watch_sample_seconds,
+        cooldown_seconds=settings.watch_cooldown_seconds,
+    )
     screener = ScreenerService(settings, watchlist, liquidity_engine=liquidity_engine, under_watch=under_watch)
     tickchart = TickChartFeed(
         liquidity_engine,

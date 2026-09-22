@@ -5,6 +5,7 @@ from app.core.config import Settings
 from app.models.trade import TradeSide
 from app.services.explosive_momentum import (
     EXPLOSIVE_FLAG,
+    HIDDEN_ACCUM_FLAG,
     WATCH_FLAG,
     ExplosiveInputs,
     evaluate_explosive,
@@ -18,6 +19,17 @@ from app.services.under_watch import UnderWatchService
 
 def _window(volume: float = 1_000_000) -> tuple[float, ...]:
     return tuple([volume] * 10)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def step(self, seconds: float) -> None:
+        self.t += seconds
 
 
 def test_volume_spike_with_compressed_range_flags_under_watch() -> None:
@@ -36,7 +48,8 @@ def test_volume_spike_with_compressed_range_flags_under_watch() -> None:
     )
     assert decision.watch is True
     assert decision.explosive is False
-    assert decision.flag == WATCH_FLAG
+    assert decision.hidden_accumulation is True
+    assert decision.flag == HIDDEN_ACCUM_FLAG
     assert decision.volume_ratio is not None
     assert decision.volume_ratio >= Decimal("1.5")
     assert decision.compressed is True
@@ -54,7 +67,8 @@ def test_minute_volume_ratio_can_flag_when_session_history_is_thin() -> None:
     )
     assert decision.watch is True
     assert decision.upward is True
-    assert decision.flag == WATCH_FLAG
+    assert decision.hidden_accumulation is True
+    assert decision.flag == HIDDEN_ACCUM_FLAG
 
 
 def test_volume_dump_is_not_accumulation() -> None:
@@ -75,6 +89,46 @@ def test_volume_dump_is_not_accumulation() -> None:
     assert decision.watch is False
     assert decision.explosive is False
     assert decision.flag is None
+
+
+def test_expanding_up_tape_is_generic_watch_not_iceberg() -> None:
+    decision = evaluate_explosive(
+        ExplosiveInputs(
+            symbol="4030",
+            price=Decimal("26.00"),
+            volume=Decimal("2_600_000"),
+            window_volumes=_window(),
+            session_high=Decimal("26.20"),
+            session_low=Decimal("24.80"),
+            prev_close=Decimal("25.00"),
+            change_percent=Decimal("4.0"),
+            net_flow=Decimal("8000"),
+        )
+    )
+    assert decision.watch is True
+    assert decision.hidden_accumulation is False
+    assert decision.flag == WATCH_FLAG
+
+
+def test_volume_held_at_session_low_is_hidden_accumulation() -> None:
+    decision = evaluate_explosive(
+        ExplosiveInputs(
+            symbol="1120",
+            price=Decimal("90.10"),
+            volume=Decimal("2_400_000"),
+            window_volumes=_window(),
+            session_high=Decimal("93.00"),
+            session_low=Decimal("90.00"),
+            change_percent=Decimal("2.5"),
+            net_flow=Decimal("12000"),
+            near_bid_wall=True,
+        )
+    )
+    assert decision.watch is True
+    assert decision.hidden_accumulation is True
+    assert decision.supported is True
+    assert decision.flag == HIDDEN_ACCUM_FLAG
+    assert HIDDEN_ACCUM_FLAG in decision.reasons
 
 
 def test_quiet_volume_stays_off_the_watchlist() -> None:
@@ -150,11 +204,67 @@ def test_under_watch_store_upserts_and_retains(tmp_path) -> None:
     row = store.observe(inputs)
     assert row is not None
     assert row["symbol"] == "4030"
-    assert row["flag"] == WATCH_FLAG
+    assert row["flag"] == HIDDEN_ACCUM_FLAG
+    assert row["hidden_accumulation"] is True
     assert store.contains("4030")
     kept = store.retain(["4030"])
     assert [item["symbol"] for item in kept] == ["4030"]
     assert store.contains("4030")
+
+
+def test_under_watch_confirms_hidden_accumulation_after_multi_hit_window(tmp_path) -> None:
+    clock = _Clock()
+    store = UnderWatchService(
+        path=tmp_path / "under_watch.json",
+        confirm_hits=3,
+        miss_hits=3,
+        sample_seconds=20,
+        cooldown_seconds=180,
+        clock=clock,
+    )
+    inputs = ExplosiveInputs(
+        symbol="1120",
+        price=Decimal("90.10"),
+        volume=Decimal("2_400_000"),
+        window_volumes=_window(),
+        session_high=Decimal("90.25"),
+        session_low=Decimal("90.00"),
+        change_percent=Decimal("0.10"),
+        near_bid_wall=True,
+    )
+    quiet = ExplosiveInputs(
+        symbol="1120",
+        price=Decimal("90.10"),
+        volume=Decimal("800_000"),
+        window_volumes=_window(),
+        change_percent=Decimal("0.10"),
+    )
+    assert store.observe(inputs) is None
+    clock.step(25)
+    assert store.observe(inputs) is None
+    clock.step(25)
+    row = store.observe(inputs)
+    assert row is not None
+    assert row["hidden_accumulation"] is True
+    assert row["flag"] == HIDDEN_ACCUM_FLAG
+    clock.step(25)
+    assert store.observe(quiet) is not None
+    clock.step(25)
+    assert store.observe(quiet) is not None
+    assert store.contains("1120")
+    clock.step(25)
+    assert store.observe(quiet) is None
+    assert store.contains("1120") is False
+    clock.step(25)
+    assert store.observe(inputs) is None
+    clock.step(200)
+    assert store.observe(inputs) is None
+    clock.step(25)
+    assert store.observe(inputs) is None
+    clock.step(25)
+    revived = store.observe(inputs)
+    assert revived is not None
+    assert revived["hidden_accumulation"] is True
 
 
 def test_tickchart_scan_flags_volume_breakout_into_under_watch(tmp_path) -> None:
@@ -206,7 +316,7 @@ def test_tickchart_scan_flags_volume_breakout_into_under_watch(tmp_path) -> None
     rows = feed.scan_explosive_watch()
     assert any(row["symbol"] == "2222" for row in rows)
     flagged = next(row for row in rows if row["symbol"] == "2222")
-    assert flagged["flag"] in {WATCH_FLAG, EXPLOSIVE_FLAG}
+    assert flagged["flag"] in {WATCH_FLAG, EXPLOSIVE_FLAG, HIDDEN_ACCUM_FLAG}
     report = feed.radar_report("2222")
     assert report["under_watch"] is True
     assert report["watch_flag"]

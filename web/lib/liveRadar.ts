@@ -2,6 +2,7 @@ import { apiFetch } from "@/lib/api";
 import type { LiquidityTick } from "@/lib/liquidity";
 import { toFiniteNumber } from "@/lib/screener";
 import { isValidLongPlan } from "@/lib/tradeGeometry";
+import { HIDDEN_ACCUM_FLAG } from "@/lib/underWatch";
 
 export type LiveRadarSignal = "entry" | "exit" | "trap" | "neutral";
 
@@ -55,6 +56,7 @@ export interface LiveRadarReport {
   under_watch?: boolean;
   watch_flag?: string | null;
   explosive?: boolean;
+  hidden_accumulation?: boolean;
 }
 
 export interface LiveRadarResponse {
@@ -196,6 +198,7 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     under_watch: Boolean(row.under_watch),
     watch_flag: row.watch_flag == null ? null : String(row.watch_flag),
     explosive: Boolean(row.explosive),
+    hidden_accumulation: Boolean(row.hidden_accumulation) || String(row.watch_flag || "") === HIDDEN_ACCUM_FLAG,
   };
 }
 

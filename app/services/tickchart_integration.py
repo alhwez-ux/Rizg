@@ -611,7 +611,7 @@ class TickChartFeed:
         trap = live.get("trap") or report.get("trap")
         if trap:
             report["trap"] = trap
-            if trap.get("kind") == "silent_accumulation":
+            if trap.get("kind") in {"silent_accumulation", "hidden_accumulation"}:
                 report["signal"] = "entry"
                 report["entry"] = True
             elif trap.get("kind") in {"bull_trap", "bear_trap", "silent_distribution"}:
@@ -679,21 +679,30 @@ class TickChartFeed:
                 "source": "TickChart",
             }
         )
+        stored_watch = next((row for row in self._under_watch.snapshot() if row.get("symbol") == ticker), None)
         watch_inputs = inputs_from_snapshot(self._explosive_snapshot(ticker))
+        live_watch = None
         if watch_inputs is not None and watch_inputs.price is not None:
-            watch = evaluate_explosive(watch_inputs)
-            report["under_watch"] = watch.watch
-            report["watch_flag"] = watch.flag
-            report["explosive"] = watch.explosive
-            if watch.watch:
-                extra_reasons = [item for item in watch.reasons if item not in reasons]
+            live_watch = evaluate_explosive(watch_inputs)
+            if live_watch.watch:
+                extra_reasons = [item for item in live_watch.reasons if item not in reasons]
                 if extra_reasons:
                     report["reasons"] = [*extra_reasons[:2], *reasons]
+        if stored_watch:
+            report["under_watch"] = True
+            report["watch_flag"] = stored_watch.get("flag")
+            report["explosive"] = bool(stored_watch.get("explosive"))
+            report["hidden_accumulation"] = bool(stored_watch.get("hidden_accumulation"))
+        elif live_watch is not None and self._under_watch.confirm_hits <= 1:
+            report["under_watch"] = live_watch.watch
+            report["watch_flag"] = live_watch.flag
+            report["explosive"] = live_watch.explosive
+            report["hidden_accumulation"] = live_watch.hidden_accumulation
         else:
-            stored_watch = next((row for row in self._under_watch.snapshot() if row.get("symbol") == ticker), None)
-            report["under_watch"] = bool(stored_watch)
-            report["watch_flag"] = (stored_watch or {}).get("flag")
-            report["explosive"] = bool((stored_watch or {}).get("explosive"))
+            report["under_watch"] = False
+            report["watch_flag"] = None
+            report["explosive"] = False
+            report["hidden_accumulation"] = False
         return report
 
     def market_rows(self) -> list[dict[str, Any]]:
@@ -731,8 +740,9 @@ class TickChartFeed:
                     "under_watch": bool(report.get("under_watch")),
                     "watch_flag": report.get("watch_flag"),
                     "explosive": bool(report.get("explosive")),
-            }
-        )
+                    "hidden_accumulation": bool(report.get("hidden_accumulation")),
+                }
+            )
         return rows
 
     def preopen_snapshots(self) -> list[dict[str, Any]]:
@@ -779,6 +789,65 @@ class TickChartFeed:
                     "last_block_value": live.get("last_block_value"),
                     "institutional_inflow": live.get("institutional_inflow"),
                     "institutional_outflow": live.get("institutional_outflow"),
+                    "bid_wall": live.get("bid_wall"),
+                    "ask_wall": live.get("ask_wall"),
+                }
+            )
+        return rows
+
+    def smart_money_snapshots(self) -> list[dict[str, Any]]:
+        """Tape footprints (blocks, clustered prints, walls) for the funds radar."""
+
+        rows: list[dict[str, Any]] = []
+        for symbol in self._universe_symbols():
+            ticker = str(symbol).strip().upper()
+            if not is_tasi_main_symbol(ticker) or is_prohibited(ticker):
+                continue
+            tape = self._tapes.get(ticker)
+            if tape is None:
+                continue
+            live = tape.snapshot()
+            blocks = int(live.get("block_trades") or 0)
+            clustered = int(live.get("clustered") or 0)
+            inst_in = float(live.get("institutional_inflow") or 0)
+            inst_out = float(live.get("institutional_outflow") or 0)
+            if blocks <= 0 and clustered <= 0 and inst_in + inst_out <= 0:
+                continue
+            stored = self._quotes.get(ticker) or {}
+            session = self._engine.session_snapshot(ticker)
+            levels = self._engine.levels_snapshot(ticker)
+            last = (
+                live.get("last_price")
+                or stored.get("last_price")
+                or _json_number(session.last_price)
+                or _json_number(levels.last_price)
+            )
+            rows.append(
+                {
+                    "symbol": ticker,
+                    "name": company_name_for(ticker) or stored.get("name") or ticker,
+                    "sector": sector_for(ticker),
+                    "last_price": last,
+                    "bid": live.get("bid") if live.get("bid") is not None else _json_number(levels.bid),
+                    "ask": live.get("ask") if live.get("ask") is not None else _json_number(levels.ask),
+                    "atr": _json_number(getattr(levels, "atr", None)),
+                    "session_low": stored.get("low")
+                    or live.get("session_low")
+                    or _json_number(getattr(levels, "session_low", None)),
+                    "block_trades": blocks,
+                    "last_block_value": live.get("last_block_value"),
+                    "institutional_inflow": live.get("institutional_inflow"),
+                    "institutional_outflow": live.get("institutional_outflow"),
+                    "retail_inflow": live.get("retail_inflow"),
+                    "retail_outflow": live.get("retail_outflow"),
+                    "institutional_mfi": live.get("institutional_mfi"),
+                    "retail_mfi": live.get("retail_mfi"),
+                    "clustered": clustered,
+                    "clustered_buys": live.get("clustered_buys") or 0,
+                    "clustered_sells": live.get("clustered_sells") or 0,
+                    "cluster_run": live.get("cluster_run") or 0,
+                    "support": live.get("support"),
+                    "near_bid_wall": bool(live.get("near_bid_wall")),
                     "bid_wall": live.get("bid_wall"),
                     "ask_wall": live.get("ask_wall"),
                 }
@@ -852,6 +921,12 @@ class TickChartFeed:
             "last_side": getattr(session, "last_side", None),
             "bid": live.get("bid") or _json_number(levels.bid),
             "ask": live.get("ask") or _json_number(levels.ask),
+            "support": live.get("support") or stored.get("low"),
+            "bid_wall": live.get("bid_wall"),
+            "near_bid_wall": bool(live.get("near_bid_wall")),
+            "clustered_buys": live.get("clustered_buys") or 0,
+            "institutional_mfi": live.get("institutional_mfi"),
+            "trap": live.get("trap"),
         }
 
     def quote_tape(self) -> list[dict[str, Any]]:
@@ -1032,7 +1107,9 @@ class TickChartFeed:
             kind = str(trap.get("kind") or "")
             signal = str(report.get("signal") or "neutral")
             inst = report.get("institutional_mfi")
-            bounce = kind == "silent_accumulation" or (signal == "entry" and (inst or 50) >= 52)
+            bounce = kind in {"silent_accumulation", "hidden_accumulation"} or (
+                signal == "entry" and (inst or 50) >= 52
+            )
             trap_exit = kind in {"bull_trap", "bear_trap", "silent_distribution"} or signal in {"trap", "exit"}
             entry = bool(report.get("entry") or signal == "entry" or bounce)
             if kind in {"bull_trap", "silent_distribution"}:
@@ -1056,7 +1133,7 @@ class TickChartFeed:
                 continue
             history = self._quotes.close_history(str(report.get("symbol") or ""))
             prior_volumes = [bar.get("volume") for bar in history[:-1]][-10:] if history else []
-            accumulation = bounce or kind == "silent_accumulation"
+            accumulation = bounce or kind in {"silent_accumulation", "hidden_accumulation"}
             have_profile = any(float(value or 0) > 0 for value in prior_volumes)
             volume_ok = True
             if have_profile or report.get("volume_ratio") is not None:

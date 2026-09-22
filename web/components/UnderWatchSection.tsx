@@ -3,7 +3,7 @@
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
-import { EXPLOSIVE_WATCH_FLAG, type UnderWatchRow } from "@/lib/underWatch";
+import { EXPLOSIVE_WATCH_FLAG, HIDDEN_ACCUM_FLAG, type UnderWatchRow } from "@/lib/underWatch";
 
 export function UnderWatchSection({
   rows,
@@ -18,7 +18,10 @@ export function UnderWatchSection({
     <section className="rounded-2xl border border-amber-500/25 bg-gradient-to-b from-amber-500/10 to-tape-panel/90 p-5 text-center shadow-[0_0_36px_rgba(245,158,11,0.08)] sm:p-6">
       <div className="mb-4 flex flex-col items-center gap-2">
         <p className="flex items-center justify-center gap-2 text-xl font-bold text-zinc-50">
-          <WatchPulse explosive={rows.some((row) => row.explosive)} />
+          <WatchPulse
+            explosive={rows.some((row) => row.explosive)}
+            hidden={rows.some((row) => row.hidden_accumulation)}
+          />
           {ar.underWatchTitle}
         </p>
         <p className="text-xs text-zinc-400">{ar.underWatchHint}</p>
@@ -73,12 +76,15 @@ function UnderWatchCard({
 }) {
   const title = displayCompanyTitle(row.symbol, row.name);
   const explosive = row.explosive || row.flag === EXPLOSIVE_WATCH_FLAG;
+  const hidden = row.hidden_accumulation || row.flag === HIDDEN_ACCUM_FLAG;
   return (
     <article
       className={`rounded-2xl border p-4 text-start ${
         explosive
           ? "border-amber-400/50 bg-amber-500/10 shadow-[0_0_22px_rgba(245,158,11,0.16)]"
-          : "border-sky-500/30 bg-sky-500/5"
+          : hidden
+            ? "border-indigo-400/50 bg-indigo-500/10 shadow-[0_0_22px_rgba(99,102,241,0.18)]"
+            : "border-sky-500/30 bg-sky-500/5"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -88,20 +94,24 @@ function UnderWatchCard({
           className="min-w-0 text-start"
         >
           <p className="flex items-center gap-2 font-mono text-lg font-semibold text-zinc-50">
-            <WatchPulse explosive={explosive} />
+            <WatchPulse explosive={explosive} hidden={hidden} />
             {row.symbol}
           </p>
           {title ? <p className="mt-0.5 truncate text-xs text-zinc-400">{title}</p> : null}
         </button>
-        <span
-          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-            explosive
-              ? "border-amber-400/50 bg-amber-500/20 text-amber-100"
-              : "border-sky-400/40 bg-sky-500/15 text-sky-100"
-          }`}
-        >
-          {explosive ? ar.underWatchExplosive : ar.underWatchFlag}
-        </span>
+        {hidden ? (
+          <HiddenAccumBadge />
+        ) : (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+              explosive
+                ? "border-amber-400/50 bg-amber-500/20 text-amber-100"
+                : "border-sky-400/40 bg-sky-500/15 text-sky-100"
+            }`}
+          >
+            {explosive ? ar.underWatchExplosive : ar.underWatchFlag}
+          </span>
+        )}
       </div>
 
       <div className="mt-3 flex items-baseline justify-between gap-3">
@@ -155,13 +165,23 @@ function UnderWatchCard({
   );
 }
 
-export function WatchPulse({ explosive = false }: { explosive?: boolean }) {
+export function HiddenAccumBadge({ className = "" }: { className?: string }) {
   return (
     <span
-      className={explosive ? "inline-flex animate-rocketPulse text-base" : "inline-flex animate-lightningPulse text-base"}
-      aria-hidden="true"
+      className={`inline-flex items-center gap-1 rounded-full border border-indigo-400/50 bg-indigo-500/20 px-2.5 py-1 text-[11px] font-bold text-indigo-100 shadow-[0_0_14px_rgba(99,102,241,0.28)] ${className}`}
     >
-      {explosive ? "🚀" : "⚡"}
+      <span aria-hidden="true">🔍💼</span>
+      {ar.underWatchHidden}
+    </span>
+  );
+}
+
+export function WatchPulse({ explosive = false, hidden = false }: { explosive?: boolean; hidden?: boolean }) {
+  const mark = explosive ? "🚀" : hidden ? "🔍" : "⚡";
+  const motion = explosive ? "animate-rocketPulse" : hidden ? "animate-lightningPulse" : "animate-lightningPulse";
+  return (
+    <span className={`inline-flex ${motion} text-base`} aria-hidden="true">
+      {mark}
     </span>
   );
 }

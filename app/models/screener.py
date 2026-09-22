@@ -55,8 +55,10 @@ class UnderWatchRow(BaseModel):
     buy_ratio: float | None = None
     flag: str = "تحت المراقبة"
     explosive: bool = False
+    hidden_accumulation: bool = False
     compressed: bool = False
     upward: bool = False
+    supported: bool = False
     aggressive_buy: bool = False
     flow_spike: bool = False
     resistance_break: bool = False

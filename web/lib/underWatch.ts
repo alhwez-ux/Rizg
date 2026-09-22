@@ -3,6 +3,7 @@ import { toFiniteNumber } from "@/lib/screener";
 
 export const UNDER_WATCH_FLAG = "تحت المراقبة";
 export const EXPLOSIVE_WATCH_FLAG = "تحت المراقبة - انفجار محتمل";
+export const HIDDEN_ACCUM_FLAG = "تجميع مؤسسي خفي";
 
 export interface UnderWatchRow {
   symbol: string;
@@ -15,6 +16,7 @@ export interface UnderWatchRow {
   buy_ratio: number | null;
   flag: string;
   explosive: boolean;
+  hidden_accumulation: boolean;
   compressed: boolean;
   upward: boolean;
   aggressive_buy: boolean;
@@ -59,7 +61,10 @@ export function parseUnderWatchRow(raw: unknown): UnderWatchRow | null {
   const symbol = String(row.symbol ?? "").trim().toUpperCase();
   if (!/^\d{4}$/.test(symbol)) return null;
   const explosive = Boolean(row.explosive);
-  const flag = String(row.flag || (explosive ? EXPLOSIVE_WATCH_FLAG : UNDER_WATCH_FLAG));
+  const hidden = Boolean(row.hidden_accumulation) || String(row.flag || "") === HIDDEN_ACCUM_FLAG;
+  const flag = String(
+    row.flag || (explosive ? EXPLOSIVE_WATCH_FLAG : hidden ? HIDDEN_ACCUM_FLAG : UNDER_WATCH_FLAG),
+  );
   return {
     symbol,
     name: String(row.name ?? ""),
@@ -71,6 +76,7 @@ export function parseUnderWatchRow(raw: unknown): UnderWatchRow | null {
     buy_ratio: toFiniteNumber(row.buy_ratio),
     flag,
     explosive,
+    hidden_accumulation: hidden,
     compressed: Boolean(row.compressed),
     upward: Boolean(row.upward),
     aggressive_buy: Boolean(row.aggressive_buy),

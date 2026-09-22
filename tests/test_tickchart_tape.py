@@ -49,8 +49,15 @@ def test_hidden_accumulation_from_clustered_blocks_on_the_bid() -> None:
     )
     trap = tape.detect_trap()
     assert trap is not None
-    assert trap["kind"] == "silent_accumulation"
+    assert trap["kind"] == "hidden_accumulation"
     assert "تجميع مؤسسي" in trap["label"]
+    stats = tape.cluster_stats()
+    assert stats["clustered_buys"] >= 4
+    assert stats["near_bid_wall"] is True
+    assert stats["cluster_run"] >= 3
+    snap = tape.snapshot()
+    assert snap["clustered_buys"] == stats["clustered_buys"]
+    assert snap["near_bid_wall"] is True
 
 
 def test_bull_trap_when_volume_doubles_into_ask_wall() -> None:
@@ -74,3 +81,15 @@ def test_bull_trap_when_volume_doubles_into_ask_wall() -> None:
     trap = tape.detect_trap()
     assert trap is not None
     assert trap["kind"] == "bull_trap"
+
+
+def test_iceberg_volume_surge_in_tight_range() -> None:
+    tape = SymbolTape(symbol="2222")
+    for _ in range(12):
+        tape.observe_print(Decimal("27.00"), Decimal("80"), side=TradeSide.BUY, block_floor=Decimal("100000"))
+    for _ in range(6):
+        tape.observe_print(Decimal("27.02"), Decimal("400"), side=TradeSide.BUY, block_floor=Decimal("100000"))
+    iceberg = tape.detect_iceberg()
+    assert iceberg is not None
+    assert iceberg["kind"] == "hidden_accumulation"
+    assert "150%" in iceberg["label"] or "جبل الجليد" in iceberg["label"]

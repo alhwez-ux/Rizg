@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 
 from app.models.trade import TradeSide
 from app.services.institutional_strategy import (
+    SUPPORT_BAND,
     VOLUME_WINDOW,
     aggressive_buy_confirmed,
     volume_profile_average,
@@ -15,6 +16,8 @@ from app.services.institutional_strategy import (
 
 WATCH_FLAG = "تحت المراقبة"
 EXPLOSIVE_FLAG = "تحت المراقبة - انفجار محتمل"
+HIDDEN_ACCUM_FLAG = "تجميع مؤسسي خفي"
+HIDDEN_TRAP_KINDS = frozenset({"hidden_accumulation", "silent_accumulation"})
 VOLUME_SURGE_RATIO = Decimal("1.5")  # current >= 150% of 10-session / minute baseline
 COMPRESSED_RANGE_PCT = Decimal("0.018")
 COMPRESSED_CHANGE_PCT = Decimal("1.8")
@@ -48,6 +51,12 @@ class ExplosiveInputs:
     bid: Decimal | None = None
     ask: Decimal | None = None
     prior_closes: tuple[Any, ...] = ()
+    support: Decimal | None = None
+    bid_wall_price: Decimal | None = None
+    near_bid_wall: bool = False
+    clustered_buys: int = 0
+    institutional_mfi: Decimal | None = None
+    trap_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,16 +70,19 @@ class ExplosiveDecision:
     aggressive_buy: bool
     flow_spike: bool
     resistance_break: bool
+    hidden_accumulation: bool = False
+    supported: bool = False
     reasons: tuple[str, ...] = field(default_factory=tuple)
     score: Decimal = _ZERO
 
 
 def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
-    """Flag accumulation (volume spike + tight/up tape) or an explosive ask-side breakout."""
+    """Flag iceberg hidden accumulation, volume+tight tape, or an explosive ask-side breakout."""
 
     reasons: list[str] = []
     ratio = _volume_ratio(inputs)
     compressed = _range_compressed(inputs)
+    supported = _held_at_support(inputs)
     upward = _upward_tape(inputs)
     dumping = _dumping(inputs)
     aggressive = _aggressive_ask_flow(inputs)
@@ -78,6 +90,7 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
     resistance = _local_resistance(inputs.prior_closes)
     breakout = _breaks_resistance(inputs.price, resistance)
     volume_ok = ratio is not None and ratio >= VOLUME_SURGE_RATIO
+    iceberg = bool(volume_ok and not dumping and (compressed or supported))
 
     if dumping:
         reasons.append("تدفق هابط مع مدى سعري واسع — ليس تجميعاً")
@@ -91,6 +104,8 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
             aggressive_buy=aggressive,
             flow_spike=flow_spike,
             resistance_break=breakout,
+            hidden_accumulation=False,
+            supported=supported,
             reasons=tuple(reasons),
         )
 
@@ -98,7 +113,9 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
         pct = int((ratio or _ZERO) * _HUNDRED)
         reasons.append(f"ارتفاع الحجم إلى {pct}% من متوسط 10 جلسات / الدقيقة")
     if compressed:
-        reasons.append("المدى السعري مضغوط أثناء تدفق الكمية")
+        reasons.append("المدى السعري مضغوط أثناء تدفق الكمية — امتصاص أوامر مخفية")
+    if supported:
+        reasons.append("السعر ممسوك عند الدعم / جدار الطلب رغم تدفق الكمية")
     if upward:
         reasons.append("الحركة السعرية صاعدة أو مستقرة")
     if aggressive:
@@ -107,8 +124,13 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
         reasons.append("صافي تدفق الأموال موجب بقوة")
     if breakout and resistance is not None:
         reasons.append(f"كسر مقاومة محلية عند {resistance}")
+    if inputs.clustered_buys >= 3 or inputs.near_bid_wall:
+        reasons.append("كتل شرائية متجمعة قرب جدار الطلب")
+    trap_kind = str(inputs.trap_kind or "").strip()
+    if trap_kind in HIDDEN_TRAP_KINDS:
+        reasons.append("أثر تجميع خفي على شريط التداول")
 
-    watch = bool(volume_ok and (compressed or upward))
+    watch = bool(volume_ok and (compressed or upward or supported))
     explosive = bool(watch and aggressive and flow_spike and breakout)
     if explosive:
         reasons.insert(0, EXPLOSIVE_FLAG)
@@ -123,6 +145,30 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
             aggressive_buy=aggressive,
             flow_spike=flow_spike,
             resistance_break=True,
+            hidden_accumulation=iceberg,
+            supported=supported,
+            reasons=tuple(reasons),
+            score=score,
+        )
+    if iceberg:
+        reasons.insert(0, HIDDEN_ACCUM_FLAG)
+        score = Decimal("6.5") + min((ratio or _ONE) - VOLUME_SURGE_RATIO, Decimal("2"))
+        if inputs.near_bid_wall or inputs.clustered_buys >= 3:
+            score += Decimal("0.8")
+        if (inputs.institutional_mfi or Decimal("50")) >= Decimal("55"):
+            score += Decimal("0.6")
+        return ExplosiveDecision(
+            watch=True,
+            explosive=False,
+            flag=HIDDEN_ACCUM_FLAG,
+            volume_ratio=ratio,
+            compressed=compressed,
+            upward=upward,
+            aggressive_buy=aggressive,
+            flow_spike=flow_spike,
+            resistance_break=breakout,
+            hidden_accumulation=True,
+            supported=supported,
             reasons=tuple(reasons),
             score=score,
         )
@@ -143,13 +189,15 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
             aggressive_buy=aggressive,
             flow_spike=flow_spike,
             resistance_break=breakout,
+            hidden_accumulation=False,
+            supported=supported,
             reasons=tuple(reasons),
             score=score,
         )
     if not volume_ok:
         reasons.append("لا يوجد ارتفاع حجم يتجاوز 150% من المتوسط")
-    elif not (compressed or upward):
-        reasons.append("المدى السعري غير مضغوط والحركة ليست صاعدة")
+    elif not (compressed or upward or supported):
+        reasons.append("المدى السعري غير مضغوط والحركة ليست صاعدة ولا ممسوكة عند الدعم")
     return ExplosiveDecision(
         watch=False,
         explosive=False,
@@ -160,6 +208,8 @@ def evaluate_explosive(inputs: ExplosiveInputs) -> ExplosiveDecision:
         aggressive_buy=aggressive,
         flow_spike=flow_spike,
         resistance_break=breakout,
+        hidden_accumulation=False,
+        supported=supported,
         reasons=tuple(reasons),
     )
 
@@ -200,6 +250,12 @@ def inputs_from_snapshot(row: Mapping[str, Any]) -> ExplosiveInputs | None:
         bid=_positive(row.get("bid")),
         ask=_positive(row.get("ask")),
         prior_closes=tuple(closes) if not isinstance(closes, tuple) else closes,
+        support=_positive(row.get("support") or row.get("swing_low")),
+        bid_wall_price=_wall_price(row.get("bid_wall")),
+        near_bid_wall=bool(row.get("near_bid_wall")),
+        clustered_buys=_int(row.get("clustered_buys")),
+        institutional_mfi=_as_decimal(row.get("institutional_mfi")),
+        trap_kind=_trap_kind(row.get("trap") or row.get("trap_kind")),
     )
 
 
@@ -229,6 +285,32 @@ def _range_compressed(inputs: ExplosiveInputs) -> bool:
     if change is not None and abs(change) <= COMPRESSED_CHANGE_PCT:
         return True
     return False
+
+
+def _held_at_support(inputs: ExplosiveInputs) -> bool:
+    """True when last trades are parked on the bid wall / session low (iceberg absorption)."""
+
+    if inputs.near_bid_wall:
+        return True
+    price = _positive(inputs.price)
+    if price is None:
+        return False
+    floors = [
+        value
+        for value in (
+            _positive(inputs.support),
+            _positive(inputs.bid_wall_price),
+            _positive(inputs.session_low),
+        )
+        if value is not None
+    ]
+    if not floors:
+        return False
+    floor = min(floors)
+    if floor <= 0:
+        return False
+    band = max(floor * SUPPORT_BAND, price * SUPPORT_BAND)
+    return abs(price - floor) <= band
 
 
 def _upward_tape(inputs: ExplosiveInputs) -> bool:
@@ -339,3 +421,24 @@ def _as_decimal(value: Any) -> Decimal | None:
     except (ArithmeticError, InvalidOperation, TypeError, ValueError):
         return None
     return number if number.is_finite() else None
+
+
+def _wall_price(wall: Any) -> Decimal | None:
+    if isinstance(wall, dict):
+        return _positive(wall.get("price"))
+    return _positive(wall)
+
+
+def _int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _trap_kind(value: Any) -> str | None:
+    if isinstance(value, dict):
+        kind = str(value.get("kind") or "").strip()
+        return kind or None
+    text = str(value or "").strip()
+    return text or None
