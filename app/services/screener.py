@@ -122,7 +122,16 @@ class ScreenerService:
     def radar_universe(self, limit: int = 40) -> list[str]:
         """Untracked TASI names to rotate through in quote batches."""
 
-        return self.priority_symbols(limit)
+        tracked = {symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)}
+        with self._guard:
+            explicit = [symbol for symbol in self._priority if not is_prohibited(symbol)]
+            rows = list(self._rows.values())
+        extras = [
+            row.symbol
+            for row in rows
+            if row.symbol not in tracked and not is_prohibited(row.symbol)
+        ]
+        return list(dict.fromkeys([*explicit, *extras]))[:limit]
 
     async def refresh_leaders(self, client: httpx.AsyncClient, api_key: str) -> bool:
         headers = sahm_auth_headers(api_key)
@@ -417,12 +426,19 @@ class ScreenerService:
         if self.cache.cooling_down():
             cached = self.cache.get_market(key)
             return cached, False
+        from app.services.sahm_quota import get_sahm_quota
+
+        quota = get_sahm_quota(daily_limit=int(getattr(self._settings, "sahmk_daily_limit", 90) or 90))
+        if not quota.allow():
+            return self.cache.get_market(key), False
         try:
             response = await client.get(url, headers=headers, params=params)
         except httpx.HTTPError:
             logger.warning("screener network error for %s; using cache", key)
             return self.cache.get_market(key), False
+        quota.consume(1)
         if response.status_code == 429:
+            quota.trip("http_429")
             wait = self.cache.trip_rate_limit(_retry_after(response))
             logger.warning("screener rate limited (HTTP 429) for %s; cooling %.0fs", key, wait)
             return self.cache.get_market(key), False

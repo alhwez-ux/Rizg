@@ -150,6 +150,8 @@ class TickChartStatusResponse(BaseModel):
     last_sync_at: str | None = None
     quote_mode: str = "waiting"
     last_quotes: int = 0
+    price_source: str = "TickChart"
+    sahm_quota: dict[str, Any] | None = None
 
 
 class TickChartFollowBody(BaseModel):

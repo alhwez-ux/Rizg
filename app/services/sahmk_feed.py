@@ -48,6 +48,7 @@ class SahmkTradeFeed:
         self._alerts = alerts
         self._watchlist = watchlist
         self._screener = screener
+        self._settings = settings
         self._api_key = resolve_sahm_api_key(settings)
         self._rest_url = prefer_sahm_rest_url(settings.sahmk_rest_url, self._api_key)
         self._data_mode = (settings.sahmk_data_mode or "delayed").strip().lower()
@@ -226,6 +227,12 @@ class SahmkTradeFeed:
         if self._cache.cooling_down():
             self._apply_cached_quote(symbol)
             return False
+        from app.services.sahm_quota import get_sahm_quota
+
+        quota = get_sahm_quota(daily_limit=int(getattr(self._settings, "sahmk_daily_limit", 90) or 90))
+        if not quota.allow():
+            self._apply_cached_quote(symbol)
+            return False
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=20.0,
@@ -243,7 +250,9 @@ class SahmkTradeFeed:
             self._apply_cached_quote(symbol)
             return False
 
+        quota.consume(1)
         if response.status_code == 429:
+            quota.trip("http_429")
             wait = self._cache.trip_rate_limit(_retry_after(response))
             logger.warning("sahmk quote rate limited (HTTP 429) for %s; cooling %.0fs", symbol, wait)
             self._apply_cached_quote(symbol)

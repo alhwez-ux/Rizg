@@ -21,6 +21,7 @@ from app.services.sahm_data_provider import (
     resolve_sahm_api_key,
     sahm_auth_headers,
 )
+from app.services.sahm_quota import SahmQuota
 
 
 def _settings(**overrides: object) -> Settings:
@@ -39,7 +40,10 @@ def _settings(**overrides: object) -> Settings:
 def _provider(handler, **overrides: object) -> SahmDataProvider:
     transport = httpx.MockTransport(handler)
     client = httpx.AsyncClient(transport=transport, base_url="https://api.sahmcapital.com")
-    return SahmDataProvider(_settings(**overrides), client=client)
+    quota = overrides.pop("quota", None)
+    if quota is None:
+        quota = SahmQuota(daily_limit=10_000, path=None)
+    return SahmDataProvider(_settings(**overrides), client=client, quota=quota)
 
 
 @pytest.fixture(autouse=True)
@@ -205,13 +209,28 @@ def test_plan_limit_raises() -> None:
     assert exc.value.status_code == 403
 
 
-def test_retries_after_rate_limit() -> None:
+def test_rate_limit_trips_quota_without_retry() -> None:
     hits = {"count": 0}
 
     def handler(_request: httpx.Request) -> httpx.Response:
         hits["count"] += 1
-        if hits["count"] == 1:
-            return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {"code": "RATE_LIMIT"}})
+        return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {"code": "RATE_LIMIT"}})
+
+    quota = SahmQuota(daily_limit=90, path=None)
+    provider = _provider(handler, quota=quota)
+    with pytest.raises(SahmApiError) as exc:
+        asyncio.run(provider.historical_candles("4030"))
+    assert exc.value.error_code == "sahm_rate_limit"
+    assert hits["count"] == 1
+    assert quota.exhausted() is True
+    assert quota.allow() is False
+
+
+def test_http_cache_avoids_repeat_sahm_calls() -> None:
+    hits = {"count": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        hits["count"] += 1
         return httpx.Response(
             200,
             json={
@@ -222,9 +241,50 @@ def test_retries_after_rate_limit() -> None:
         )
 
     provider = _provider(handler)
+
+    async def run() -> None:
+        await provider.historical_candles("4030")
+        await provider.historical_candles("4030")
+
+    asyncio.run(run())
+    assert hits["count"] == 1
+
+
+def test_quota_exhausted_serves_stale_cache() -> None:
+    hits = {"count": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        hits["count"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "symbol": "4030",
+                "interval": "1d",
+                "data": [{"date": "2026-09-11", "close": 24.0, "volume": 1, "open": 24, "high": 24, "low": 24}],
+            },
+        )
+
+    quota = SahmQuota(daily_limit=90, path=None)
+    provider = _provider(handler, quota=quota)
     frame = asyncio.run(provider.historical_candles("4030"))
-    assert hits["count"] == 2
     assert len(frame) == 1
+    quota.trip("daily_limit")
+    cached = asyncio.run(provider.historical_candles("4030"))
+    assert len(cached) == 1
+    assert hits["count"] == 1
+
+
+def test_quota_exhausted_without_cache_raises() -> None:
+    quota = SahmQuota(daily_limit=1, path=None)
+    quota.trip("daily_limit")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("Sahm REST must not be called after quota trip")
+
+    provider = _provider(handler, quota=quota)
+    with pytest.raises(SahmApiError) as exc:
+        asyncio.run(provider.historical_candles("4030"))
+    assert exc.value.error_code == "sahm_rate_limit"
 
 
 def test_missing_api_key() -> None:

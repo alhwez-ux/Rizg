@@ -241,8 +241,25 @@ def test_discover_includes_uniticker_export_folder(tmp_path: Path, monkeypatch) 
     assert str((tclive / "Export").resolve()) in dirs
 
 
-def test_follow_and_refresh_are_cloud_endpoints() -> None:
-    feed = _feed()
+def test_follow_and_refresh_are_cloud_endpoints(tmp_path: Path) -> None:
+    from app.services.last_quotes import LastQuoteBook
+    from app.services.under_watch import UnderWatchService
+
+    settings = Settings(
+        _env_file=None,
+        tickchart_enabled=True,
+        tickchart_autosync_enabled=True,
+        tickchart_api_key="",
+        sahmk_api_key="",
+        enable_mock_feed=False,
+    )
+    feed = TickChartFeed(
+        LiquidityRadarEngine(),
+        _Broadcaster(),
+        settings,
+        quotes=LastQuoteBook(path=tmp_path / "quotes.json"),
+        under_watch=UnderWatchService(path=tmp_path / "under_watch.json"),
+    )
     app = FastAPI()
     app.state.tickchart = feed
     app.include_router(tickchart_router)

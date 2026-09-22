@@ -128,6 +128,7 @@ class TickChartFeed:
         self._live_reco_cache: tuple[float, list[dict[str, Any]]] | None = None
         self._company_names: dict[str, str] | None = None
         self._peer_nets_cache: tuple[float, list[float]] | None = None
+        self._delayed_pull_at: float = 0.0
         from app.services.entry_snapshot_store import EntrySnapshotStore
 
         self._entry_store = entry_store or EntrySnapshotStore()
@@ -192,6 +193,8 @@ class TickChartFeed:
             "last_sync_at": self._last_cloud_ingest,
             "quote_mode": quote_mode,
             "last_quotes": len(last_quotes),
+            "price_source": "TickChart",
+            "sahm_quota": _sahm_quota_snapshot(self._settings),
         }
         autosync = getattr(self, "_autosync", None)
         if autosync is not None and hasattr(autosync, "status"):
@@ -402,7 +405,8 @@ class TickChartFeed:
             watched += 1
             ingested += await self.hydrate_symbol(symbol)
         if not any(self.radar_report(symbol).get("quote_mode") == "live" for symbol in symbols[:8]):
-            delayed = await self._pull_delayed_closes(symbols)
+            if self._needs_sahm_delayed_closes(symbols):
+                delayed = await self._pull_delayed_closes(symbols)
         rows = self.market_rows()
         live_count = sum(1 for row in rows if row.get("quote_mode") == "live")
         close_count = sum(1 for row in rows if row.get("quote_mode") == "last_close")
@@ -429,6 +433,8 @@ class TickChartFeed:
             "last_sync_at": self._last_cloud_ingest,
             "data": rows,
             "under_watch": self.scan_explosive_watch(),
+            "price_source": "TickChart",
+            "sahm_quota": _sahm_quota_snapshot(self._settings),
         }
 
     async def _bootstrap_session(self) -> None:
@@ -440,10 +446,33 @@ class TickChartFeed:
         except Exception:
             logger.warning("TickChart session bootstrap failed", exc_info=True)
 
+    def _needs_sahm_delayed_closes(self, symbols: list[str]) -> bool:
+        """Sahm REST is a scarce fallback — skip it when TickChart or last-close already covers the tape."""
+
+        if self._trades_live or self._depth_live or self._desktop_live:
+            return False
+        interval = float(getattr(self._settings, "sahmk_delayed_min_interval_seconds", 900) or 900)
+        if self._delayed_pull_at and (time.monotonic() - self._delayed_pull_at) < interval:
+            return False
+        sample = [str(symbol).strip().upper() for symbol in (symbols or self._universe_symbols())[:24] if symbol]
+        if not sample:
+            return False
+        priced = 0
+        for ticker in sample:
+            if self._quotes.price(ticker) or self._ranking_price(ticker):
+                priced += 1
+        return priced < max(1, len(sample) // 3)
+
     async def _pull_delayed_closes(self, symbols: list[str]) -> int:
-        """Use delayed/close quotes so the tape is not stuck waiting for live ticks."""
+        """Use delayed/close quotes so the tape is not stuck waiting for live ticks.
+
+        Hits Sahm REST only when last-close/TickChart coverage is thin, the daily
+        quota still has room, and the min interval since the last pull has elapsed.
+        """
 
         if not self._api_key:
+            return 0
+        if not self._needs_sahm_delayed_closes(symbols):
             return 0
         provider_factory = getattr(self, "_close_quotes_provider", None)
         if provider_factory is None and not self._owns_client:
@@ -451,9 +480,18 @@ class TickChartFeed:
         try:
             from app.services.sahm_data_provider import SahmDataProvider
             from app.services.sahm_live_market import _flatten_quote, _merge_board
+            from app.services.sahm_quota import get_sahm_quota
         except Exception:
             return 0
-        provider = provider_factory() if callable(provider_factory) else SahmDataProvider(self._settings, api_key=self._api_key)
+        quota = get_sahm_quota(daily_limit=int(getattr(self._settings, "sahmk_daily_limit", 90) or 90))
+        if quota.remaining() < 5:
+            logger.warning("skipping Sahm delayed-close pull; remaining=%s", quota.remaining())
+            return 0
+        provider = provider_factory() if callable(provider_factory) else SahmDataProvider(
+            self._settings,
+            api_key=self._api_key,
+            quota=quota,
+        )
         closes: list[dict[str, Any]] = []
         try:
             board = await asyncio.wait_for(provider.fetch_market_board(), timeout=10.0)
@@ -461,9 +499,10 @@ class TickChartFeed:
             for quote in movers.values():
                 closes.append(quote)
             missing = [symbol for symbol in symbols if not self._quotes.price(symbol)]
-            if missing and len(closes) < 6:
+            extra_budget = min(4, quota.remaining() - 1)
+            if missing and len(closes) < 6 and extra_budget > 0:
                 extra = await asyncio.wait_for(
-                    provider.fetch_quotes_for(missing[:8], limit=8),
+                    provider.fetch_quotes_for(missing[:extra_budget], limit=extra_budget),
                     timeout=10.0,
                 )
                 for symbol, payload in extra.items():
@@ -471,7 +510,8 @@ class TickChartFeed:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning("delayed last-close pull failed", exc_info=True)
+            logger.warning("delayed last-close pull failed; keeping TickChart / last-close cache", exc_info=True)
+            self._delayed_pull_at = time.monotonic()
             return 0
         finally:
             closer = getattr(provider, "aclose", None)
@@ -480,6 +520,7 @@ class TickChartFeed:
                     await closer()
                 except Exception:
                     pass
+        self._delayed_pull_at = time.monotonic()
         rows: list[dict[str, Any]] = []
         for quote in closes:
             symbol = str(quote.get("symbol") or "").strip().upper()
@@ -508,8 +549,6 @@ class TickChartFeed:
         session = self._engine.session_snapshot(ticker)
         if session.last_price is None:
             await self.hydrate_symbol(ticker)
-        if self.radar_report(ticker).get("last_price") is None:
-            await self._pull_delayed_closes([ticker])
         await self._subscribe_symbol(ticker)
         return self.radar_report(ticker)
 
@@ -1767,6 +1806,15 @@ def _resolve_tickchart_key(settings: Settings) -> str:
         if key and key.lower() not in _PLACEHOLDER_KEYS:
             return key
     return ""
+
+
+def _sahm_quota_snapshot(settings: Settings) -> dict[str, Any]:
+    try:
+        from app.services.sahm_quota import get_sahm_quota
+
+        return get_sahm_quota(daily_limit=int(getattr(settings, "sahmk_daily_limit", 90) or 90)).snapshot()
+    except Exception:
+        return {"exhausted": False, "remaining": 0}
 
 
 def _with_api_key(url: str, api_key: str) -> str:

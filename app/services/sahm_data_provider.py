@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 import os
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 
@@ -15,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import InvalidSymbolError, SahmApiError
 from app.models.screener import normalize_tasi_symbol
 from app.services.liquidity_engine import LiquidityEngine, LiquidityRadarEngine
+from app.services.sahm_quota import SahmQuota, get_sahm_quota
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,7 @@ class SahmDataProvider:
         client: httpx.AsyncClient | None = None,
         api_key: str | None = None,
         rest_url: str | None = None,
+        quota: SahmQuota | None = None,
     ) -> None:
         self._settings = settings or get_settings()
         self.api_key = resolve_sahm_api_key(self._settings, explicit=api_key)
@@ -136,6 +139,8 @@ class SahmDataProvider:
         self._max_backoff = float(self._settings.sahmk_max_backoff_seconds)
         self._client = client
         self._owns_client = client is None
+        self._quota = quota or get_sahm_quota(daily_limit=int(self._settings.sahmk_daily_limit))
+        self._http_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     @property
     def enabled(self) -> bool:
@@ -461,6 +466,9 @@ class SahmDataProvider:
             if ticker in seen:
                 continue
             seen.add(ticker)
+            if not self._quota.allow():
+                logger.warning("sahm quote fill stopped; remaining=%s", self._quota.remaining())
+                break
             if quotes:
                 await asyncio.sleep(self._request_gap)
             payload = await self.fetch_quote(ticker)
@@ -500,6 +508,20 @@ class SahmDataProvider:
                 status_code=503,
                 error_code="sahm_not_configured",
             )
+        cached = self._cache_get(path, params, allow_stale=False)
+        if cached is not None:
+            return cached
+        if not self._quota.allow():
+            stale = self._cache_get(path, params, allow_stale=True)
+            if stale is not None:
+                logger.warning("sahm quota exhausted; serving cache path=%s remaining=%s", path, self._quota.remaining())
+                return stale
+            raise SahmApiError(
+                "Sahm daily REST quota exhausted; using TickChart / last-close instead",
+                status_code=429,
+                error_code="sahm_rate_limit",
+                details={"path": path, **self._quota.snapshot()},
+            )
         client = await self._ensure_client()
         headers = sahm_auth_headers(self._api_key)
         last_error: Exception | None = None
@@ -507,6 +529,14 @@ class SahmDataProvider:
             delay = max(self._request_gap, 0.4)
             try_next_host = False
             for attempt in range(4):
+                fresh = self._cache_get(path, params, allow_stale=False)
+                if fresh is not None:
+                    return fresh
+                if not self._quota.allow():
+                    stale = self._cache_get(path, params, allow_stale=True)
+                    if stale is not None:
+                        return stale
+                    break
                 url = f"{base}{path}"
                 try:
                     response = await client.get(url, params=dict(params), headers=headers)
@@ -517,18 +547,20 @@ class SahmDataProvider:
                     delay = min(delay * 2, self._max_backoff)
                     continue
 
+                self._quota.consume(1)
                 if response.status_code == 429:
-                    wait = _retry_after(response) or delay
-                    logger.warning("sahm rate limited (HTTP 429) path=%s wait=%.1fs", path, wait)
-                    await asyncio.sleep(min(max(wait, 1.0), self._max_backoff))
-                    delay = min(delay * 2, self._max_backoff)
+                    self._quota.trip("http_429")
+                    logger.warning("sahm rate limited (HTTP 429) path=%s — stopping REST for the Riyadh day", path)
+                    stale = self._cache_get(path, params, allow_stale=True)
+                    if stale is not None:
+                        return stale
                     last_error = SahmApiError(
                         "SAHMK rate limit exceeded",
                         status_code=429,
                         error_code="sahm_rate_limit",
-                        details={"path": path},
+                        details={"path": path, **self._quota.snapshot()},
                     )
-                    continue
+                    break
                 if response.status_code >= 500:
                     last_error = SahmApiError(
                         f"SAHMK server error (HTTP {response.status_code})",
@@ -536,6 +568,8 @@ class SahmDataProvider:
                         error_code="sahm_server_error",
                         details={"path": path, "status": response.status_code},
                     )
+                    if attempt >= 1 or self._quota.remaining() < 8:
+                        break
                     await asyncio.sleep(min(delay, self._max_backoff))
                     delay = min(delay * 2, self._max_backoff)
                     continue
@@ -544,7 +578,10 @@ class SahmDataProvider:
                     try_next_host = True
                     break
                 if response.status_code >= 400:
-                    raise _api_error(response, path)
+                    error = _api_error(response, path)
+                    if error.error_code in {"sahm_plan_limit", "sahm_rate_limit"}:
+                        self._quota.trip(error.error_code)
+                    raise error
                 payload = _response_json(response)
                 if payload is None:
                     raise SahmApiError(
@@ -560,16 +597,24 @@ class SahmDataProvider:
                         last_error = error
                         try_next_host = True
                         break
+                    if error.error_code in {"sahm_plan_limit", "sahm_rate_limit"}:
+                        self._quota.trip(error.error_code)
                     raise error
                 if base != self._rest_url:
                     logger.info("sahm host failover succeeded base=%s path=%s", base, path)
                 self._rest_url = base
                 self.base_url = base
+                self._cache_put(path, params, payload)
                 return payload
             if try_next_host:
                 logger.warning("sahm host 404, trying next base=%s path=%s", base, path)
                 continue
+            if isinstance(last_error, SahmApiError) and last_error.error_code == "sahm_rate_limit":
+                break
 
+        stale = self._cache_get(path, params, allow_stale=True)
+        if stale is not None:
+            return stale
         if isinstance(last_error, SahmApiError):
             raise last_error
         raise SahmApiError(
@@ -578,6 +623,30 @@ class SahmDataProvider:
             error_code="sahm_unreachable",
             details={"path": path, "reason": str(last_error) if last_error else None},
         ) from last_error
+
+    def _cache_key(self, path: str, params: Mapping[str, Any]) -> str:
+        items = "&".join(f"{key}={params[key]}" for key in sorted(params))
+        return f"{path}?{items}"
+
+    def _ttl_for(self, path: str) -> float:
+        if path.startswith("/market/") or path.startswith("/companies/"):
+            return float(getattr(self._settings, "sahmk_board_cache_ttl_seconds", 900) or 900)
+        if path.startswith("/historical/"):
+            return 12 * 3600
+        return float(self._settings.sahmk_cache_ttl_seconds)
+
+    def _cache_get(self, path: str, params: Mapping[str, Any], *, allow_stale: bool) -> dict[str, Any] | None:
+        item = self._http_cache.get(self._cache_key(path, params))
+        if item is None:
+            return None
+        stored_at, payload = item
+        age = time.monotonic() - stored_at
+        if not allow_stale and age > self._ttl_for(path):
+            return None
+        return dict(payload)
+
+    def _cache_put(self, path: str, params: Mapping[str, Any], payload: dict[str, Any]) -> None:
+        self._http_cache[self._cache_key(path, params)] = (time.monotonic(), dict(payload))
 
 
 def candles_to_radar_frame(

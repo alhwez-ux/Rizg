@@ -124,3 +124,62 @@ def test_quote_tape_uses_stored_last_quotes(tmp_path) -> None:
     assert row["net_flow"] == 1_000_000
     assert row["name"]
 
+
+def test_pull_session_skips_sahm_when_last_close_covers_tape(tmp_path) -> None:
+    from app.services.last_quotes import LastQuoteBook
+
+    settings = Settings(
+        _env_file=None,
+        tickchart_api_key="test-key",
+        sahmk_api_key="test-key",
+        enable_mock_feed=False,
+    )
+    symbols = ["2222", "1120", "4030", "4190", "7203", "2010"]
+    quotes = LastQuoteBook(path=tmp_path / "quotes.json")
+    quotes.apply_closes(
+        [{"symbol": symbol, "last_price": 10 + index} for index, symbol in enumerate(symbols)]
+    )
+    feed = TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, quotes=quotes)
+    hits = {"n": 0}
+
+    def factory() -> object:
+        hits["n"] += 1
+        raise AssertionError("Sahm delayed close must not run when last-close tape exists")
+
+    feed._close_quotes_provider = factory
+    assert feed._needs_sahm_delayed_closes(symbols) is False
+    payload = asyncio.run(feed.pull_session())
+    assert hits["n"] == 0
+    assert payload["delayed_closes"] == 0
+    assert payload["quote_mode"] == "last_close"
+    assert payload["price_source"] == "TickChart"
+
+
+def test_pull_delayed_closes_skips_when_sahm_quota_exhausted(tmp_path) -> None:
+    from app.services.last_quotes import LastQuoteBook
+    from app.services.sahm_quota import SahmQuota, set_sahm_quota_for_tests
+
+    settings = Settings(
+        _env_file=None,
+        tickchart_api_key="test-key",
+        sahmk_api_key="test-key",
+        enable_mock_feed=False,
+    )
+    quotes = LastQuoteBook(path=tmp_path / "empty.json")
+    feed = TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, quotes=quotes)
+    quota = SahmQuota(daily_limit=90, path=None)
+    quota.trip("http_429")
+    set_sahm_quota_for_tests(quota)
+    hits = {"n": 0}
+
+    def factory() -> object:
+        hits["n"] += 1
+        raise AssertionError("Sahm REST must not run after quota exhaustion")
+
+    feed._close_quotes_provider = factory
+    delayed = asyncio.run(feed._pull_delayed_closes(["2222", "1120", "4030"]))
+    assert delayed == 0
+    assert hits["n"] == 0
+    assert feed.status()["sahm_quota"]["exhausted"] is True
+
+

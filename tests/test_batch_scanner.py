@@ -124,9 +124,9 @@ def test_market_scan_keeps_rows_when_all_endpoints_rate_limit(tmp_path) -> None:
                     json={
                         "gainers": [
                             {
-                                "symbol": "2380",
-                                "name": "بترو رابغ",
-                                "price": "18.39",
+                                "symbol": "1120",
+                                "name": "الراجحي",
+                                "price": "96.50",
                                 "change_percent": "1.6",
                                 "volume": "1000",
                                 "inflow": "80000",
@@ -142,7 +142,7 @@ def test_market_scan_keeps_rows_when_all_endpoints_rate_limit(tmp_path) -> None:
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         assert await screener.refresh_leaders(client, "test-key") is True
         first = screener.snapshot()
-        assert any(row.symbol == "2380" for row in first.radar) or first.scanned >= 1
+        assert any(row.symbol == "1120" for row in first.radar) or first.scanned >= 1
         scanned = first.scanned
         assert await screener.refresh_leaders(client, "test-key") is True
         second = screener.snapshot()
@@ -157,7 +157,7 @@ def test_radar_batch_excludes_watchlist(tmp_path) -> None:
     settings = _settings()
     screener = ScreenerService(settings, watchlist)
     screener.observe_quote(
-        _quote("2380", "18.39", "2000", name="بترو رابغ"),
+        _quote("1120", "96.50", "2000", name="الراجحي"),
         tracked=False,
     )
     feed = SahmkTradeFeed(
@@ -168,5 +168,5 @@ def test_radar_batch_excludes_watchlist(tmp_path) -> None:
         screener=screener,
     )
     assert "4030" not in feed._radar_targets()
-    assert "2380" in feed._radar_targets()
+    assert "1120" in feed._radar_targets()
     assert feed._watchlist_targets() == ["4030"]

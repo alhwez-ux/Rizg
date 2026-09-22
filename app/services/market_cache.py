@@ -45,7 +45,7 @@ class MarketCache:
 
     def trip_rate_limit(self, retry_after_seconds: float | None = None) -> float:
         wait = 30.0 if retry_after_seconds is None else max(5.0, float(retry_after_seconds))
-        wait = min(wait, 180.0)
+        wait = min(wait, 3_600.0)
         until = datetime.now(timezone.utc) + timedelta(seconds=wait)
         with self._guard:
             if self._cool_until is None or until > self._cool_until:

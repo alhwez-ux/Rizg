@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -12,6 +13,8 @@ from typing import Any, Iterable, Mapping
 from app.models.screener import is_tasi_main_symbol, normalize_tasi_symbol
 from app.services.explosive_momentum import ExplosiveDecision, ExplosiveInputs, evaluate_explosive
 from app.services.shariah import company_name_for, is_prohibited, sector_for
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_PATH = Path("data/under_watch.json")
 _GRACE_SECONDS = 8 * 60
@@ -78,7 +81,8 @@ class UnderWatchService:
             self._cap_locked()
             if changed:
                 self._save_locked()
-            return dict(self._rows[ticker])
+            stored = self._rows.get(ticker) or payload
+            return dict(stored)
 
     def observe(self, inputs: ExplosiveInputs, *, extra: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
         decision = evaluate_explosive(inputs)
@@ -156,11 +160,14 @@ class UnderWatchService:
         self._rows = loaded
 
     def _save_locked(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"rows": list(self._rows.values())}
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        tmp.replace(self._path)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"rows": list(self._rows.values())}
+            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            tmp.replace(self._path)
+        except OSError:
+            logger.debug("under_watch persist skipped", exc_info=True)
 
 
 def _row_payload(
