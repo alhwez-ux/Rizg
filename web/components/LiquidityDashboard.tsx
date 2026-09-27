@@ -2,6 +2,8 @@
 
 import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 
+import { useSymbolRegime } from "@/hooks/useSymbolRegime";
+
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { AuthControls } from "@/components/AuthControls";
 import { RizgLogo } from "@/components/RizgLogo";
@@ -25,13 +27,13 @@ import {
   formatPercent,
   formatPrice,
   formatVolume,
-  regimeFromNetFlow,
   type ConnectionStatus,
   type LiquidityAlertEvent,
   type LiquidityTick,
   type TapeRegime,
 } from "@/lib/liquidity";
-import { signalKey } from "@/lib/screener";
+import { holdDisplayedRows, nextDisplayWake, type HeldRow } from "@/lib/radarHold";
+import { signalKey, type ScreenerRow } from "@/lib/screener";
 
 const STATUS_COPY: Record<ConnectionStatus, string> = {
   connecting: ar.connecting,
@@ -72,12 +74,36 @@ export function LiquidityDashboard({
   const wsUrl = wsUrlFor(selected);
   const { tick, sparkline, alerts, status, attempts } = useLiquiditySocket(wsUrl);
   const liveTick = tick?.symbol === selected ? tick : null;
-  const regime = regimeFromNetFlow(liveTick?.netFlow ?? 0);
+  const regime = useSymbolRegime(
+    selected,
+    liveTick
+      ? {
+          netFlow: liveTick.netFlow,
+          buyVolume: liveTick.buyVolume,
+          sellVolume: liveTick.sellVolume,
+          price: liveTick.lastPrice,
+        }
+      : null,
+  );
   const radarRows = useMemo(() => {
     const rows = snapshot?.radar ?? [];
     if (!configured || radarError || radarTableLoading) return rows;
     return rows.filter((row) => !prohibitedSymbols.has(row.symbol));
   }, [configured, prohibitedSymbols, radarError, radarTableLoading, snapshot?.radar]);
+  const heldRadarRef = useRef<HeldRow<ScreenerRow>[]>([]);
+  const [holdTick, setHoldTick] = useState(0);
+  const displayedRadarRows = useMemo(() => {
+    const next = holdDisplayedRows(heldRadarRef.current, radarRows, Date.now());
+    heldRadarRef.current = next;
+    return next.map((item) => item.row);
+  }, [holdTick, radarRows]);
+
+  useEffect(() => {
+    const wait = nextDisplayWake(heldRadarRef.current, Date.now());
+    if (wait == null) return;
+    const timer = window.setTimeout(() => setHoldTick((value) => value + 1), Math.max(wait, 0) + 30);
+    return () => window.clearTimeout(timer);
+  }, [displayedRadarRows]);
 
   const watchlistRows = useMemo(() => {
     const rows = snapshot?.watchlist ?? [];
@@ -253,9 +279,9 @@ export function LiquidityDashboard({
             <h2 className="text-lg font-semibold text-zinc-100">{ar.radarTitle}</h2>
             <p className="mt-1 text-xs text-zinc-500">{ar.radarHintCompliant}</p>
           </div>
-          {radarRows.length ? (
+          {displayedRadarRows.length ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {radarRows.map((row) => (
+              {displayedRadarRows.map((row) => (
                 <StockSignalCard
                   key={row.symbol}
                   row={row}

@@ -9,9 +9,10 @@ import {
   formatPercent,
   formatPrice,
   formatRatio,
-  regimeFromNetFlow,
   type TapeRegime,
 } from "@/lib/liquidity";
+import { useHeldReport } from "@/hooks/useHeldReport";
+import { useSymbolRegime } from "@/hooks/useSymbolRegime";
 import {
   overlayTickOnReport,
   type LiveRadarReport,
@@ -32,7 +33,19 @@ export function LiquidityRadarCard({
 }) {
   const { data, loading, refresh } = useLiveRadar(symbol);
   const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
-  const report = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
+  const liveReport = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
+  const report = useHeldReport(symbol, liveReport);
+  const regime = useSymbolRegime(
+    symbol,
+    liveReport
+      ? {
+          netFlow: liveReport.net_flow,
+          buyVolume: liveReport.buy_volume,
+          sellVolume: liveReport.sell_volume,
+          price: liveReport.last_price,
+        }
+      : null,
+  );
   const title = displayCompanyTitle(symbol, symbolName);
   const quoteMode = report?.quote_mode ?? (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
   const live = quoteMode === "live" && status === "live";
@@ -95,7 +108,7 @@ export function LiquidityRadarCard({
           >
             {statusLabel}
           </span>
-          {report ? <RegimePill report={report} /> : null}
+          {report ? <RegimePill regime={regime} /> : null}
           {report ? <SignalPill report={report} /> : null}
           <RetryButton onRetry={retry} />
         </div>
@@ -104,7 +117,7 @@ export function LiquidityRadarCard({
       {loading && !report ? (
         <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarLoading}</p>
       ) : report ? (
-        <ReportBody report={report} source={data?.source} />
+        <ReportBody report={report} source={data?.source} regime={regime} />
       ) : (
         <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarWaiting}</p>
       )}
@@ -126,14 +139,6 @@ function RetryButton({ onRetry, className }: { onRetry: () => void; className?: 
   );
 }
 
-function stockRegime(report: LiveRadarReport): TapeRegime {
-  if (report.net_flow) return regimeFromNetFlow(report.net_flow);
-  const change = report.change_percent ?? 0;
-  if (change > 0) return "accumulation";
-  if (change < 0) return "distribution";
-  return "neutral";
-}
-
 function regimeCopy(regime: TapeRegime): { label: string; hint: string; tone: "up" | "down" | "flat" } {
   if (regime === "accumulation") {
     return { label: ar.accumulation, hint: ar.accumulationDesc, tone: "up" };
@@ -144,8 +149,8 @@ function regimeCopy(regime: TapeRegime): { label: string; hint: string; tone: "u
   return { label: ar.neutral, hint: ar.neutralDesc, tone: "flat" };
 }
 
-function CompactSummary({ report }: { report: LiveRadarReport }) {
-  const copy = regimeCopy(stockRegime(report));
+function CompactSummary({ report, regime }: { report: LiveRadarReport; regime: TapeRegime }) {
+  const copy = regimeCopy(regime);
   const priceLabel = report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice;
   const signal = report.entry ? "دخول" : report.exit ? "خروج" : null;
   const regimeColor =
@@ -177,15 +182,22 @@ function CompactSummary({ report }: { report: LiveRadarReport }) {
   );
 }
 
-function ReportBody({ report, source }: { report: LiveRadarReport; source?: string }) {
+function ReportBody({
+  report,
+  source,
+  regime,
+}: {
+  report: LiveRadarReport;
+  source?: string;
+  regime: TapeRegime;
+}) {
   const positive = report.net_flow > 0;
   const negative = report.net_flow < 0;
-  const regime = stockRegime(report);
   const copy = regimeCopy(regime);
 
   return (
     <>
-      <CompactSummary report={report} />
+      <CompactSummary report={report} regime={regime} />
 
       <div className="mt-5 hidden space-y-4 sm:block">
         {report.trap ? (
@@ -343,8 +355,8 @@ function ReportBody({ report, source }: { report: LiveRadarReport; source?: stri
   );
 }
 
-function RegimePill({ report }: { report: LiveRadarReport }) {
-  const copy = regimeCopy(stockRegime(report));
+function RegimePill({ regime }: { regime: TapeRegime }) {
+  const copy = regimeCopy(regime);
   const tone =
     copy.tone === "up"
       ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
