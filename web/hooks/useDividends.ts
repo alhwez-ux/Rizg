@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchActiveDividends, type DividendRow } from "@/lib/dividends";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
@@ -14,6 +15,7 @@ export function useDividends(pureOnly: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     try {
@@ -32,6 +34,10 @@ export function useDividends(pureOnly: boolean) {
   }, [pureOnly]);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     setLoading(true);
     void refresh();
@@ -47,7 +53,7 @@ export function useDividends(pureOnly: boolean) {
       window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   return { rows, hint, asOf, error, loading, refresh };
 }

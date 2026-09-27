@@ -10,6 +10,7 @@ import {
   type MarketAlert,
   type NoticeType,
 } from "@/lib/notifications";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 const TOAST_MS = 6000;
 
@@ -21,12 +22,14 @@ export default function NotificationCenter() {
   const root = useRef<HTMLDivElement | null>(null);
   const known = useRef<Set<string>>(new Set());
   const primed = useRef(false);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
+    if (!isConnected) return;
     let alive = true;
     const load = async () => {
       const next = await collectLiveAlerts();
@@ -54,7 +57,7 @@ export default function NotificationCenter() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [isConnected]);
 
   const close = useCallback(() => setIsOpen(false), []);
 

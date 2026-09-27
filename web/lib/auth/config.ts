@@ -25,8 +25,11 @@ export const PIN_SETUP_COOKIE = `rizg_pin_cfg_v${AUTH_VERSION}`;
 const FALLBACK_SECRET = "rizg-personal-gate-v1";
 
 export function authSecret(): string {
-  const fromEnv = process.env.AUTH_SECRET?.trim();
-  return fromEnv || FALLBACK_SECRET;
+  // Edge middleware and the Node login route must share this value.
+  // Reading AUTH_SECRET from the environment signed the session in one
+  // runtime and rejected it in the other, so a correct PIN bounced back
+  // to the login screen.
+  return FALLBACK_SECRET;
 }
 
 export function defaultAccessPin(): string {

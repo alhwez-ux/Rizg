@@ -11,6 +11,7 @@ import {
   uploadTickChartFile,
   type TickChartStatus,
 } from "@/lib/tickchartStatus";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 export function TickChartSyncChip({
   onFollow,
@@ -24,8 +25,10 @@ export function TickChartSyncChip({
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
+    if (!isConnected) return;
     let alive = true;
     const load = async () => {
       const next = await fetchTickChartStatus();
@@ -61,7 +64,7 @@ export function TickChartSyncChip({
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [isConnected]);
 
   const live = Boolean(status?.connected || status?.trades_live || status?.depth_live || status?.quote_mode === "live");
   const local = Boolean(status?.autosync_watching);

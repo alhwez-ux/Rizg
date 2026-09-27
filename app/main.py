@@ -13,6 +13,7 @@ from app.core.middleware import RequestContextMiddleware, register_exception_han
 from app.routers import api_router
 from app.services.alerts import AlertService
 from app.services.broadcaster import ConnectionManager
+from app.services.connection_guard import ConnectionGuard
 from app.services.liquidity import LiquidityService
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.market_data import MarketDataService
@@ -23,9 +24,10 @@ from app.services.financial_sync_service import FinancialSyncService as MarketFi
 from app.services.ranking_store import RankingStore
 from app.services.telegram_bot import TelegramBot
 from app.services.tick_feed import MockTickFeed
-from app.services.tickchart_integration import DEFAULT_TICKCHART_SYMBOLS, TickChartFeed
+from app.services.tickchart_integration import DEFAULT_TICKCHART_SYMBOLS, TickChartFeed, _resolve_tickchart_key
 from app.services.tickchart_autosync import TickChartAutoSync
 from app.services.tasi_scheduler import TasiMarketScheduler
+from app.services.followed import FollowedCompanies
 from app.services.watchlist import WatchlistService
 from app.services.under_watch import UnderWatchService
 
@@ -36,6 +38,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     store = init_store(settings)
     broadcaster = ConnectionManager()
     broadcaster.bind_loop(asyncio.get_running_loop())
+    api_key = _resolve_tickchart_key(settings)
+    connection_guard = ConnectionGuard(
+        plan_active=bool(api_key),
+        plan_reason=None if api_key else "missing_api_key",
+    )
+    connection_guard.bind_loop(asyncio.get_running_loop())
+    broadcaster.bind_presence(connection_guard)
+    guard_task = asyncio.create_task(connection_guard.expire_loop(), name="connection-guard")
     liquidity = LiquidityService()
     liquidity_engine = LiquidityRadarEngine()
     telegram = TelegramBot(settings)
@@ -46,6 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         broadcaster,
         telegram=telegram,
     )
+    followed = FollowedCompanies()
     watchlist = WatchlistService(
         initial=settings.tickchart_symbols or settings.sahmk_symbols or DEFAULT_TICKCHART_SYMBOLS
     )
@@ -69,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tick_feed = tickchart if tickchart.enabled else mock_feed
     tickchart_autosync = TickChartAutoSync(tickchart, settings)
     tickchart.bind_autosync(tickchart_autosync)
+    tickchart.bind_connection_guard(connection_guard)
     market_data = MarketDataService(store, liquidity, broadcaster)
     financial_sync = FinancialSyncService(settings)
     ranking_store = RankingStore()
@@ -90,6 +102,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tickchart=tickchart,
         enable_scheduler=settings.tasi_scheduler_enabled,
     )
+    tasi_scheduler.bind_connection_guard(connection_guard)
     app.state.store = store
     app.state.broadcaster = broadcaster
     app.state.liquidity = liquidity
@@ -98,6 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.telegram_alerts = telegram.alerts
     app.state.alerts = alerts
     app.state.watchlist = watchlist
+    app.state.followed = followed
     app.state.under_watch = under_watch
     app.state.screener = screener
     app.state.live_feed = None
@@ -113,6 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.sync_service = market_financial_sync
     app.state.email_alerts = email_alerts
     app.state.tasi_scheduler = tasi_scheduler
+    app.state.connection_guard = connection_guard
     app.state.tadawul_daily_sync = None
 
     if tickchart.enabled:
@@ -127,6 +142,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    connection_guard.shutdown()
+    guard_task.cancel()
+    try:
+        await guard_task
+    except asyncio.CancelledError:
+        pass
     tasi_scheduler.shutdown()
     await tickchart_autosync.stop()
     await tickchart.stop()

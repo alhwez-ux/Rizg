@@ -1,18 +1,15 @@
 import type { TapeRegime } from "@/lib/liquidity";
 
-/** Lookback for the volume- and price-weighted institutional intent. */
-export const FLOW_WINDOW_MS = 180_000;
-/** A side is shown only after the tape has covered about two minutes. */
-export const FLOW_MIN_SPAN_MS = 120_000;
-/** |score| must clear this before تجميع or تصريف is treated as real. */
+/** Five-minute rolling window for VWAP and block-trade confirmation. */
+export const FLOW_WINDOW_MS = 300_000;
+/** A side is shown only after the tape has covered the full five minutes. */
+export const FLOW_MIN_SPAN_MS = 300_000;
+/** |block score| must clear this before تجميع or تصريف is treated as real. */
 export const REGIME_ENTER = 0.3;
-/** Inside this band the previous real label can fall back to توازن. */
-export const REGIME_EXIT = 0.12;
 /** A shown side stays up at least this long before it may switch. */
 export const REGIME_DWELL_MS = 45_000;
-/** Ignore riyal-level noise. Meaningful flow matches the live signal floor. */
-export const FLOW_MIN_NOTIONAL = 15_000;
-const HALF_LIFE_MS = 60_000;
+/** A print below this notional is not an institutional block. */
+export const BLOCK_NOTIONAL = 100_000;
 const DUST_NOTIONAL = 1;
 
 export interface FlowObservation {
@@ -26,9 +23,9 @@ export interface FlowObservation {
 interface FlowSample {
   at: number;
   side: 1 | -1;
-  size: number;
-  notional: number;
-  priceDelta: number;
+  price: number;
+  volume: number;
+  blockNotional: number;
 }
 
 export interface FlowIntentState {
@@ -84,7 +81,6 @@ export function observeFlow(state: FlowIntentState, observation: FlowObservation
 
   const delta = observation.netFlow - state.lastNet;
   const notional = Math.abs(delta);
-  const priceDelta = price != null && state.lastPrice != null ? price - state.lastPrice : 0;
   const volumeDelta =
     volume != null && state.lastVolume != null && volume >= state.lastVolume ? volume - state.lastVolume : 0;
   const cursor: FlowIntentState = {
@@ -95,13 +91,16 @@ export function observeFlow(state: FlowIntentState, observation: FlowObservation
   };
   if (notional < DUST_NOTIONAL) return cursor;
 
+  const printPrice = price ?? state.lastPrice;
+  if (printPrice == null || printPrice <= 0) return cursor;
   const samples = prune(state.samples, observation.at);
+  const volumeSize = volumeDelta > 0 ? volumeDelta : notional / printPrice;
   samples.push({
     at: observation.at,
     side: delta > 0 ? 1 : -1,
-    size: volumeDelta > 0 ? volumeDelta : notional,
-    notional,
-    priceDelta,
+    price: printPrice,
+    volume: volumeSize,
+    blockNotional: notional >= BLOCK_NOTIONAL ? notional : 0,
   });
   const regime = resolveRegime(state.regime, state.labeledAt, observation.at, samples);
   return {
@@ -120,9 +119,9 @@ function resolveRegime(current: TapeRegime, labeledAt: number, now: number, samp
     return "neutral";
   }
 
-  const { score } = scored;
-  const wantAccumulation = score >= REGIME_ENTER;
-  const wantDistribution = score <= -REGIME_ENTER;
+  const { score, priceSide } = scored;
+  const wantAccumulation = score >= REGIME_ENTER && priceSide === "above";
+  const wantDistribution = score <= -REGIME_ENTER && priceSide === "below";
   if (current === "neutral") {
     if (wantAccumulation) return "accumulation";
     if (wantDistribution) return "distribution";
@@ -130,49 +129,46 @@ function resolveRegime(current: TapeRegime, labeledAt: number, now: number, samp
   }
   if (current === "accumulation") {
     if (wantDistribution && dwellOk) return "distribution";
-    if (score < REGIME_EXIT && dwellOk) return "neutral";
+    if (!wantAccumulation && dwellOk) return "neutral";
     return "accumulation";
   }
   if (wantAccumulation && dwellOk) return "accumulation";
-  if (score > -REGIME_EXIT && dwellOk) return "neutral";
+  if (!wantDistribution && dwellOk) return "neutral";
   return "distribution";
 }
 
-function scoreWindow(samples: FlowSample[], now: number): { score: number } | null {
+function scoreWindow(samples: FlowSample[], now: number): { score: number; priceSide: "above" | "below" } | null {
   if (samples.length === 0) return null;
   const span = now - samples[0].at;
   const midpoint = samples[0].at + span / 2;
-  let notional = 0;
-  let earlyNotional = 0;
-  let lateNotional = 0;
-  let weightedSide = 0;
-  let weight = 0;
+  let priceVolume = 0;
+  let volume = 0;
+  let blockBuy = 0;
+  let blockSell = 0;
+  let earlyBlock = 0;
+  let lateBlock = 0;
   for (const sample of samples) {
-    notional += sample.notional;
-    if (sample.at <= midpoint) earlyNotional += sample.notional;
-    else lateNotional += sample.notional;
-    const age = Math.max(0, now - sample.at);
-    const recency = Math.exp((-Math.LN2 * age) / HALF_LIFE_MS);
-    const sampleWeight = sample.size * recency * priceConfirm(sample.side, sample.priceDelta);
-    weightedSide += sample.side * sampleWeight;
-    weight += sampleWeight;
+    priceVolume += sample.price * sample.volume;
+    volume += sample.volume;
+    if (sample.side > 0) blockBuy += sample.blockNotional;
+    else blockSell += sample.blockNotional;
+    if (sample.at <= midpoint) earlyBlock += sample.blockNotional;
+    else lateBlock += sample.blockNotional;
   }
-  const halfFloor = FLOW_MIN_NOTIONAL * 0.25;
+  const blockTotal = blockBuy + blockSell;
   if (
     span < FLOW_MIN_SPAN_MS ||
-    notional < FLOW_MIN_NOTIONAL ||
-    earlyNotional < halfFloor ||
-    lateNotional < halfFloor ||
-    weight <= 0
+    volume <= 0 ||
+    blockTotal < BLOCK_NOTIONAL ||
+    earlyBlock < BLOCK_NOTIONAL ||
+    lateBlock < BLOCK_NOTIONAL
   ) {
     return null;
   }
-  return { score: weightedSide / weight };
-}
-
-function priceConfirm(side: 1 | -1, priceDelta: number): number {
-  if (priceDelta === 0) return 1;
-  return Math.sign(priceDelta) === side ? 1.15 : 0.85;
+  const vwap = priceVolume / volume;
+  const lastPrice = samples[samples.length - 1].price;
+  const priceSide = lastPrice >= vwap ? "above" : "below";
+  return { score: (blockBuy - blockSell) / blockTotal, priceSide };
 }
 
 function prune(samples: FlowSample[], now: number): FlowSample[] {

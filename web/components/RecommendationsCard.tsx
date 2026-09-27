@@ -18,6 +18,7 @@ import {
   type RecommendationScanMode,
 } from "@/lib/recommendations";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { useTapeLastPrices } from "@/hooks/useTapeLastPrices";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
@@ -50,6 +51,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const entryLocks = useRef(new Map<string, FrozenEntry>());
   const completedRef = useRef(new Set<string>());
   const sessionDateRef = useRef("");
+  const { isConnected } = useConnectionGuard();
   const [resolvedTick, setResolvedTick] = useState(0);
   const symbols = useMemo(() => rows.map((row) => row.symbol), [rows]);
   const liveLast = useTapeLastPrices(symbols);
@@ -130,6 +132,10 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   }, [mergeIncoming]);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     void load();
     const onRefresh = () => {
       void load();
@@ -138,22 +144,32 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
     return () => {
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [load]);
+  }, [isConnected, load]);
 
   useEffect(() => {
+    if (!isConnected) return;
     const interval = scanMode === "live" || sessionLive ? LIVE_POLL_MS : CLOSE_POLL_MS;
     const timer = window.setInterval(() => {
       void load();
     }, interval);
     return () => window.clearInterval(timer);
-  }, [load, scanMode, sessionLive]);
+  }, [isConnected, load, scanMode, sessionLive]);
 
   useEffect(() => {
     let changed = false;
     for (const row of rows) {
       const key = row.symbol.toUpperCase();
       const last = liveLast.get(key);
-      if (recommendationResolved(row, last ?? row.last_price ?? row.close_price)) {
+      if (!sessionLive) {
+        if (recommendationResolved(row, row.close_price)) {
+          if (!completedRef.current.has(key)) {
+            completedRef.current.add(key);
+            changed = true;
+          }
+        }
+        continue;
+      }
+      if (last != null && recommendationResolved(row, last)) {
         if (!completedRef.current.has(key)) {
           completedRef.current.add(key);
           changed = true;
@@ -161,7 +177,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
       }
     }
     if (changed) setResolvedTick((tick) => tick + 1);
-  }, [rows, liveLast]);
+  }, [rows, liveLast, sessionLive]);
 
   const priced = useMemo(() => {
     const next: MarketRecommendation[] = [];
@@ -169,12 +185,18 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
       const key = row.symbol.toUpperCase();
       if (completedRef.current.has(key)) continue;
       const last = liveLast.get(key);
-      const overlay = last == null ? row : { ...row, last_price: last, close_price: last };
-      if (recommendationResolved(overlay, overlay.last_price ?? overlay.close_price)) continue;
+      const overlay =
+        last == null
+          ? { ...row, last_price: sessionLive ? null : row.last_price }
+          : { ...row, last_price: last };
+      const resolved = sessionLive
+        ? overlay.last_price != null && recommendationResolved(overlay, overlay.last_price)
+        : recommendationResolved(overlay, overlay.close_price);
+      if (resolved) continue;
       next.push(overlay);
     }
     return next;
-  }, [rows, liveLast, resolvedTick]);
+  }, [rows, liveLast, resolvedTick, sessionLive]);
 
   useEffect(() => {
     if (!selected) return;
@@ -357,7 +379,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
                       </span>
                     </td>
                     <td className="p-3 font-bold" dir="ltr">
-                      {formatPrice(row.last_price ?? row.close_price)}
+                      {formatPrice(sessionLive ? (row.last_price ?? null) : row.close_price)}
                     </td>
                     <td className="p-3 text-zinc-200" dir="ltr">
                       {row.entry_price}

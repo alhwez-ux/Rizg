@@ -497,6 +497,63 @@ class ShariahScreenResponse(BaseModel):
     data: list[ShariahScreenRow] = Field(default_factory=list)
 
 
+class DailyOpportunityRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    last_price: float | None = None
+    entry_price: str
+    target_price: str
+    stop_loss: str
+    reward_ratio: float
+    timeframe: str = "جلسة اليوم"
+    setup: str = ""
+    reason: str = ""
+    score: float = 0
+    entry_locked_at: str | None = None
+    shariah_status: str | None = None
+    shariah_label: str = ""
+
+
+class DailyOpportunitiesResponse(BaseModel):
+    success: bool = True
+    session_phase: str
+    session_label: str
+    source: str = "TickChart"
+    count: int = 0
+    min_reward_ratio: float = 2
+    hint: str = ""
+    scanned_at: str
+    data: list[DailyOpportunityRow] = Field(default_factory=list)
+
+
+class AnalystPickRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    houses: list[str] = Field(default_factory=list)
+    last_price: float | None = None
+    entry_price: str
+    target_price: str
+    stop_loss: str
+    reward_ratio: float
+    timeframe: str
+    valid_until: str
+    note: str = ""
+    entry_locked_at: str | None = None
+    shariah_status: str | None = None
+    shariah_label: str = ""
+
+
+class AnalystConsensusResponse(BaseModel):
+    success: bool = True
+    source: str = "curated"
+    count: int = 0
+    as_of: str
+    hint: str = ""
+    data: list[AnalystPickRow] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: str
     service: str

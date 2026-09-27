@@ -1,13 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { buySharePercent, type PreOpenRow, type PreOpenScanResponse, type PreOpenSignalKind } from "@/lib/preopen";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
-
-type FilterKind = PreOpenSignalKind | "all";
 
 const SIGNAL_TONE: Record<PreOpenSignalKind, string> = {
   accumulation: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200 shadow-[0_0_16px_rgba(16,185,129,0.18)]",
@@ -121,6 +119,36 @@ function PreOpenRowCard({
   );
 }
 
+function PreOpenBoard({
+  title,
+  rows,
+  tone,
+  onOpen,
+}: {
+  title: string;
+  rows: PreOpenRow[];
+  tone: string;
+  onOpen?: (company: { symbol: string; name: string }) => void;
+}) {
+  return (
+    <div className={`rounded-2xl border p-3 text-start ${tone}`}>
+      <div className="mb-3 flex min-h-8 items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-zinc-50">{title}</h3>
+        <span className="rounded-full bg-zinc-950/70 px-2 py-0.5 font-mono text-xs tabular-nums text-zinc-300">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-zinc-800 px-3 py-8 text-center text-xs text-zinc-500">{ar.preopenEmpty}</p>
+      ) : (
+        <div className="grid gap-3">
+          {rows.map((row) => (
+            <PreOpenRowCard key={row.symbol} row={row} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PreOpenCard({
   payload,
   loading,
@@ -134,15 +162,14 @@ export function PreOpenCard({
   shariahFilter?: ShariahFilter;
   onOpenSymbol?: (company: { symbol: string; name: string }) => void;
 }) {
-  const [filter, setFilter] = useState<FilterKind>("all");
   const rows = payload?.data ?? [];
   const visible = useMemo(
-    () =>
-      rows
-        .filter((row) => (filter === "all" ? true : row.signal_kind === filter))
-        .filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
-    [filter, rows, shariahFilter],
+    () => rows.filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
+    [rows, shariahFilter],
   );
+  const accumulation = visible.filter((row) => row.signal_kind === "accumulation");
+  const distribution = visible.filter((row) => row.signal_kind === "distribution");
+  const balanced = visible.filter((row) => row.signal_kind === "balanced");
 
   return (
     <section className="rounded-2xl border border-amber-500/20 bg-tape-panel/90 p-5 text-center text-zinc-100 shadow-glow sm:p-6">
@@ -186,113 +213,33 @@ export function PreOpenCard({
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.preopenEmpty}</p>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-            {(
-              [
-                ["all", ar.preopenFilterAll],
-                ["accumulation", ar.preopenAccumulation],
-                ["distribution", ar.preopenDistribution],
-              ] as const
-            ).map(([id, label]) => {
-              const selected = filter === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setFilter(id)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    selected
-                      ? id === "distribution"
-                        ? "border-rose-400/50 bg-rose-500/20 text-rose-100"
-                        : id === "accumulation"
-                          ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-100"
-                          : "border-amber-400/50 bg-amber-500/20 text-amber-100"
-                      : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
           {visible.length === 0 ? (
             <p className="text-sm text-zinc-500">{ar.shariahFilterEmpty}</p>
           ) : (
-            <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:hidden">
-                {visible.map((row) => (
-                  <PreOpenRowCard key={row.symbol} row={row} onOpen={onOpenSymbol} />
-                ))}
-              </div>
-
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="w-full min-w-[860px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-zinc-800 text-xs text-zinc-500">
-                      <th className="p-3 text-center font-medium">{ar.preopenColCompany}</th>
-                      <th className="p-3 text-center font-medium">{ar.preopenColSymbol}</th>
-                      <th className="p-3 text-center font-medium">{ar.preopenColExpected}</th>
-                      <th className="p-3 text-center font-medium">{ar.preopenColBook}</th>
-                      <th className="p-3 text-center font-medium">{ar.preopenColState}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/60">
-                    {visible.map((row) => {
-                      const blocks = blockLabel(row);
-                      return (
-                        <tr
-                          key={row.symbol}
-                          className="cursor-pointer transition-colors hover:bg-zinc-950/40"
-                          onClick={() => onOpenSymbol?.({ symbol: row.symbol, name: row.name })}
-                        >
-                          <td className="p-3 text-center">
-                            <span className="font-bold text-zinc-50">{row.name}</span>
-                            {row.sector ? <p className="mt-0.5 text-[11px] text-zinc-500">{row.sector}</p> : null}
-                          </td>
-                          <td className="p-3 text-center font-mono text-zinc-200" dir="ltr">
-                            {row.symbol}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="inline-block font-mono text-base font-semibold text-amber-100" dir="ltr">
-                              {formatPrice(row.expected_open)}
-                            </span>
-                            <p
-                              className={`mt-0.5 font-mono text-xs ${
-                                (row.open_variation_pct ?? 0) > 0
-                                  ? "text-emerald-300"
-                                  : (row.open_variation_pct ?? 0) < 0
-                                    ? "text-rose-300"
-                                    : "text-zinc-400"
-                              }`}
-                              dir="ltr"
-                            >
-                              {formatPercent(row.open_variation_pct)}
-                            </p>
-                          </td>
-                          <td className="p-3 text-center">
-                            <BookBar row={row} />
-                            {blocks ? (
-                              <p className="mt-1 text-[11px] text-amber-200/80">
-                                {blocks}
-                                {row.last_block_value ? (
-                                  <span className="ms-1 font-mono" dir="ltr">
-                                    {formatMoney(row.last_block_value)}
-                                  </span>
-                                ) : null}
-                              </p>
-                            ) : null}
-                          </td>
-                          <td className="p-3 text-center">
-                            <LiquidityBadge row={row} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <PreOpenBoard
+                title={ar.preopenAccumulation}
+                rows={accumulation}
+                tone="border-emerald-500/30 bg-emerald-500/5"
+                onOpen={onOpenSymbol}
+              />
+              <PreOpenBoard
+                title={ar.preopenDistribution}
+                rows={distribution}
+                tone="border-rose-500/30 bg-rose-500/5"
+                onOpen={onOpenSymbol}
+              />
+              {balanced.length > 0 ? (
+                <div className="lg:col-span-2">
+                  <PreOpenBoard
+                    title={ar.preopenBalanced}
+                    rows={balanced}
+                    tone="border-zinc-700 bg-zinc-950/40"
+                    onOpen={onOpenSymbol}
+                  />
+                </div>
+              ) : null}
+            </div>
           )}
         </>
       )}

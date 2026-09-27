@@ -62,6 +62,10 @@ class TasiMarketScheduler:
         self.scheduler = scheduler or AsyncIOScheduler(timezone=TASI_TZ)
         self._enabled = enable_scheduler and self._settings.tasi_scheduler_enabled
         self._last: dict[str, Any] = {"open": None, "scan": None, "close": None}
+        self._guard: Any = None
+
+    def bind_connection_guard(self, guard: Any) -> None:
+        self._guard = guard
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self.scheduler.configure(event_loop=loop)
@@ -167,6 +171,9 @@ class TasiMarketScheduler:
         """Every 2 minutes during 10:00-15:00 — liquidity, volume, traps, alerts."""
 
         current = now_riyadh()
+        guard = getattr(self, "_guard", None)
+        if not force and guard is not None and not guard.is_connected:
+            return {"job": "scan", "skipped": True, "reason": "disconnected", "ran_at": current.isoformat()}
         if not force and not is_intraday_window(current):
             return {"job": "scan", "skipped": True, "reason": "outside_session", "ran_at": current.isoformat()}
         symbols = self._scan_symbols()

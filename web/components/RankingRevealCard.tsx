@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ar } from "@/lib/ar";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: ShariahFilter }) {
   const [companies, setCompanies] = useState<RankingRow[]>([]);
@@ -12,12 +13,14 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
+  const { isConnected } = useConnectionGuard();
   const visible = useMemo(
     () => companies.filter((comp) => passesShariahFilter(comp.symbol, shariahFilter)),
     [companies, shariahFilter],
   );
 
   const fetchRankedCompanies = async () => {
+    if (!isConnected) return;
     if (isRevealed) {
       setIsRevealed(false);
       setError(null);
@@ -41,7 +44,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   };
 
   useEffect(() => {
-    if (!isRevealed) return;
+    if (!isConnected || !isRevealed) return;
     const timer = window.setInterval(() => {
       void fetchRankingMatrix()
         .then((result) => {
@@ -54,7 +57,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
         });
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [isRevealed]);
+  }, [isConnected, isRevealed]);
 
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">

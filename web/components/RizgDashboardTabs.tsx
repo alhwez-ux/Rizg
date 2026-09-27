@@ -1,12 +1,15 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useId, useMemo, type KeyboardEvent } from "react";
+import { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
+import { AnalystConsensusCard } from "@/components/AnalystConsensusCard";
 import { DailyLiquidityCard } from "@/components/DailyLiquidityCard";
+import { DailyOpportunitiesCard } from "@/components/DailyOpportunitiesCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { RankingRevealCard } from "@/components/RankingRevealCard";
 import { RecommendationsCard } from "@/components/RecommendationsCard";
@@ -22,34 +25,40 @@ import { SmartMoneyCard } from "@/components/SmartMoneyCard";
 import { SmartMoneyIcon } from "@/components/SmartMoneyIcon";
 import { RecoveryCard } from "@/components/RecoveryCard";
 import NotificationCenter from "./NotificationCenter";
+import { useAnalystConsensus } from "@/hooks/useAnalystConsensus";
+import { useDailyOpportunities } from "@/hooks/useDailyOpportunities";
 import { useMarketRadarList } from "@/hooks/useMarketRadarList";
 import { useUnderWatch } from "@/hooks/useUnderWatch";
+import { useTapeLastPrices } from "@/hooks/useTapeLastPrices";
 import { useDividends } from "@/hooks/useDividends";
 import { usePreOpen } from "@/hooks/usePreOpen";
 import { useSmartMoney } from "@/hooks/useSmartMoney";
 import { listedNameFor } from "@/lib/listedCompanies";
+import type { UnderWatchRow } from "@/lib/underWatch";
 import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type DashboardTab = "preopen" | "sectors" | "radar" | "funds" | "recovery" | "flow" | "recommendations" | "ranking" | "dividends";
+type PrimaryTab = "home" | "preopen" | "daily" | "analysts" | "recovery" | "dividends";
+type HomeSection = "sectors" | "radar" | "flow" | "funds" | "recommendations" | "ranking";
 
-function parseTab(value: string | null): DashboardTab {
-  if (
-    value === "preopen" ||
-    value === "radar" ||
-    value === "funds" ||
-    value === "recovery" ||
-    value === "flow" ||
-    value === "recommendations" ||
-    value === "ranking" ||
+function isHomeSection(value: string | null): value is HomeSection {
+  return (
     value === "sectors" ||
-    value === "dividends"
-  ) {
-    return value;
-  }
-  return "sectors";
+    value === "radar" ||
+    value === "flow" ||
+    value === "funds" ||
+    value === "recommendations" ||
+    value === "ranking"
+  );
+}
+
+function parseView(tab: string | null, section: string | null): { primary: PrimaryTab; section: HomeSection } {
+  if (isHomeSection(tab)) return { primary: "home", section: tab };
+  const primary: PrimaryTab =
+    tab === "preopen" || tab === "daily" || tab === "analysts" || tab === "recovery" || tab === "dividends" ? tab : "home";
+  return { primary, section: isHomeSection(section) ? section : "sectors" };
 }
 
 function DashboardShell() {
@@ -59,17 +68,21 @@ function DashboardShell() {
   const { tone } = useTasiTone();
   const { live: sessionLive } = useTasiSession();
   const tablistId = useId();
-  const activeTab = parseTab(searchParams.get("tab"));
+  const view = parseView(searchParams.get("tab"), searchParams.get("section"));
+  const activeTab = view.primary;
+  const homeSection = view.section;
   const selectedSector = searchParams.get("sector");
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
   const { companies: radarCards, addCompany, removeCompany, ready: radarReady } = useMarketRadarList();
-  const { rows: underWatchRows, loading: underWatchLoading } = useUnderWatch();
+  const { rows: underWatchRows } = useUnderWatch();
   const shariahFilter = parseShariahFilter(searchParams.get("shariah"));
   const { rows: dividendRows, hint: dividendHint, asOf: dividendAsOf, error: dividendError, loading: dividendLoading } =
     useDividends(shariahFilter === "pure");
   const { payload: preopenPayload, loading: preopenLoading, error: preopenError } = usePreOpen();
   const { payload: fundsPayload, loading: fundsLoading, error: fundsError } = useSmartMoney();
+  const { payload: dailyPayload, loading: dailyLoading, error: dailyError } = useDailyOpportunities(shariahFilter === "pure");
+  const { payload: analystPayload, loading: analystLoading, error: analystError } = useAnalystConsensus(shariahFilter === "pure");
   const visibleRadarCards = useMemo(
     () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
     [radarCards, shariahFilter],
@@ -78,23 +91,42 @@ function DashboardShell() {
     () => underWatchRows.filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
     [shariahFilter, underWatchRows],
   );
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchSnapshot, setWatchSnapshot] = useState<UnderWatchRow[]>([]);
+  const watchSymbols = useMemo(() => (watchOpen ? watchSnapshot.map((row) => row.symbol) : []), [watchOpen, watchSnapshot]);
+  const watchPrices = useTapeLastPrices(watchSymbols);
+  const watchRows = useMemo(
+    () =>
+      watchSnapshot.map((row) => ({
+        ...row,
+        price: watchPrices.get(row.symbol.toUpperCase()) ?? null,
+      })),
+    [watchPrices, watchSnapshot],
+  );
+  const place = `${activeTab}:${homeSection}`;
+  const placeRef = useRef(place);
   const tabs = useMemo(
     () =>
       [
+        { id: "home" as const, label: ar.tabsHome, icon: "💧" },
         { id: "preopen" as const, label: ar.tabsPreopen, icon: "🌅" },
-        { id: "sectors" as const, label: ar.tabsSectors, icon: "🌐" },
-        { id: "radar" as const, label: ar.tabsRadar, icon: "⚡" },
-        { id: "funds" as const, label: ar.tabsFunds, icon: "🏦" },
+        { id: "daily" as const, label: ar.tabsDaily, icon: "⚡" },
+        { id: "analysts" as const, label: ar.tabsAnalysts, icon: "👁" },
         { id: "recovery" as const, label: ar.tabsRecovery, icon: "🧮" },
-        { id: "flow" as const, label: ar.tabsFlow, icon: "💧" },
-        {
-          id: "recommendations" as const,
-          label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod,
-          icon: sessionLive ? "⚡" : "🎯",
-        },
         { id: "dividends" as const, label: ar.tabsDividends, icon: "💰" },
-        { id: "ranking" as const, label: ar.tabsRanking, icon: "🏰" },
-      ] satisfies { id: DashboardTab; label: string; icon: string }[],
+      ] satisfies { id: PrimaryTab; label: string; icon: string }[],
+    [],
+  );
+  const homeSections = useMemo(
+    () =>
+      [
+        { id: "sectors" as const, label: ar.homeSectors },
+        { id: "radar" as const, label: ar.homeRadar },
+        { id: "flow" as const, label: ar.homeFlow },
+        { id: "funds" as const, label: ar.homeFunds },
+        { id: "recommendations" as const, label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod },
+        { id: "ranking" as const, label: ar.homeRanking },
+      ] satisfies { id: HomeSection; label: string }[],
     [sessionLive],
   );
 
@@ -111,15 +143,48 @@ function DashboardShell() {
     [pathname, router, searchParams],
   );
 
+  const closeWatch = useCallback(() => {
+    setWatchOpen(false);
+    setWatchSnapshot([]);
+  }, []);
+
   const setActiveTab = useCallback(
-    (id: DashboardTab) => {
-      if (id === "sectors") {
-        replaceQuery({ tab: "sectors", symbol: null, name: null });
+    (id: PrimaryTab) => {
+      closeWatch();
+      if (id === "home") {
+        replaceQuery({ tab: null, symbol: null, name: null });
         return;
       }
-      replaceQuery({ tab: id, sector: null, symbol: null, name: null });
+      replaceQuery({ tab: id, section: null, sector: null, symbol: null, name: null });
     },
-    [replaceQuery],
+    [closeWatch, replaceQuery],
+  );
+
+  const revealWatch = useCallback(() => {
+    if (visibleWatchRows.length === 0) return;
+    setWatchSnapshot(visibleWatchRows);
+    setWatchOpen(true);
+  }, [visibleWatchRows]);
+
+  useEffect(() => {
+    if (placeRef.current === place) return;
+    placeRef.current = place;
+    setWatchOpen(false);
+    setWatchSnapshot([]);
+  }, [place]);
+
+  const setHomeSection = useCallback(
+    (id: HomeSection) => {
+      closeWatch();
+      replaceQuery({
+        tab: null,
+        section: id === "sectors" ? null : id,
+        sector: id === "sectors" ? selectedSector : null,
+        symbol: id === "radar" || id === "sectors" ? radarSymbol : null,
+        name: id === "radar" || id === "sectors" ? radarName : null,
+      });
+    },
+    [closeWatch, radarName, radarSymbol, replaceQuery, selectedSector],
   );
 
   useEffect(() => {
@@ -139,10 +204,11 @@ function DashboardShell() {
 
   const openWatchedCompany = useCallback(
     (company: { symbol: string; name: string }) => {
+      closeWatch();
       addCompany(company);
-      replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null });
+      replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: company.name, sector: null });
     },
-    [addCompany, replaceQuery],
+    [addCompany, closeWatch, replaceQuery],
   );
 
   const onTabKeyDown = useCallback(
@@ -175,14 +241,20 @@ function DashboardShell() {
         </div>
         <div className="flex w-full flex-col items-center gap-3">
           <div className="flex flex-wrap items-center justify-center gap-3">
+            <ShariahFilterBar
+              value={shariahFilter}
+              onChange={(next) => replaceQuery({ shariah: next === "pure" ? "pure" : null })}
+            />
             <ThemeToggle />
+            <InstallAppButton />
             <TasiSchedulerChip />
             <AuthControls />
           </div>
           <TickChartSyncChip
             onFollow={(company) => {
+              closeWatch();
               addCompany(company);
-              replaceQuery({ tab: "radar", symbol: company.symbol, name: null, sector: null });
+              replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: null, sector: null });
             }}
           />
         </div>
@@ -207,45 +279,17 @@ function DashboardShell() {
               tabIndex={selected ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              className={`flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
-                tab.id === "preopen"
-                  ? selected
-                    ? "bg-amber-200 text-amber-950 shadow-lg shadow-amber-900/30"
-                    : "border border-amber-400/40 bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 hover:text-amber-50"
-                  : tab.id === "funds"
-                  ? selected
-                    ? "bg-indigo-100 text-indigo-950 shadow-lg shadow-indigo-900/25"
-                    : "border border-indigo-400/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25 hover:text-indigo-50"
-                  : tab.id === "recovery"
-                  ? selected
-                    ? "bg-cyan-100 text-cyan-950 shadow-lg shadow-cyan-900/25"
-                    : "border border-cyan-400/40 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25 hover:text-cyan-50"
-                  : tab.id === "flow"
-                  ? selected
-                    ? "bg-teal-100 text-teal-900 shadow-lg shadow-teal-900/20"
-                    : "border border-teal-500/30 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20 hover:text-teal-100"
-                  : tab.id === "recommendations"
-                  ? selected
-                    ? sessionLive
-                      ? "bg-sky-100 text-sky-900 shadow-lg shadow-sky-900/20"
-                      : "bg-emerald-100 text-emerald-900 shadow-lg shadow-emerald-900/20"
-                    : sessionLive
-                      ? "border border-sky-500/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 hover:text-sky-100"
-                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 hover:text-emerald-100"
-                  : selected
-                    ? "bg-sky-600 text-white shadow-lg shadow-sky-900/30"
-                    : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors ${
+                selected
+                  ? "bg-sky-600 text-white shadow-lg shadow-sky-900/30"
+                  : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               }`}
             >
-              {tab.id === "recommendations" && !sessionLive ? (
-                <CloseRecommendationIcon className="h-5 w-5 shrink-0" />
-              ) : tab.id === "radar" && visibleWatchRows.length ? (
+              {tab.id === "home" && visibleWatchRows.length ? (
                 <WatchPulse
                   explosive={visibleWatchRows.some((row) => row.explosive)}
                   hidden={visibleWatchRows.some((row) => row.hidden_accumulation)}
                 />
-              ) : tab.id === "funds" ? (
-                <SmartMoneyIcon className="h-5 w-5 shrink-0" />
               ) : tab.id === "preopen" && preopenPayload?.in_window ? (
                 <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
@@ -260,17 +304,9 @@ function DashboardShell() {
         })}
       </div>
 
-      {activeTab !== "radar" ? (
-        <UnderWatchBanner
-          count={visibleWatchRows.length}
-          onOpen={() => setActiveTab("radar")}
-        />
+      {visibleWatchRows.length ? (
+        <UnderWatchBanner count={visibleWatchRows.length} active={watchOpen} onOpen={revealWatch} />
       ) : null}
-
-      <ShariahFilterBar
-        value={shariahFilter}
-        onChange={(next) => replaceQuery({ shariah: next === "pure" ? "pure" : null })}
-      />
 
       <div
         id={`${tablistId}-panel-${activeTab}`}
@@ -278,7 +314,11 @@ function DashboardShell() {
         aria-labelledby={`${tablistId}-${activeTab}`}
         className="w-full animate-fadeIn"
       >
-        {activeTab === "preopen" ? (
+        {watchOpen && activeTab !== "home" ? (
+          <UnderWatchSection rows={watchRows} onClose={closeWatch} />
+        ) : null}
+
+        {!watchOpen && activeTab === "preopen" ? (
           <PreOpenCard
             payload={preopenPayload}
             loading={preopenLoading}
@@ -288,85 +328,29 @@ function DashboardShell() {
           />
         ) : null}
 
-        {activeTab === "funds" ? (
-          <SmartMoneyCard
-            payload={fundsPayload}
-            loading={fundsLoading}
-            error={fundsError}
-            shariahFilter={shariahFilter}
+        {!watchOpen && activeTab === "daily" ? (
+          <DailyOpportunitiesCard
+            payload={dailyPayload}
+            loading={dailyLoading}
+            error={dailyError}
             onOpenSymbol={openWatchedCompany}
           />
         ) : null}
 
-        {activeTab === "recovery" ? (
+        {!watchOpen && activeTab === "analysts" ? (
+          <AnalystConsensusCard
+            payload={analystPayload}
+            loading={analystLoading}
+            error={analystError}
+            onOpenSymbol={openWatchedCompany}
+          />
+        ) : null}
+
+        {!watchOpen && activeTab === "recovery" ? (
           <RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} />
         ) : null}
 
-        {activeTab === "sectors" ? (
-          <SectorHeatmapCard
-            selectedSector={selectedSector}
-            radarSymbol={radarSymbol}
-            radarName={radarName}
-            shariahFilter={shariahFilter}
-            onSelectSector={(sector) => replaceQuery({ tab: "sectors", sector, symbol: null, name: null })}
-            onOpenRadar={(company) =>
-              replaceQuery({
-                tab: "sectors",
-                sector: selectedSector,
-                symbol: company?.symbol ?? null,
-                name: company?.name ?? null,
-              })
-            }
-          />
-        ) : null}
-
-        {activeTab === "radar" ? (
-          <div className="space-y-4">
-            <UnderWatchSection
-              rows={visibleWatchRows}
-              loading={underWatchLoading}
-              onOpen={openWatchedCompany}
-            />
-            <div className="text-center">
-              <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
-              <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
-            </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {radarCards.length === 0 ? (
-                <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
-              ) : visibleRadarCards.length === 0 ? (
-                <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
-              ) : (
-                visibleRadarCards.map((item) => (
-                  <LiquidityRadarCard
-                    key={item.symbol}
-                    symbol={item.symbol}
-                    symbolName={item.symbolName}
-                    onRemove={() => removeRadarCompany(item.symbol)}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {activeTab === "flow" ? (
-          <DailyLiquidityCard
-            shariahFilter={shariahFilter}
-            onOpenSymbol={(company) => {
-              addCompany(company);
-              replaceQuery({ tab: "radar", symbol: company.symbol, name: company.name, sector: null });
-            }}
-          />
-        ) : null}
-
-        {activeTab === "recommendations" ? (
-          <div className="space-y-6">
-            <RecommendationsCard shariahFilter={shariahFilter} />
-          </div>
-        ) : null}
-
-        {activeTab === "dividends" ? (
+        {!watchOpen && activeTab === "dividends" ? (
           <DividendsCalendarCard
             rows={dividendRows}
             loading={dividendLoading}
@@ -377,7 +361,107 @@ function DashboardShell() {
           />
         ) : null}
 
-        {activeTab === "ranking" ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
+        {activeTab === "home" ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {homeSections.map((section) => {
+                const selected = !watchOpen && homeSection === section.id;
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => setHomeSection(section.id)}
+                    className={`inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                      selected
+                        ? "bg-zinc-100 text-zinc-950"
+                        : "border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100"
+                    }`}
+                  >
+                    {section.id === "recommendations" && !sessionLive ? (
+                      <CloseRecommendationIcon className="h-4 w-4 shrink-0" />
+                    ) : section.id === "funds" ? (
+                      <SmartMoneyIcon className="h-4 w-4 shrink-0" />
+                    ) : null}
+                    {section.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {watchOpen ? (
+              <UnderWatchSection rows={watchRows} onClose={closeWatch} />
+            ) : null}
+
+            {!watchOpen && homeSection === "sectors" ? (
+              <SectorHeatmapCard
+                selectedSector={selectedSector}
+                radarSymbol={radarSymbol}
+                radarName={radarName}
+                shariahFilter={shariahFilter}
+                onSelectSector={(sector) => replaceQuery({ tab: null, section: null, sector, symbol: null, name: null })}
+                onOpenRadar={(company) =>
+                  replaceQuery({
+                    tab: null,
+                    section: null,
+                    sector: selectedSector,
+                    symbol: company?.symbol ?? null,
+                    name: company?.name ?? null,
+                  })
+                }
+              />
+            ) : null}
+
+            {!watchOpen && homeSection === "radar" ? (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
+                  <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {radarCards.length === 0 ? (
+                    <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
+                  ) : visibleRadarCards.length === 0 ? (
+                    <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
+                  ) : (
+                    visibleRadarCards.map((item) => (
+                      <LiquidityRadarCard
+                        key={item.symbol}
+                        symbol={item.symbol}
+                        symbolName={item.symbolName}
+                        onRemove={() => removeRadarCompany(item.symbol)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {!watchOpen && homeSection === "flow" ? (
+              <DailyLiquidityCard
+                shariahFilter={shariahFilter}
+                onOpenSymbol={(company) => {
+                  closeWatch();
+                  addCompany(company);
+                  replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: company.name, sector: null });
+                }}
+              />
+            ) : null}
+
+            {!watchOpen && homeSection === "funds" ? (
+              <SmartMoneyCard
+                payload={fundsPayload}
+                loading={fundsLoading}
+                error={fundsError}
+                shariahFilter={shariahFilter}
+                onOpenSymbol={openWatchedCompany}
+              />
+            ) : null}
+
+            {!watchOpen && homeSection === "recommendations" ? <RecommendationsCard shariahFilter={shariahFilter} /> : null}
+
+            {!watchOpen && homeSection === "ranking" ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );

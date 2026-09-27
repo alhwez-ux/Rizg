@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchUnderWatch, type UnderWatchRow } from "@/lib/underWatch";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
@@ -12,6 +13,7 @@ export function useUnderWatch() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     try {
@@ -28,6 +30,10 @@ export function useUnderWatch() {
   }, []);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     void refresh();
     const timer = window.setInterval(() => {
@@ -42,7 +48,7 @@ export function useUnderWatch() {
       window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   return { rows, error, loading, refresh };
 }

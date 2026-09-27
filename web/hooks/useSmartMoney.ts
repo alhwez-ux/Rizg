@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchSmartMoneyScan, type SmartMoneyScanResponse } from "@/lib/smartMoney";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
@@ -12,6 +13,7 @@ export function useSmartMoney() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     try {
@@ -28,6 +30,10 @@ export function useSmartMoney() {
   }, []);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     void refresh();
     const timer = window.setInterval(() => {
@@ -42,7 +48,7 @@ export function useSmartMoney() {
       window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   return {
     payload,

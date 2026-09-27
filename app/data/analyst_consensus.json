@@ -1,0 +1,76 @@
+{
+  "source": "curated",
+  "note": "سجل يُراجَع داخل رزق. الأسعار هنا مستويات خطة محفوظة وليست بثاً مباشراً من مواقع بيوت الخبرة.",
+  "picks": [
+    {
+      "symbol": "1120",
+      "houses": ["الراجحي المالية", "الجزيرة كابيتال"],
+      "entry_price": 86.4,
+      "target_price": 94.2,
+      "stop_loss": 82.5,
+      "timeframe": "3 أشهر",
+      "valid_until": "2026-12-31",
+      "note": "إجماع شراء على السهم النقي"
+    },
+    {
+      "symbol": "1140",
+      "houses": ["البلاد المالية"],
+      "entry_price": 28.1,
+      "target_price": 31.5,
+      "stop_loss": 26.4,
+      "timeframe": "شهران",
+      "valid_until": "2026-11-30",
+      "note": "هدف فوق الدخول ووقف تحته"
+    },
+    {
+      "symbol": "1150",
+      "houses": ["الإنماء للاستثمار", "دراية المالية"],
+      "entry_price": 27.2,
+      "target_price": 30.8,
+      "stop_loss": 25.6,
+      "timeframe": "6 أسابيع",
+      "valid_until": "2026-11-15",
+      "note": "خطة شراء متوسطة"
+    },
+    {
+      "symbol": "2222",
+      "houses": ["الأهلي كابيتال", "الرياض المالية"],
+      "entry_price": 26.5,
+      "target_price": 29.4,
+      "stop_loss": 25.1,
+      "timeframe": "شهر",
+      "valid_until": "2026-10-30",
+      "note": "سهم مختلط — يختفي عند تفعيل فلتر النقي"
+    },
+    {
+      "symbol": "4190",
+      "houses": ["جدوى للاستثمار"],
+      "entry_price": 140.0,
+      "target_price": 152.0,
+      "stop_loss": 134.0,
+      "timeframe": "منتهية",
+      "valid_until": "2026-01-15",
+      "note": "أفق منتهٍ — يجب ألا يظهر"
+    },
+    {
+      "symbol": "2010",
+      "houses": ["الراجحي المالية"],
+      "entry_price": 64.0,
+      "target_price": 61.0,
+      "stop_loss": 66.5,
+      "timeframe": "شهر",
+      "valid_until": "2026-12-31",
+      "note": "هندسة مقلوبة — يجب ألا تظهر"
+    },
+    {
+      "symbol": "1010",
+      "houses": ["الرياض المالية"],
+      "entry_price": 28.0,
+      "target_price": 31.0,
+      "stop_loss": 26.5,
+      "timeframe": "شهر",
+      "valid_until": "2026-12-31",
+      "note": "محرم — يجب ألا يظهر"
+    }
+  ]
+}

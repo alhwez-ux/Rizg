@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 
 import { ar } from "@/lib/ar";
 import { fetchSchedulerStatus, type SchedulerStatus } from "@/lib/tasiScheduler";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 export function TasiSchedulerChip() {
   const [status, setStatus] = useState<SchedulerStatus | null>(null);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
+    if (!isConnected) return;
     let alive = true;
     const load = async () => {
       const next = await fetchSchedulerStatus();
@@ -22,7 +25,7 @@ export function TasiSchedulerChip() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [isConnected]);
 
   const live = Boolean(status?.running && status.enabled);
   const label = status?.phase_label || ar.schedulerHint;

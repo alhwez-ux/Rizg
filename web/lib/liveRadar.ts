@@ -1,5 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { LiquidityTick } from "@/lib/liquidity";
+import { authoritativeTickPrice } from "@/lib/livePrice";
 import { toFiniteNumber } from "@/lib/screener";
 import { isValidLongPlan } from "@/lib/tradeGeometry";
 import { HIDDEN_ACCUM_FLAG } from "@/lib/underWatch";
@@ -95,26 +96,38 @@ export function parseLiveRadarPayload(
 }
 
 export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick | null): LiveRadarReport {
+  const tickPrice = authoritativeTickPrice(report.symbol, tick);
+  const live = tickPrice != null;
   if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase()) {
-    return report;
+    return {
+      ...report,
+      last_price: null,
+      quote_mode: "waiting",
+      live_quote: false,
+      buy_ratio: null,
+      sell_ratio: null,
+      net_flow: 0,
+      inflow: 0,
+      outflow: 0,
+      buy_volume: 0,
+      sell_volume: 0,
+    };
   }
-  const lastPrice = tick.lastPrice ?? report.last_price;
   const flag = tick.recommendation;
-  const longSafe = isValidLongPlan(
-    report.suggested_entry ?? lastPrice,
-    report.target_price,
-    report.stop_loss,
-  );
+  const longSafe = isValidLongPlan(report.suggested_entry ?? tickPrice, report.target_price, report.stop_loss);
   const entry = flag === "دخول" ? longSafe : flag === "خروج" ? false : report.entry && longSafe;
   const exit = flag === "خروج" ? true : flag === "دخول" && longSafe ? false : report.exit;
   return {
     ...report,
-    last_price: lastPrice,
-    net_flow: preferFlow(tick.netFlow, report.net_flow),
-    inflow: preferFlow(tick.inflow, report.inflow),
-    outflow: preferFlow(tick.outflow, report.outflow),
-    buy_volume: preferFlow(tick.buyVolume, report.buy_volume),
-    sell_volume: preferFlow(tick.sellVolume, report.sell_volume),
+    last_price: tickPrice,
+    quote_mode: live ? "live" : "waiting",
+    live_quote: live,
+    net_flow: tick.netFlow,
+    inflow: tick.inflow,
+    outflow: tick.outflow,
+    buy_volume: tick.buyVolume,
+    sell_volume: tick.sellVolume,
+    ...liveVolumeRatios(tick.buyVolume, tick.sellVolume),
     trade_count: tick.tradeCount || report.trade_count,
     entry,
     exit,
@@ -122,10 +135,14 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
   };
 }
 
-function preferFlow(tickValue: number, reportValue: number): number {
-  if (!tickValue) return reportValue;
-  if (!reportValue) return tickValue;
-  return Math.abs(reportValue) >= Math.abs(tickValue) ? reportValue : tickValue;
+function liveVolumeRatios(buy: number, sell: number): { buy_ratio: number | null; sell_ratio: number | null } {
+  if (!Number.isFinite(buy) || !Number.isFinite(sell)) return { buy_ratio: null, sell_ratio: null };
+  const total = buy + sell;
+  if (!(total > 0)) return { buy_ratio: null, sell_ratio: null };
+  return {
+    buy_ratio: Math.round((buy / total) * 10_000) / 10_000,
+    sell_ratio: Math.round((sell / total) * 10_000) / 10_000,
+  };
 }
 
 function parseReport(raw: unknown): LiveRadarReport | null {

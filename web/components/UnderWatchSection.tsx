@@ -8,11 +8,11 @@ import { EXPLOSIVE_WATCH_FLAG, HIDDEN_ACCUM_FLAG, type UnderWatchRow } from "@/l
 export function UnderWatchSection({
   rows,
   loading,
-  onOpen,
+  onClose,
 }: {
   rows: UnderWatchRow[];
   loading?: boolean;
-  onOpen?: (company: { symbol: string; name: string }) => void;
+  onClose?: () => void;
 }) {
   return (
     <section className="rounded-2xl border border-amber-500/25 bg-gradient-to-b from-amber-500/10 to-tape-panel/90 p-5 text-center shadow-[0_0_36px_rgba(245,158,11,0.08)] sm:p-6">
@@ -25,6 +25,15 @@ export function UnderWatchSection({
           {ar.underWatchTitle}
         </p>
         <p className="text-xs text-zinc-400">{ar.underWatchHint}</p>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:border-amber-300 hover:text-amber-100"
+          >
+            {ar.underWatchClose}
+          </button>
+        ) : null}
       </div>
 
       {loading && rows.length === 0 ? (
@@ -36,7 +45,7 @@ export function UnderWatchSection({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {rows.map((row) => (
-            <UnderWatchCard key={row.symbol} row={row} onOpen={onOpen} />
+            <UnderWatchCard key={row.symbol} row={row} />
           ))}
         </div>
       )}
@@ -46,17 +55,24 @@ export function UnderWatchSection({
 
 export function UnderWatchBanner({
   count,
+  active = false,
   onOpen,
 }: {
   count: number;
+  active?: boolean;
   onOpen?: () => void;
 }) {
   if (count <= 0) return null;
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onOpen}
-      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100 shadow-[0_0_24px_rgba(245,158,11,0.12)] transition hover:border-amber-300 hover:bg-amber-500/20"
+      className={`flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-[0_0_24px_rgba(245,158,11,0.12)] transition ${
+        active
+          ? "border-amber-200 bg-amber-400/25 text-amber-50"
+          : "border-amber-400/40 bg-amber-500/10 text-amber-100 hover:border-amber-300 hover:bg-amber-500/20"
+      }`}
     >
       <span className="inline-flex animate-rocketPulse text-lg" aria-hidden="true">
         🚀
@@ -67,13 +83,7 @@ export function UnderWatchBanner({
   );
 }
 
-function UnderWatchCard({
-  row,
-  onOpen,
-}: {
-  row: UnderWatchRow;
-  onOpen?: (company: { symbol: string; name: string }) => void;
-}) {
+function UnderWatchCard({ row }: { row: UnderWatchRow }) {
   const title = displayCompanyTitle(row.symbol, row.name);
   const explosive = row.explosive || row.flag === EXPLOSIVE_WATCH_FLAG;
   const hidden = row.hidden_accumulation || row.flag === HIDDEN_ACCUM_FLAG;
@@ -88,17 +98,13 @@ function UnderWatchCard({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => onOpen?.({ symbol: row.symbol, name: title || row.name || row.symbol })}
-          className="min-w-0 text-start"
-        >
+        <div className="min-w-0 text-start">
           <p className="flex items-center gap-2 font-mono text-lg font-semibold text-zinc-50">
             <WatchPulse explosive={explosive} hidden={hidden} />
             {row.symbol}
           </p>
           {title ? <p className="mt-0.5 truncate text-xs text-zinc-400">{title}</p> : null}
-        </button>
+        </div>
         {hidden ? (
           <HiddenAccumBadge />
         ) : (
@@ -147,20 +153,6 @@ function UnderWatchCard({
           </span>
         ) : null}
       </p>
-
-      {row.reasons[1] ? (
-        <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-zinc-400">{row.reasons[1]}</p>
-      ) : null}
-
-      {onOpen ? (
-        <button
-          type="button"
-          onClick={() => onOpen({ symbol: row.symbol, name: title || row.name || row.symbol })}
-          className="mt-3 w-full rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:border-amber-400 hover:text-amber-100"
-        >
-          {ar.underWatchOpen}
-        </button>
-      ) : null}
     </article>
   );
 }

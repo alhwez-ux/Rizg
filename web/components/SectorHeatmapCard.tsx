@@ -12,6 +12,7 @@ import {
   type SectorData,
 } from "@/lib/sectorRotation";
 import { SESSION_REFRESHED_EVENT, refreshTickChartLive } from "@/lib/tickchartStatus";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 
 export function SectorHeatmapCard({
@@ -40,6 +41,7 @@ export function SectorHeatmapCard({
   const [tapeMode, setTapeMode] = useState<string>("waiting");
   const requestId = useRef(0);
   const radarRef = useRef<HTMLDivElement | null>(null);
+  const { isConnected } = useConnectionGuard();
   const activeSector = onSelectSector ? selectedSector : localSector;
   const activeSymbolForRadar = onOpenRadar
     ? radarSymbol
@@ -84,6 +86,10 @@ export function SectorHeatmapCard({
   }, []);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoadingSectors(false);
+      return;
+    }
     let alive = true;
     const boot = async () => {
       try {
@@ -106,7 +112,7 @@ export function SectorHeatmapCard({
       window.clearInterval(interval);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [loadSectors]);
+  }, [isConnected, loadSectors]);
 
   const loadCompanies = useCallback(async (sectorName: string, silent = false) => {
     const ticket = ++requestId.current;
@@ -137,12 +143,13 @@ export function SectorHeatmapCard({
       setLoadingCompanies(false);
       return;
     }
+    if (!isConnected) return;
     void loadCompanies(activeSector);
     const timer = window.setInterval(() => {
       void loadCompanies(activeSector, true);
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [activeSector, loadCompanies]);
+  }, [activeSector, isConnected, loadCompanies]);
 
   const handleSectorClick = (sectorName: string) => {
     if (onSelectSector) {

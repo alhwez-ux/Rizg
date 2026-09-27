@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { tasiTapeChange } from "@/lib/marketData";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { toneFromChange, type MarketTone } from "@/lib/market-tone";
 
 const POLL_MS = 30_000;
@@ -12,9 +13,10 @@ export function useTasiTone(screenerChange?: number | null): {
   changePercent: number | null;
 } {
   const [fallback, setFallback] = useState<number | null>(null);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
-    if (screenerChange != null) return;
+    if (!isConnected || screenerChange != null) return;
     let alive = true;
 
     const load = async () => {
@@ -37,7 +39,7 @@ export function useTasiTone(screenerChange?: number | null): {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [screenerChange]);
+  }, [isConnected, screenerChange]);
 
   const changePercent = screenerChange ?? fallback ?? tasiTapeChange();
   return { tone: toneFromChange(changePercent), changePercent };

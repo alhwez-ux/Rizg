@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ar } from "@/lib/ar";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import {
   isProhibitedStatus,
   isRadarEligibleStatus,
@@ -107,6 +108,7 @@ export function useStockRadar(): UseStockRadarResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -139,12 +141,16 @@ export function useStockRadar(): UseStockRadarResult {
   }, []);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     void refresh();
     return () => {
       alive.current = false;
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   const stocks = useMemo<Stock[]>(
     () =>

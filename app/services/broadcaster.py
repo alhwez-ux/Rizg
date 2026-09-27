@@ -29,9 +29,13 @@ class ConnectionManager:
         self._subscriptions: dict[WebSocket, set[str]] = {}
         self._guard = threading.RLock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._presence: Any = None
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
+
+    def bind_presence(self, guard: Any) -> None:
+        self._presence = guard
 
     async def connect(
         self,
@@ -49,17 +53,24 @@ class ConnectionManager:
             _client_label(websocket),
             sorted(normalized) or [_WILDCARD],
         )
+        if self._presence is not None:
+            self._presence.note_websocket(1)
 
     async def disconnect(self, websocket: WebSocket) -> None:
+        removed = False
         with self._guard:
-            symbols = self._subscriptions.pop(websocket, set())
-            for symbol in symbols:
-                room = self._rooms.get(symbol)
-                if not room:
-                    continue
-                room.discard(websocket)
-                if not room:
-                    self._rooms.pop(symbol, None)
+            if websocket in self._subscriptions:
+                symbols = self._subscriptions.pop(websocket, set())
+                removed = True
+                for symbol in symbols:
+                    room = self._rooms.get(symbol)
+                    if not room:
+                        continue
+                    room.discard(websocket)
+                    if not room:
+                        self._rooms.pop(symbol, None)
+        if removed and self._presence is not None:
+            self._presence.note_websocket(-1)
         logger.info("websocket disconnected client=%s", _client_label(websocket))
 
     async def subscribe(self, websocket: WebSocket, symbols: Iterable[str]) -> set[str]:
@@ -152,8 +163,11 @@ class ConnectionManager:
     async def close_all(self) -> None:
         with self._guard:
             connections = list(self._subscriptions)
+            count = len(connections)
             self._subscriptions.clear()
             self._rooms.clear()
+        if count and self._presence is not None:
+            self._presence.note_websocket(-count)
         results = await asyncio.gather(
             *(_safe_close(websocket) for websocket in connections),
             return_exceptions=True,

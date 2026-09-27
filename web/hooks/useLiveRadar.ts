@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchLiveRadar, type LiveRadarResponse } from "@/lib/liveRadar";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const POLL_MS = 2_000;
@@ -13,6 +14,7 @@ export function useLiveRadar(symbol: string, interval = "1d") {
   const [loading, setLoading] = useState(false);
   const alive = useRef(true);
   const hasData = useRef(false);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     const ticker = symbol.trim();
@@ -38,6 +40,10 @@ export function useLiveRadar(symbol: string, interval = "1d") {
   }, [interval, symbol]);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     hasData.current = false;
     setData(null);
@@ -55,7 +61,7 @@ export function useLiveRadar(symbol: string, interval = "1d") {
       window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   return { data, error, loading, refresh };
 }

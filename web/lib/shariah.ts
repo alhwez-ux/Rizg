@@ -10,12 +10,17 @@ const PURE_IMPURE_INCOME = 0.005;
 
 const BY_SYMBOL = new Map(TASI_COMPLIANCE_UNIVERSE.map((item) => [item.symbol, item]));
 
-export function classifyShariah(item: Pick<UniverseStock, "currentStatus" | "debtRatio" | "impureIncomeRatio">): ComplianceStatusLabel {
+export function classifyShariah(
+  item: Pick<UniverseStock, "currentStatus" | "debtRatio" | "impureIncomeRatio"> & {
+    interestSecuritiesRatio?: number | null;
+  },
+): ComplianceStatusLabel {
   if (item.currentStatus === "PROHIBITED") return "PROHIBITED";
   const impure = item.impureIncomeRatio ?? 0;
   const debt = item.debtRatio ?? 0;
-  if (impure > MAX_IMPURE_INCOME || debt > MAX_DEBT_RATIO) return "PROHIBITED";
-  if (impure <= PURE_IMPURE_INCOME && debt <= PURE_DEBT_RATIO) return "PURE";
+  const securities = item.interestSecuritiesRatio ?? 0;
+  if (impure > MAX_IMPURE_INCOME || debt > MAX_DEBT_RATIO || securities > MAX_INTEREST_SECURITIES) return "PROHIBITED";
+  if (impure <= PURE_IMPURE_INCOME && debt <= PURE_DEBT_RATIO && securities <= PURE_DEBT_RATIO) return "PURE";
   return "MIXED";
 }
 

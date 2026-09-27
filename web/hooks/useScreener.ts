@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { parseRow, toFiniteNumber, type ScreenerSnapshot } from "@/lib/screener";
 import { parseUnderWatchRow } from "@/lib/underWatch";
 
@@ -22,6 +23,7 @@ export function useScreener(): UseScreenerState {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
 
   const refresh = useCallback(async () => {
     try {
@@ -65,6 +67,7 @@ export function useScreener(): UseScreenerState {
   }, []);
 
   useEffect(() => {
+    if (!isConnected) return;
     alive.current = true;
     void refresh();
     const timer = window.setInterval(() => {
@@ -74,7 +77,7 @@ export function useScreener(): UseScreenerState {
       alive.current = false;
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [isConnected, refresh]);
 
   const addSymbol = useCallback(
     async (symbol: string) => {

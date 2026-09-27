@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, status
 
-from app.models.screener import UnderWatchResponse, WatchlistItemIn, WatchlistResponse
+from app.models.screener import FollowedListIn, FollowedListOut, UnderWatchResponse, WatchlistItemIn, WatchlistResponse
 
 router = APIRouter(prefix="/api/v1/watchlist", tags=["watchlist"])
 
@@ -9,6 +9,19 @@ router = APIRouter(prefix="/api/v1/watchlist", tags=["watchlist"])
 async def get_watchlist(request: Request) -> WatchlistResponse:
     symbols = request.app.state.watchlist.symbols()
     return WatchlistResponse(symbols=symbols, count=len(symbols))
+
+
+@router.get("/followed", response_model=FollowedListOut)
+async def get_followed(request: Request) -> FollowedListOut:
+    book = request.app.state.followed
+    return FollowedListOut.model_validate(book.snapshot())
+
+
+@router.put("/followed", response_model=FollowedListOut)
+async def save_followed(payload: FollowedListIn, request: Request) -> FollowedListOut:
+    book = request.app.state.followed
+    saved = book.replace([item.model_dump() for item in payload.companies])
+    return FollowedListOut.model_validate(saved)
 
 
 @router.get("/under-watch", response_model=UnderWatchResponse)

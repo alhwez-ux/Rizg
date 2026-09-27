@@ -1,7 +1,6 @@
 "use client";
 
 import { RecommendationStatus } from "@/components/SignalBadge";
-import { HiddenAccumBadge, WatchPulse } from "@/components/UnderWatchSection";
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
 import {
@@ -13,6 +12,7 @@ import {
 } from "@/lib/liquidity";
 import { useHeldReport } from "@/hooks/useHeldReport";
 import { useSymbolRegime } from "@/hooks/useSymbolRegime";
+import { authoritativeTickPrice } from "@/lib/livePrice";
 import {
   overlayTickOnReport,
   type LiveRadarReport,
@@ -21,6 +21,7 @@ import {
 import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
+import { buildStockDossier, type StockDossier } from "@/lib/stockDossier";
 
 export function LiquidityRadarCard({
   symbol,
@@ -34,18 +35,35 @@ export function LiquidityRadarCard({
   const { data, loading, refresh } = useLiveRadar(symbol);
   const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
   const liveReport = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
-  const report = useHeldReport(symbol, liveReport);
+  const heldReport = useHeldReport(symbol, liveReport);
+  const tickPrice = authoritativeTickPrice(symbol, tick);
+  const report = heldReport
+    ? {
+        ...heldReport,
+        last_price: tickPrice,
+        quote_mode: tickPrice != null ? "live" : "waiting",
+        live_quote: tickPrice != null,
+        buy_ratio: liveReport?.buy_ratio ?? null,
+        sell_ratio: liveReport?.sell_ratio ?? null,
+        buy_volume: liveReport?.buy_volume ?? 0,
+        sell_volume: liveReport?.sell_volume ?? 0,
+        net_flow: liveReport?.net_flow ?? 0,
+        inflow: liveReport?.inflow ?? 0,
+        outflow: liveReport?.outflow ?? 0,
+      }
+    : null;
   const regime = useSymbolRegime(
     symbol,
-    liveReport
+    tick && tick.symbol.toUpperCase() === symbol.toUpperCase()
       ? {
-          netFlow: liveReport.net_flow,
-          buyVolume: liveReport.buy_volume,
-          sellVolume: liveReport.sell_volume,
-          price: liveReport.last_price,
+          netFlow: tick.netFlow,
+          buyVolume: tick.buyVolume,
+          sellVolume: tick.sellVolume,
+          price: tick.lastPrice ?? tick.price,
         }
       : null,
   );
+  const dossier = buildStockDossier(symbol, tickPrice, liveReport);
   const title = displayCompanyTitle(symbol, symbolName);
   const quoteMode = report?.quote_mode ?? (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
   const live = quoteMode === "live" && status === "live";
@@ -80,13 +98,6 @@ export function LiquidityRadarCard({
           <p className="hidden text-sm font-medium text-zinc-500 sm:block">{ar.liveRadarTitle}</p>
           <h3 className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-xl font-semibold text-zinc-50 sm:mt-1 sm:justify-start sm:text-2xl">
             {title ? <span>{title}</span> : null}
-            {report?.hidden_accumulation ? (
-              <HiddenAccumBadge className="align-middle" />
-            ) : report?.under_watch ? (
-              <span className="inline-flex items-center gap-1 text-base">
-                <WatchPulse explosive={Boolean(report.explosive)} />
-              </span>
-            ) : null}
             {report ? (
               <span className="hidden sm:inline">
                 <RecommendationStatus value={report.entry ? "دخول" : report.exit ? "خروج" : null} />
@@ -117,7 +128,7 @@ export function LiquidityRadarCard({
       {loading && !report ? (
         <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarLoading}</p>
       ) : report ? (
-        <ReportBody report={report} source={data?.source} regime={regime} />
+        <ReportBody report={report} source={data?.source} regime={regime} dossier={dossier} />
       ) : (
         <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarWaiting}</p>
       )}
@@ -186,10 +197,12 @@ function ReportBody({
   report,
   source,
   regime,
+  dossier,
 }: {
   report: LiveRadarReport;
   source?: string;
   regime: TapeRegime;
+  dossier: StockDossier;
 }) {
   const positive = report.net_flow > 0;
   const negative = report.net_flow < 0;
@@ -198,6 +211,7 @@ function ReportBody({
   return (
     <>
       <CompactSummary report={report} regime={regime} />
+      <DossierStrip dossier={dossier} />
 
       <div className="mt-5 hidden space-y-4 sm:block">
         {report.trap ? (
@@ -353,6 +367,58 @@ function ReportBody({
       </div>
     </>
   );
+}
+
+function DossierStrip({ dossier }: { dossier: StockDossier }) {
+  const shariah =
+    dossier.shariah === "PURE"
+      ? ar.dossierPure
+      : dossier.shariah === "MIXED"
+        ? ar.dossierMixed
+        : dossier.shariah === "PROHIBITED"
+          ? ar.dossierProhibited
+          : ar.dossierUnknown;
+  const tone =
+    dossier.shariah === "PURE"
+      ? "text-emerald-300"
+      : dossier.shariah === "PROHIBITED"
+        ? "text-rose-300"
+        : "text-amber-200";
+  return (
+    <section className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <DossierMetric label={ar.dossierShariah} value={shariah} valueClass={tone} />
+        <DossierMetric label={ar.dossierPe} value={fixed(dossier.peRatio, 2)} />
+        <DossierMetric
+          label={ar.dossierYield}
+          value={dossier.dividendYieldPct == null ? "—" : `${fixed(dossier.dividendYieldPct, 2)}%`}
+        />
+        <DossierMetric
+          label={ar.dossierDebt}
+          value={dossier.debtToMarket == null ? "—" : `${(dossier.debtToMarket * 100).toFixed(1)}%`}
+        />
+        <DossierMetric label={ar.dossierFair} value={formatPrice(dossier.fairValue)} />
+        <DossierMetric label={ar.dossierHealth} value={fixed(dossier.healthScore, 1)} />
+        <DossierMetric label={ar.dossierLiquidity} value={fixed(dossier.liquidityScore, 1)} />
+      </div>
+      <p className="mt-2 text-center text-[11px] text-zinc-500">{ar.dossierFairHint}</p>
+    </section>
+  );
+}
+
+function DossierMetric({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div>
+      <p className="text-[11px] text-zinc-500">{label}</p>
+      <p dir="ltr" className={`mt-1 font-mono text-sm font-semibold text-zinc-100 ${valueClass ?? ""}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function fixed(value: number | null, digits: number): string {
+  return value == null ? "—" : value.toFixed(digits);
 }
 
 function RegimePill({ regime }: { regime: TapeRegime }) {

@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.routers import alerts, analyze, compliance, health, liquidity, market, preopen, quotes, radar, recovery, screener, smart_money, tickchart, watchlist, ws
+from app.routers import alerts, analysts, analyze, compliance, connection, health, liquidity, market, opportunities, preopen, quotes, radar, recovery, screener, smart_money, tickchart, watchlist, ws
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(connection.router)
 api_router.include_router(quotes.router)
 api_router.include_router(liquidity.router)
 api_router.include_router(alerts.router)
@@ -17,4 +18,6 @@ api_router.include_router(market.router)
 api_router.include_router(preopen.router)
 api_router.include_router(smart_money.router)
 api_router.include_router(recovery.router)
+api_router.include_router(opportunities.router)
+api_router.include_router(analysts.router)
 api_router.include_router(ws.router)

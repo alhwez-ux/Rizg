@@ -44,6 +44,20 @@ class WatchlistResponse(BaseModel):
     count: int
 
 
+class FollowedCompany(BaseModel):
+    symbol: str
+    name: str = ""
+
+
+class FollowedListIn(BaseModel):
+    companies: list[FollowedCompany] = Field(default_factory=list)
+
+
+class FollowedListOut(BaseModel):
+    saved: bool = False
+    companies: list[FollowedCompany] = Field(default_factory=list)
+
+
 class UnderWatchRow(BaseModel):
     symbol: str
     name: str = ""

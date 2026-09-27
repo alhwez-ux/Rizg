@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { wsUrlTape } from "@/lib/api";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { parseRecommendation, type RecommendationFlag } from "@/lib/liquidity";
 import { recommendationFromScreener, type ScreenerRow } from "@/lib/screener";
 
 const MAX_BACKOFF_MS = 10_000;
+const MAX_ATTEMPTS = 5;
 
 export function useRadarRecommendations(
   screenerRows: ScreenerRow[],
@@ -22,8 +24,10 @@ export function useRadarRecommendations(
   const [live, setLive] = useState<Map<string, RecommendationFlag | null>>(new Map());
   const pending = useRef(new Map<string, RecommendationFlag | null>());
   const rafId = useRef<number | null>(null);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
+    if (!isConnected) return;
     let stopped = false;
     let retry = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -83,8 +87,9 @@ export function useRadarRecommendations(
 
       ws.onclose = () => {
         if (stopped || socket !== ws) return;
-        const delay = Math.min(MAX_BACKOFF_MS, 400 * 2 ** retry);
         retry += 1;
+        if (retry >= MAX_ATTEMPTS) return;
+        const delay = Math.min(MAX_BACKOFF_MS, 400 * 2 ** (retry - 1));
         reconnectTimer = setTimeout(connect, delay);
       };
 
@@ -101,7 +106,7 @@ export function useRadarRecommendations(
       pending.current.clear();
       socket?.close();
     };
-  }, []);
+  }, [isConnected]);
 
   return useMemo(() => {
     const merged = new Map(seeded);

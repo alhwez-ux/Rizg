@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 
 import { RizgLogo } from "@/components/RizgLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { useTasiTone } from "@/hooks/useTasiTone";
 import { ar } from "@/lib/ar";
 import { CLIENT_BUILD, PIN_MAX_LENGTH, RECOVERY_EMAIL } from "@/lib/auth/public-constants";
@@ -66,12 +67,18 @@ export function LoginScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const payload = (await response.json().catch(() => null)) as { delivered?: boolean } | null;
+      const payload = (await response.json().catch(() => null)) as { delivered?: boolean; delivery?: string } | null;
       if (!response.ok) {
         setError(ar.authRecoverEmailMismatch);
         return;
       }
-      setInfo(payload?.delivered ? ar.authRecoverSent : ar.authRecoverQueued);
+      setInfo(
+        payload?.delivery === "telegram"
+          ? ar.authRecoverTelegram
+          : payload?.delivery === "email"
+            ? ar.authRecoverSent
+            : ar.authRecoverQueued,
+      );
       setMode("reset");
     } catch {
       setError(ar.authRecoverEmailMismatch);
@@ -108,6 +115,7 @@ export function LoginScreen() {
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-6 px-4 py-10">
       <div className="flex justify-center">
         <ThemeToggle />
+        <InstallAppButton />
       </div>
       <div className="flex flex-col items-center text-center">
         <RizgLogo iconClassName="h-14 w-14" tone={tone} />

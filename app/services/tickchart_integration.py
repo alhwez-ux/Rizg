@@ -20,6 +20,7 @@ from app.core.config import Settings
 from app.models.screener import is_tasi_main_symbol
 from app.models.trade import LiquidityStreamMessage
 from app.services.alerts import AlertService
+from app.services.connection_guard import is_terminal_feed_error, text_is_terminal
 from app.services.broadcaster import ConnectionManager
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.screener import ScreenerService
@@ -51,6 +52,9 @@ DEFAULT_TICKCHART_SYMBOLS = [
 logger = logging.getLogger(__name__)
 
 _SEEN_LIMIT = 4_000
+_WS_MAX_ATTEMPTS = 5
+_WS_BASE_DELAY = 1.0
+_WS_MAX_DELAY = 30.0
 _DEFAULT_TRADES_WS = "wss://api.sahmk.sa/ws/v1/market/trades/"
 _DEFAULT_DEPTH_WS = "wss://api.sahmk.sa/ws/v1/market/depth/"
 _PLACEHOLDER_KEYS = frozenset(
@@ -107,6 +111,11 @@ class TickChartFeed:
         self._owns_client = client is None
         self._running = False
         self._tasks: list[asyncio.Task[None]] = []
+        self._network_tasks: list[asyncio.Task[None]] = []
+        self._guard: Any = None
+        self._rest_paused = False
+        self._feed_mode = "cache"
+        self._ws_pause_reason: str | None = None
         self._seen: deque[str] = deque()
         self._seen_set: set[str] = set()
         self._last_trade_time: dict[str, str] = {}
@@ -173,6 +182,9 @@ class TickChartFeed:
     def bind_autosync(self, autosync: Any) -> None:
         self._autosync = autosync
 
+    def bind_connection_guard(self, guard: Any) -> None:
+        self._guard = guard
+
     def status(self) -> dict[str, Any]:
         last_quotes = self._quotes.snapshot()
         if self._trades_live or self._depth_live or self._desktop_live:
@@ -195,6 +207,10 @@ class TickChartFeed:
             "last_quotes": len(last_quotes),
             "price_source": "TickChart",
             "sahm_quota": _sahm_quota_snapshot(self._settings),
+            "feed_mode": self._feed_mode,
+            "plan_active": True if self._guard is None else bool(self._guard.plan_active),
+            "client_connected": self._ingestion_allowed(),
+            "ws_pause_reason": self._ws_pause_reason,
         }
         autosync = getattr(self, "_autosync", None)
         if autosync is not None and hasattr(autosync, "status"):
@@ -217,43 +233,32 @@ class TickChartFeed:
             logger.warning("TickChart is disabled")
             return
         self._running = True
-        if self._api_key:
-            if self._client is None:
-                self._client = httpx.AsyncClient(
-                    timeout=20.0,
-                    headers=_auth_headers(self._api_key),
-                )
-                self._owns_client = True
-            self._tasks = [
-                asyncio.create_task(self._run_ws(self._trades_ws, "trades"), name="tickchart-trades-ws"),
-                asyncio.create_task(self._run_ws(self._depth_ws, "depth"), name="tickchart-depth-ws"),
-            ]
-            if self._rest_url:
-                self._tasks.append(
-                    asyncio.create_task(self._run_rest_fallback(), name="tickchart-rest-fallback"),
-                )
-            logger.info(
-                "TickChart feed starting symbols=%s trades_ws=%s depth_ws=%s",
-                self._active_symbols(),
-                _redact_url(self._trades_ws),
-                _redact_url(self._depth_ws),
+        self._refresh_api_key()
+        if self._api_key and self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=20.0,
+                headers=_auth_headers(self._api_key),
             )
-        else:
-            logger.info("TickChart cloud ingest ready (browser upload / live stream)")
+            self._owns_client = True
+        logger.info(
+            "TickChart feed standby symbols=%s trades_ws=%s depth_ws=%s",
+            self._active_symbols(),
+            _redact_url(self._trades_ws),
+            _redact_url(self._depth_ws),
+        )
         self.seed_last_closes()
-        self._tasks.append(
-            asyncio.create_task(self._bootstrap_session(), name="tickchart-session-bootstrap"),
-        )
-        self._tasks.append(
+        self._tasks = [
+            asyncio.create_task(self._supervise_network(), name="tickchart-supervisor"),
             asyncio.create_task(self._hydrate_close_history(), name="tickchart-close-history"),
-        )
+        ]
 
     async def stop(self) -> None:
         self._running = False
         self._trades_live = False
         self._depth_live = False
-        tasks = list(self._tasks)
+        tasks = list(self._tasks) + list(self._network_tasks)
         self._tasks = []
+        self._network_tasks = []
         for task in tasks:
             task.cancel()
         for task in tasks:
@@ -369,7 +374,7 @@ class TickChartFeed:
         """Optional REST snapshot only when TICKCHART_REST_URL is set."""
 
         ticker = symbol.strip().upper()
-        if not ticker or not self.enabled or not self._rest_url:
+        if not ticker or not self.enabled or not self._rest_url or not self._ingestion_allowed():
             return 0
         ingested = 0
         ingested += await self._rest_trades(ticker)
@@ -396,6 +401,36 @@ class TickChartFeed:
         """Immediately pull live ticks or last-close quotes for the sector/radar tape."""
 
         seeded = self.seed_last_closes()
+        if not self._ingestion_allowed():
+            rows = self.market_rows()
+            live_count = sum(1 for row in rows if row.get("quote_mode") == "live")
+            close_count = sum(1 for row in rows if row.get("quote_mode") == "last_close")
+            if live_count:
+                quote_mode = "live"
+            elif close_count or rows:
+                quote_mode = "last_close"
+            else:
+                quote_mode = "waiting"
+            self._feed_mode = "cache"
+            return {
+                "success": True,
+                "source": "TickChart",
+                "watched": 0,
+                "ingested": 0,
+                "seeded_last_close": seeded,
+                "delayed_closes": 0,
+                "count": len(rows),
+                "live": live_count,
+                "last_close": close_count,
+                "quote_mode": quote_mode,
+                "last_sync_at": self._last_cloud_ingest,
+                "data": rows,
+                "under_watch": self.scan_explosive_watch(),
+                "price_source": "TickChart",
+                "sahm_quota": _sahm_quota_snapshot(self._settings),
+                "feed_mode": "cache",
+                "skipped": "disconnected",
+            }
         ingested = 0
         watched = 0
         delayed = 0
@@ -1472,25 +1507,112 @@ class TickChartFeed:
             await _ws_send(self._trades_socket, trades_msg)
             await _ws_send(self._depth_socket, depth_msg)
 
-    async def _run_ws(self, url: str, channel: str) -> None:
-        delay = 1.0
-        while self._running:
+    def _ingestion_allowed(self) -> bool:
+        guard = self._guard
+        if guard is None:
+            return True
+        return bool(guard.is_connected)
+
+    def _refresh_api_key(self) -> str:
+        key = _resolve_tickchart_key(self._settings)
+        if key and key != self._api_key:
+            self._api_key = key
+            self._rest_paused = False
+            self._ws_pause_reason = None
+            if self._guard is not None:
+                self._guard.mark_plan_active()
+        elif key:
+            self._api_key = key
+        return self._api_key
+
+    def _pause_upstream(self, channel: str, reason: str) -> None:
+        self._ws_pause_reason = reason[:180]
+        self._feed_mode = "cache"
+        logger.warning("TickChart %s paused (%s); serving cached quotes", channel, self._ws_pause_reason)
+
+    async def _supervise_network(self) -> None:
+        armed: list[asyncio.Task[None]] = []
+        try:
+            while self._running:
+                guard = self._guard
+                if guard is not None:
+                    guard.clear_event()
+                allowed = self._ingestion_allowed()
+                if allowed and not armed:
+                    self._refresh_api_key()
+                    logger.info("TickChart network feeds armed")
+                    armed = self._arm_network_tasks()
+                elif not allowed and armed:
+                    logger.info("TickChart network feeds halted")
+                    await self._cancel_task_list(armed)
+                    armed = []
+                    self._trades_live = False
+                    self._depth_live = False
+                    self._feed_mode = "cache"
+                if guard is None:
+                    await asyncio.sleep(5)
+                    continue
+                if self._ingestion_allowed() != allowed:
+                    continue
+                await guard.wait_for_change(5)
+        except asyncio.CancelledError:
+            await self._cancel_task_list(armed)
+            raise
+
+    def _arm_network_tasks(self) -> list[asyncio.Task[None]]:
+        tasks: list[asyncio.Task[None]] = []
+        if self._api_key:
+            tasks.append(asyncio.create_task(self._run_ws(self._trades_ws, "trades"), name="tickchart-trades-ws"))
+            tasks.append(asyncio.create_task(self._run_ws(self._depth_ws, "depth"), name="tickchart-depth-ws"))
+            if self._rest_url and not self._rest_paused:
+                tasks.append(asyncio.create_task(self._run_rest_fallback(), name="tickchart-rest-fallback"))
+        tasks.append(asyncio.create_task(self._bootstrap_session(), name="tickchart-session-bootstrap"))
+        self._network_tasks = tasks
+        return tasks
+
+    async def _cancel_task_list(self, tasks: list[asyncio.Task[None]]) -> None:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        for task in tasks:
             try:
-                ws_url = _with_api_key(url, self._api_key)
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.warning("TickChart network task ended", exc_info=False)
+
+    async def _run_ws(self, url: str, channel: str) -> None:
+        delay = _WS_BASE_DELAY
+        failures = 0
+        while self._running and self._ingestion_allowed():
+            if failures >= _WS_MAX_ATTEMPTS:
+                self._pause_upstream(channel, self._ws_pause_reason or "retries_exhausted")
+                return
+            try:
+                key = self._refresh_api_key()
+                if not key:
+                    self._pause_upstream(channel, "missing_api_key")
+                    if self._guard is not None:
+                        self._guard.mark_plan_inactive("missing_api_key")
+                    return
+                ws_url = _with_api_key(url, key)
                 async with websockets.connect(
                     ws_url,
-                    additional_headers=_auth_headers(self._api_key),
+                    additional_headers=_auth_headers(key),
                     ping_interval=None,
                     close_timeout=5,
                     max_size=2**22,
                 ) as ws:
-                    delay = 1.0
+                    failures = 0
+                    delay = _WS_BASE_DELAY
                     if channel == "trades":
                         self._trades_socket = ws
                         self._trades_live = True
                     else:
                         self._depth_socket = ws
                         self._depth_live = True
+                    self._feed_mode = "websocket"
                     await _ws_send(
                         ws,
                         {
@@ -1503,8 +1625,21 @@ class TickChartFeed:
                     await self._pump_ws(ws, channel)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.warning("TickChart %s websocket disconnected; retrying", channel, exc_info=True)
+            except Exception as exc:
+                if is_terminal_feed_error(exc):
+                    reason = str(exc).strip()[:180] or exc.__class__.__name__
+                    self._pause_upstream(channel, reason)
+                    if self._guard is not None:
+                        self._guard.mark_plan_inactive(reason)
+                    return
+                failures += 1
+                logger.warning(
+                    "TickChart %s websocket disconnected (%s); attempt %s/%s",
+                    channel,
+                    exc.__class__.__name__,
+                    failures,
+                    _WS_MAX_ATTEMPTS,
+                )
             finally:
                 if channel == "trades":
                     self._trades_live = False
@@ -1512,10 +1647,13 @@ class TickChartFeed:
                 else:
                     self._depth_live = False
                     self._depth_socket = None
-            if not self._running:
+            if not self._running or not self._ingestion_allowed():
+                return
+            if failures >= _WS_MAX_ATTEMPTS:
+                self._pause_upstream(channel, "retries_exhausted")
                 return
             await asyncio.sleep(delay)
-            delay = min(delay * 2, 60.0)
+            delay = min(delay * 2, _WS_MAX_DELAY)
 
     async def _pump_ws(self, ws: Any, channel: str) -> None:
         ping_at = asyncio.get_running_loop().time() + self._ping_seconds
@@ -1535,14 +1673,21 @@ class TickChartFeed:
             if msg_type in {"ping", "pong", "connected", "subscribed", "unsubscribed"}:
                 continue
             if msg_type == "error":
-                logger.warning("TickChart %s error: %s", channel, payload.get("message") or payload)
+                message = str(payload.get("message") or payload)
+                if text_is_terminal(message):
+                    raise RuntimeError(message[:180])
+                logger.warning("TickChart %s error: %s", channel, message[:180])
                 continue
             await self.ingest_message(payload)
 
     async def _run_rest_fallback(self) -> None:
         await asyncio.sleep(2)
-        while self._running:
+        while self._running and self._ingestion_allowed() and not self._rest_paused:
             try:
+                if self._trades_live and self._depth_live:
+                    self._feed_mode = "websocket"
+                else:
+                    self._feed_mode = "rest"
                 if not self._trades_live:
                     for symbol in self._active_symbols()[:12]:
                         if not self._running:
@@ -1557,8 +1702,17 @@ class TickChartFeed:
                         await asyncio.sleep(0.15)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.warning("TickChart REST fallback cycle failed", exc_info=True)
+            except Exception as exc:
+                if is_terminal_feed_error(exc):
+                    self._rest_paused = True
+                    self._feed_mode = "cache"
+                    if self._guard is not None:
+                        self._guard.mark_plan_inactive(str(exc)[:180])
+                    return
+                logger.warning("TickChart REST fallback cycle failed: %s", exc.__class__.__name__)
+            if self._rest_paused or not self._ingestion_allowed():
+                self._feed_mode = "cache"
+                return
             await asyncio.sleep(self._poll_seconds)
 
     async def _rest_trades(self, symbol: str) -> int:
@@ -1599,6 +1753,14 @@ class TickChartFeed:
         except httpx.HTTPError:
             logger.warning("TickChart REST network error for %s", path)
             return None
+        if response.status_code in {401, 403} or text_is_terminal(response.text[:400]):
+            reason = response.text[:180].strip() or f"HTTP {response.status_code}"
+            self._rest_paused = True
+            self._feed_mode = "cache"
+            logger.warning("TickChart REST halted for %s (%s)", path, reason)
+            if self._guard is not None:
+                self._guard.mark_plan_inactive(reason)
+            return None
         if response.status_code >= 400:
             logger.warning("TickChart REST HTTP %s for %s", response.status_code, path)
             return None
@@ -1606,6 +1768,14 @@ class TickChartFeed:
             payload = response.json()
         except ValueError:
             return None
+        if isinstance(payload, dict):
+            message = str(payload.get("message") or payload.get("error") or "")
+            if text_is_terminal(message):
+                self._rest_paused = True
+                self._feed_mode = "cache"
+                if self._guard is not None:
+                    self._guard.mark_plan_inactive(message[:180])
+                return None
         return payload if isinstance(payload, dict) else None
 
     async def _ingest_trades_snapshot(self, payload: dict[str, Any]) -> int:

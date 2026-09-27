@@ -1,5 +1,3 @@
-const BUILD = "15";
-
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -9,14 +7,11 @@ self.addEventListener("activate", (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(keys.map((key) => caches.delete(key)));
-      await self.registration.unregister();
-      const clients = await self.clients.matchAll({ type: "window" });
-      await Promise.all(
-        clients.map((client) => {
-          if ("navigate" in client) return client.navigate(client.url);
-          return undefined;
-        }),
-      );
+      await self.clients.claim();
     })(),
   );
 });
+
+// Lets the browser offer installation. The handler does not answer the request,
+// so pages, data files, and API calls stay on the network exactly as before.
+self.addEventListener("fetch", () => {});

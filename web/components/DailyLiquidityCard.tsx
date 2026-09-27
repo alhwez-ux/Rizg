@@ -6,6 +6,7 @@ import { ar } from "@/lib/ar";
 import { fetchDailyLiquidity, type DailyLiquidityRow, type LiquidityGrade } from "@/lib/dailyLiquidity";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 const GRADE_TONE: Record<LiquidityGrade, string> = {
   A: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200",
@@ -33,8 +34,10 @@ export function DailyLiquidityCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<LiquidityGrade | "all">("all");
+  const { isConnected } = useConnectionGuard();
 
   const reveal = async () => {
+    if (!isConnected) return;
     if (isRevealed) {
       setIsRevealed(false);
       setError(null);
@@ -55,7 +58,7 @@ export function DailyLiquidityCard({
   };
 
   useEffect(() => {
-    if (!isRevealed) return;
+    if (!isConnected || !isRevealed) return;
     const timer = window.setInterval(() => {
       void fetchDailyLiquidity()
         .then((next) => {
@@ -67,7 +70,7 @@ export function DailyLiquidityCard({
         });
     }, 12_000);
     return () => window.clearInterval(timer);
-  }, [isRevealed]);
+  }, [isConnected, isRevealed]);
 
   const visible = useMemo(
     () =>

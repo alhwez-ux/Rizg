@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchPreOpenScan, type PreOpenScanResponse } from "@/lib/preopen";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
@@ -13,6 +14,7 @@ export function usePreOpen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  const { isConnected } = useConnectionGuard();
   const inWindow = Boolean(payload?.in_window);
 
   const refresh = useCallback(async () => {
@@ -30,6 +32,10 @@ export function usePreOpen() {
   }, []);
 
   useEffect(() => {
+    if (!isConnected) {
+      setLoading(false);
+      return;
+    }
     alive.current = true;
     void refresh();
     const timer = window.setInterval(() => {
@@ -44,7 +50,7 @@ export function usePreOpen() {
       window.clearInterval(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [inWindow, refresh]);
+  }, [inWindow, isConnected, refresh]);
 
   return {
     payload,

@@ -13,6 +13,7 @@ import {
   type LiquidityStreamPayload,
   type LiquidityTick,
 } from "@/lib/liquidity";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 export interface LiquiditySocketState {
   tick: LiquidityTick | null;
@@ -24,6 +25,7 @@ export interface LiquiditySocketState {
 
 const MAX_BACKOFF_MS = 10_000;
 const MAX_ALERTS = 40;
+const MAX_ATTEMPTS = 5;
 
 export function useLiquiditySocket(url: string = DEFAULT_WS_URL): LiquiditySocketState {
   const [tick, setTick] = useState<LiquidityTick | null>(null);
@@ -37,8 +39,13 @@ export function useLiquiditySocket(url: string = DEFAULT_WS_URL): LiquiditySocke
   const dirty = useRef(false);
   const rafId = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
+    if (!isConnected) {
+      setStatus("offline");
+      return;
+    }
     let stopped = false;
     let retry = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -115,9 +122,13 @@ export function useLiquiditySocket(url: string = DEFAULT_WS_URL): LiquiditySocke
 
       ws.onclose = () => {
         if (stopped) return;
-        setStatus("reconnecting");
-        const delay = Math.min(1000 * 2 ** retry, MAX_BACKOFF_MS);
         retry += 1;
+        if (retry >= MAX_ATTEMPTS) {
+          setStatus("offline");
+          return;
+        }
+        setStatus("reconnecting");
+        const delay = Math.min(1000 * 2 ** (retry - 1), MAX_BACKOFF_MS);
         setAttempts(retry);
         reconnectTimer = setTimeout(connect, delay);
       };
@@ -133,7 +144,7 @@ export function useLiquiditySocket(url: string = DEFAULT_WS_URL): LiquiditySocke
       socketRef.current = null;
       setStatus("offline");
     };
-  }, [url]);
+  }, [isConnected, url]);
 
   return { tick, sparkline, alerts, status, attempts };
 }

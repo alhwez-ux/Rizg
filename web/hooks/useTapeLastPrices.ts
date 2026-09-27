@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { wsUrlTape } from "@/lib/api";
+import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { parseTick } from "@/lib/liquidity";
 
 const MAX_BACKOFF_MS = 10_000;
+const MAX_ATTEMPTS = 5;
 
 export function useTapeLastPrices(symbols: string[]): Map<string, number> {
   const wantedKey = useMemo(
@@ -29,9 +31,10 @@ export function useTapeLastPrices(symbols: string[]): Map<string, number> {
   const rafId = useRef<number | null>(null);
   const wantedRef = useRef(wanted);
   wantedRef.current = wanted;
+  const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
-    if (wanted.size === 0) return;
+    if (!isConnected || wanted.size === 0) return;
     let stopped = false;
     let retry = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -84,8 +87,9 @@ export function useTapeLastPrices(symbols: string[]): Map<string, number> {
       };
       ws.onclose = () => {
         if (stopped || socket !== ws) return;
-        const delay = Math.min(MAX_BACKOFF_MS, 400 * 2 ** retry);
         retry += 1;
+        if (retry >= MAX_ATTEMPTS) return;
+        const delay = Math.min(MAX_BACKOFF_MS, 400 * 2 ** (retry - 1));
         reconnectTimer = setTimeout(connect, delay);
       };
       ws.onerror = () => {
@@ -101,7 +105,7 @@ export function useTapeLastPrices(symbols: string[]): Map<string, number> {
       pending.current.clear();
       socket?.close();
     };
-  }, [wanted]);
+  }, [isConnected, wanted]);
 
   return live;
 }

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Cairo } from "next/font/google";
 
 import { AppUpdateGuard } from "@/components/AppUpdateGuard";
+import { ConnectionGuardProvider } from "@/hooks/useConnectionGuard";
 import { CLIENT_BUILD } from "@/lib/auth/public-constants";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 import "./globals.css";
@@ -21,6 +22,13 @@ export const metadata: Metadata = {
     capable: true,
     title: "رزق",
     statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
   },
   formatDetection: {
     telephone: false,
@@ -50,11 +58,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(() => {var b=${JSON.stringify(CLIENT_BUILD)};var k="rizg-build";try{var u=new URL(location.href);var q=u.searchParams.get("v");var p=localStorage.getItem(k);if(p===b&&q===b)return;var go=function(){try{localStorage.setItem(k,b);}catch(e){}u.searchParams.set("v",b);location.replace(u.pathname+u.search);};var jobs=[];if("serviceWorker"in navigator){jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));}));}if(window.caches){jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(x){return caches.delete(x);}));}));}Promise.all(jobs).then(go).catch(go);}catch(e){}})();`,
+            __html: `(() => {var b=${JSON.stringify(CLIENT_BUILD)};var k="rizg-build";try{var u=new URL(location.href);var q=u.searchParams.get("v");var p=localStorage.getItem(k);if(p===b&&q===b)return;var go=function(){try{localStorage.setItem(k,b);}catch(e){}u.searchParams.set("v",b);location.replace(u.pathname+u.search);};var jobs=[];if(window.caches){jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(x){return caches.delete(x);}));}));}Promise.all(jobs).then(go).catch(go);}catch(e){}})();`,
           }}
         />
-        <AppUpdateGuard />
-        {children}
+        <ConnectionGuardProvider>
+          <AppUpdateGuard />
+          {children}
+        </ConnectionGuardProvider>
       </body>
     </html>
   );
