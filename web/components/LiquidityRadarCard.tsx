@@ -37,7 +37,7 @@ export function LiquidityRadarCard({
   const liveReport = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
   const heldReport = useHeldReport(symbol, liveReport);
   const tickPrice = authoritativeTickPrice(symbol, tick);
-  const report = heldReport
+  const report: LiveRadarReport | null = heldReport
     ? {
         ...heldReport,
         last_price: tickPrice,
