@@ -24,6 +24,7 @@ data/tasi_daily_tape.json
 data/entry_snapshots.json
 data/under_watch.json
 data/followed.json
+data/eod_recommendations.json
 .pytest_cache/
 *.tsbuildinfo
 web/tsconfig.tsbuildinfo

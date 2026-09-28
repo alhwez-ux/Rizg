@@ -14,6 +14,7 @@ from app.services.shariah import company_name_for, resolve_listed_company, searc
 from app.services.tickchart_autosync import parse_export_text
 
 router = APIRouter(prefix="/api/v1/tickchart", tags=["tickchart"])
+_HISTORY_FETCH_TIMEOUT_SECONDS = 10.0
 
 
 @router.get("/status", response_model=TickChartStatusResponse)
@@ -181,6 +182,7 @@ async def import_tickchart_close_history(
     """Import prior TASI main-market daily closes for the 10-session EOD scan."""
 
     import asyncio
+    import logging
 
     feed = _require_feed(request)
     _check_ingest_token(request, x_tickchart_token, authorization)
@@ -189,15 +191,30 @@ async def import_tickchart_close_history(
     sessions = max(1, min(int(body.get("sessions") or 10), 40))
     quotes_applied = 0
     if body.get("fetch"):
-        result = await asyncio.to_thread(feed.hydrate_main_market_history, sessions=sessions)
-        imported = int(result.get("imported") or 0) + feed.import_close_history(bars)
-        quotes_applied = int(result.get("quotes") or 0)
+        source = "TickChart"
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(feed.hydrate_main_market_history, sessions=sessions),
+                timeout=_HISTORY_FETCH_TIMEOUT_SECONDS,
+            )
+            imported = int(result.get("imported") or 0)
+            quotes_applied = int(result.get("quotes") or 0)
+        except asyncio.TimeoutError:
+            logging.getLogger(__name__).warning(
+                "close-history fetch exceeded %.0fs; answering with the cached tape",
+                _HISTORY_FETCH_TIMEOUT_SECONDS,
+            )
+            feed.ensure_close_book()
+            imported = 0
+            source = "fallback"
+        imported += feed.import_close_history(bars)
         ready, total = feed.close_history_coverage(need=sessions + 1)
         return {
             "success": True,
             "imported": imported,
             "quotes": quotes_applied,
-            "source": "TickChart",
+            "source": source,
+            "fallback": source == "fallback",
             "market": "TASI_MAIN",
             "sessions": sessions,
             "symbols": total,

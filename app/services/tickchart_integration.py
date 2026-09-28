@@ -10,6 +10,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -1030,12 +1031,13 @@ class TickChartFeed:
         return list(rows)
 
     def close_recommendations(self) -> list[dict[str, Any]]:
-        """Always scan last close + closing volume for next-session entries."""
+        """Scan last close + closing volume, reusing the saved daily summary when it still matches."""
 
         from app.services.eod_scan import scan_end_of_day
 
         self.ensure_close_book()
-        key = self._quotes.fingerprint()
+        self._ensure_eod_cache_loaded()
+        key = self._eod_cache_key()
         with self._reco_lock:
             cached = self._eod_reco_cache
             if cached and cached[0] == key:
@@ -1053,11 +1055,60 @@ class TickChartFeed:
         )
         with self._reco_lock:
             self._eod_reco_cache = (key, rows)
+        self._save_eod_summary(key, rows)
         return list(rows)
+
+    def _eod_cache_key(self) -> str:
+        """Daily summary key. Live quote timestamps do not force another 10-session scan."""
+
+        parts = self._quotes.fingerprint().split(":")
+        stable = ":".join(parts[:2]) if len(parts) >= 2 else self._quotes.fingerprint()
+        return f"{now_riyadh().date().isoformat()}:{stable}"
+
+    def _eod_summary_path(self) -> Path:
+        quote_path = getattr(self._quotes, "_path", None)
+        parent = Path(quote_path).parent if quote_path else Path("data")
+        return parent / "eod_recommendations.json"
+
+    def _ensure_eod_cache_loaded(self) -> None:
+        with self._reco_lock:
+            if self._eod_reco_cache is not None:
+                return
+        self._load_eod_summary()
+
+    def _load_eod_summary(self) -> None:
+        path = self._eod_summary_path()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return
+        if not isinstance(raw, dict):
+            return
+        rows = raw.get("rows")
+        key = str(raw.get("fingerprint") or "")
+        if not key or not isinstance(rows, list):
+            return
+        parsed = [row for row in rows if isinstance(row, dict)]
+        with self._reco_lock:
+            if self._eod_reco_cache is None:
+                self._eod_reco_cache = (key, parsed)
+
+    def _save_eod_summary(self, key: str, rows: list[dict[str, Any]]) -> None:
+        path = self._eod_summary_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"fingerprint": key, "rows": rows}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning("could not persist the end-of-day recommendation summary")
 
     def cached_recommendations(self, *, live: bool) -> list[dict[str, Any]] | None:
         from app.services.signals import keep_long_recommendations
 
+        if not live:
+            self._ensure_eod_cache_loaded()
         with self._reco_lock:
             if live:
                 cached = self._live_reco_cache
@@ -1068,6 +1119,8 @@ class TickChartFeed:
         return None if rows is None else keep_long_recommendations(rows)
 
     def recommendations_stale(self, *, live: bool) -> bool:
+        if not live:
+            self._ensure_eod_cache_loaded()
         with self._reco_lock:
             if live:
                 cached = self._live_reco_cache
@@ -1077,7 +1130,7 @@ class TickChartFeed:
             cached = self._eod_reco_cache
             if not cached:
                 return True
-            return cached[0] != self._quotes.fingerprint()
+            return cached[0] != self._eod_cache_key()
 
     def ensure_close_book(self) -> None:
         """Guarantee a main-market close book exists before scanning (bundled tape)."""

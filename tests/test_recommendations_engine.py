@@ -401,3 +401,32 @@ def test_recommendations_endpoint_returns_cached_scan_without_rescan(monkeypatch
     assert payload["total"] == 1
     assert payload["data"][0]["symbol"] == "7200"
     assert scans["count"] == 0
+
+
+def test_recommendations_endpoint_falls_back_when_close_scan_exceeds_budget(monkeypatch) -> None:
+    import time
+
+    monkeypatch.setattr("app.routers.market.session_phase", lambda moment=None: "closed")
+    monkeypatch.setattr("app.routers.market.phase_label", lambda phase: "السوق مغلق")
+    monkeypatch.setattr("app.routers.market.ANALYSIS_TIMEOUT_SECONDS", 0.05)
+
+    class _Feed:
+        def cached_recommendations(self, *, live: bool):
+            del live
+            return None
+
+        def close_recommendations(self):
+            time.sleep(0.4)
+            return []
+
+    app = FastAPI()
+    app.state.tickchart = _Feed()
+    app.include_router(market_router)
+    response = TestClient(app).get("/api/v1/market/recommendations")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["source"] == "fallback"
+    assert payload["scan_mode"] == "end_of_day"
+    assert payload["data"] == []
+    assert payload["count"] == 0

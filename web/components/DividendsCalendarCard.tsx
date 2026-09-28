@@ -1,7 +1,7 @@
 "use client";
 
 import { ar } from "@/lib/ar";
-import { formatRiyadhDate, type DividendRow } from "@/lib/dividends";
+import { formatRiyadhDate, isUpcomingEligibility, type DividendRow } from "@/lib/dividends";
 
 export function DividendsCalendarCard({
   rows,
@@ -18,6 +18,7 @@ export function DividendsCalendarCard({
   asOf?: string;
   onOpen?: (company: { symbol: string; name: string }) => void;
 }) {
+  const visible = rows.filter((row) => isUpcomingEligibility(row.eligibility_date));
   return (
     <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center text-zinc-100 shadow-glow sm:p-6">
       <div className="mb-5 border-b border-zinc-800 pb-4">
@@ -32,9 +33,9 @@ export function DividendsCalendarCard({
 
       {error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
-      ) : loading && rows.length === 0 ? (
+      ) : loading && visible.length === 0 ? (
         <p className="py-10 text-sm text-zinc-500">{ar.dividendsLoading}</p>
-      ) : rows.length === 0 ? (
+      ) : visible.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">
           {ar.dividendsEmpty}
         </p>
@@ -51,7 +52,7 @@ export function DividendsCalendarCard({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
-              {rows.map((row) => (
+              {visible.map((row) => (
                 <tr key={`${row.symbol}-${row.eligibility_date}`} className="hover:bg-zinc-950/40">
                   <td className="p-3">
                     <button

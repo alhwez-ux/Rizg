@@ -205,3 +205,35 @@ def test_history_endpoint_imports_main_market_bars_only(tmp_path: Path, monkeypa
     history = quotes.close_history("2222")
     assert [row["date"] for row in history] == ["2026-09-13", "2026-09-14"]
     assert quotes.close_history("9510") == []
+
+
+def test_history_fetch_falls_back_when_provider_is_slow(tmp_path: Path, monkeypatch) -> None:
+    import time
+
+    monkeypatch.setattr("app.routers.tickchart._HISTORY_FETCH_TIMEOUT_SECONDS", 0.05)
+    quotes = LastQuoteBook(tmp_path / "quotes.json")
+    settings = Settings(
+        _env_file=None,
+        tickchart_enabled=True,
+        tickchart_autosync_enabled=False,
+        tickchart_api_key="",
+        sahmk_api_key="",
+        enable_mock_feed=False,
+    )
+    feed = TickChartFeed(LiquidityRadarEngine(), _Broadcaster(), settings, quotes=quotes)
+
+    def slow_hydrate(*_args, **_kwargs):
+        time.sleep(0.4)
+        return {"imported": 4, "quotes": 4}
+
+    feed.hydrate_main_market_history = slow_hydrate  # type: ignore[method-assign]
+    app = FastAPI()
+    app.state.tickchart = feed
+    app.state.settings = settings
+    app.include_router(tickchart_router)
+    response = TestClient(app).post("/api/v1/tickchart/history", json={"fetch": True, "sessions": 10})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["source"] == "fallback"
+    assert payload["fallback"] is True

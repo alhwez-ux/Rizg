@@ -9,7 +9,7 @@ from typing import Any
 
 from app.models.screener import is_tasi_main_symbol
 from app.services.shariah import classified_status, company_name_for, is_prohibited, sector_for, shariah_label
-from app.services.tasi_clock import add_tasi_calendar_days, now_riyadh
+from app.services.tasi_clock import TASI_TZ, add_tasi_calendar_days, now_riyadh
 
 _DATA_PATH = Path("data/tasi_dividends.json")
 _BUNDLED_PATH = Path(__file__).resolve().parents[1] / "data" / "tasi_dividends.json"
@@ -33,6 +33,12 @@ _SAMPLE: tuple[dict[str, Any], ...] = (
 )
 
 
+def eligibility_has_passed(eligibility: date, today: date) -> bool:
+    """True once the Riyadh calendar day is strictly after تاريخ الأحقية."""
+
+    return today > eligibility
+
+
 def active_dividends(*, today: date | None = None, pure_only: bool = False) -> list[dict[str, Any]]:
     """Return TASI names whose eligibility date is still today or later."""
 
@@ -40,10 +46,10 @@ def active_dividends(*, today: date | None = None, pure_only: bool = False) -> l
     rows: list[dict[str, Any]] = []
     for item in load_dividend_book(as_of=cutoff):
         ticker = str(item.get("symbol") or "").strip().upper()
-        eligibility = _as_date(item.get("eligibility_date"))
+        eligibility = _as_date(item.get("eligibility_date") or item.get("eligibilityDate"))
         if not ticker or not is_tasi_main_symbol(ticker) or eligibility is None:
             continue
-        if eligibility < cutoff:
+        if eligibility_has_passed(eligibility, cutoff):
             continue
         if is_prohibited(ticker):
             continue
@@ -110,6 +116,8 @@ def _read_json(path: Path) -> list[dict[str, Any]] | None:
 
 def _as_date(value: Any) -> date | None:
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(TASI_TZ).date()
         return value.date()
     if isinstance(value, date):
         return value

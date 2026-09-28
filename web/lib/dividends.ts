@@ -34,15 +34,17 @@ export async function fetchActiveDividends(pureOnly = false): Promise<DividendsR
 
 export function parseDividends(payload: Record<string, unknown> | null): DividendsResponse {
   const rows = Array.isArray(payload?.data) ? payload.data : [];
+  const data = rows
+    .map((item) => parseDividendRow(item))
+    .filter((row): row is DividendRow => row != null)
+    .filter((row) => isUpcomingEligibility(row.eligibility_date));
   return {
     success: Boolean(payload?.success ?? true),
-    count: toFiniteNumber(payload?.count) ?? rows.length,
+    count: data.length,
     as_of: payload?.as_of == null ? "" : String(payload.as_of),
     timezone: String(payload?.timezone ?? "Asia/Riyadh"),
     hint: String(payload?.hint ?? ""),
-    data: rows
-      .map((item) => parseDividendRow(item))
-      .filter((row): row is DividendRow => row != null),
+    data,
   };
 }
 
@@ -64,6 +66,21 @@ export function parseDividendRow(raw: unknown): DividendRow | null {
     shariah_label: String(row.shariah_label ?? ""),
     days_to_eligibility: toFiniteNumber(row.days_to_eligibility) ?? 0,
   };
+}
+
+export function riyadhCalendarDate(from = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(from);
+}
+
+/** Keep the eligibility day. Drop the company from the following Riyadh day onward. */
+export function isUpcomingEligibility(eligibilityDate: string, today = riyadhCalendarDate()): boolean {
+  const day = eligibilityDate.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && day >= today;
 }
 
 export function formatRiyadhDate(iso: string): string {

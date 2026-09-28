@@ -27,7 +27,6 @@ type SortKey = "confidence" | "close" | "symbol";
 
 const LIVE_POLL_MS = 12_000;
 const CLOSE_POLL_MS = 45_000;
-const MAX_ATTEMPTS = 3;
 
 function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
@@ -47,6 +46,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [selected, setSelected] = useState<MarketRecommendation | null>(null);
   const inflight = useRef(false);
+  const loadedRef = useRef(false);
   const rowsRef = useRef<MarketRecommendation[]>([]);
   const entryLocks = useRef(new Map<string, FrozenEntry>());
   const completedRef = useRef(new Set<string>());
@@ -91,39 +91,28 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const load = useCallback(async () => {
     if (inflight.current) return;
     inflight.current = true;
-    setLoading(true);
+    if (!loadedRef.current) setLoading(true);
     setError(null);
-    let lastError: unknown = null;
     try {
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-        try {
-          const result = await fetchMarketRecommendations();
-          const data = mergeIncoming(result.data);
-          rowsRef.current = data;
-          setRows(data);
-          setCached(result.source === "cached");
-          setSessionLabel(result.session_label || null);
-          setScanMode(result.scan_mode === "live" ? "live" : "end_of_day");
-          setLoaded(true);
-          setError(null);
-          setSelected((current) => {
-            if (!current) return null;
-            return data.find((row) => row.symbol === current.symbol) ?? null;
-          });
-          lastError = null;
-          break;
-        } catch (err) {
-          lastError = err;
-          if (!isTimeoutError(err) || attempt === MAX_ATTEMPTS - 1) {
-            break;
-          }
-        }
-      }
-      if (lastError) {
-        setLoaded(true);
-        if (rowsRef.current.length === 0) {
-          setError(ar.recoLoadError);
-        }
+      const result = await fetchMarketRecommendations();
+      const data = mergeIncoming(result.data);
+      rowsRef.current = data;
+      setRows(data);
+      setCached(result.source === "cached" || (result.source === "fallback" && data.length > 0));
+      setSessionLabel(result.session_label || null);
+      setScanMode(result.scan_mode === "live" ? "live" : "end_of_day");
+      loadedRef.current = true;
+      setLoaded(true);
+      setError(null);
+      setSelected((current) => {
+        if (!current) return null;
+        return data.find((row) => row.symbol === current.symbol) ?? null;
+      });
+    } catch (err) {
+      loadedRef.current = true;
+      setLoaded(true);
+      if (rowsRef.current.length === 0 && !isTimeoutError(err)) {
+        setError(ar.recoLoadError);
       }
     } finally {
       inflight.current = false;
@@ -312,12 +301,10 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         </div>
       ) : null}
 
-      {loading && visible.length === 0 ? (
+      {loading && !loaded && visible.length === 0 ? (
         <RecoSpinner label={loadingLabel} />
       ) : error && visible.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
-      ) : !loaded ? (
-        <RecoSpinner label={loadingLabel} />
       ) : visible.length === 0 ? (
         <p className="py-8 text-center text-sm text-zinc-500">{emptyLabel}</p>
       ) : (

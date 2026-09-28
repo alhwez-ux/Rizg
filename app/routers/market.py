@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 import asyncio
+import logging
+import threading
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
@@ -19,6 +21,9 @@ from app.services.signals import keep_long_recommendations
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
+logger = logging.getLogger(__name__)
+ANALYSIS_TIMEOUT_SECONDS = 10.0
+_analysis_guard = threading.Lock()
 
 _LIVE_MESSAGE = "تم استرجاع أحدث تصنيف حي من تكرتشارت بنجاح"
 _CACHED_MESSAGE = "آخر لقطة مالية محفوظة مع أسعار تكرتشارت اللحظية"
@@ -97,8 +102,20 @@ async def get_market_recommendations(
             if feed.recommendations_stale(live=live):
                 background_tasks.add_task(_refresh_recommendations, feed, live)
     else:
-        rows = await asyncio.to_thread(_recommendation_rows, request, live=live)
-        source = "TickChart"
+        try:
+            scanned = await asyncio.wait_for(
+                asyncio.to_thread(_recommendation_rows_guarded, request, live=live),
+                timeout=ANALYSIS_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("market recommendations exceeded %.0fs; returning the cached summary", ANALYSIS_TIMEOUT_SECONDS)
+            scanned = None
+        if scanned is None:
+            rows = _cached_recommendation_rows(feed, live=live) or []
+            source = "fallback"
+        else:
+            rows = scanned
+            source = "TickChart"
     rows = keep_long_recommendations(rows)
     page = rows[offset : offset + limit]
     return MarketRecommendationsResponse(
@@ -245,6 +262,17 @@ def _refresh_recommendations(feed, live: bool) -> None:
     closer = getattr(feed, "close_recommendations", None)
     if callable(closer):
         closer()
+
+
+def _recommendation_rows_guarded(request: Request, *, live: bool) -> list[dict] | None:
+    """Run one analysis at a time. A busy scan returns None so the request can answer immediately."""
+
+    if not _analysis_guard.acquire(blocking=False):
+        return None
+    try:
+        return _recommendation_rows(request, live=live)
+    finally:
+        _analysis_guard.release()
 
 
 def _recommendation_rows(request: Request, *, live: bool) -> list[dict]:

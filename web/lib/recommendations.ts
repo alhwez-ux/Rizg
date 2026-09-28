@@ -1,5 +1,7 @@
-import { apiFetch, HEAVY_API_TIMEOUT_MS } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { isValidLongPlan } from "@/lib/tradeGeometry";
+
+const ANALYSIS_TIMEOUT_MS = 10_000;
 
 export type RecommendationKind = "bounce" | "momentum";
 export type RecommendationScanMode = "live" | "end_of_day";
@@ -51,7 +53,7 @@ export async function fetchMarketRecommendations(): Promise<RecommendationsRespo
 
 async function pullMarketRecommendations(): Promise<RecommendationsResponse> {
   const response = await apiFetch("/api/v1/market/recommendations", {
-    timeoutMs: HEAVY_API_TIMEOUT_MS,
+    timeoutMs: ANALYSIS_TIMEOUT_MS,
   });
   const payload = (await response.json().catch(() => null)) as RecommendationsResponse | null;
   if (!response.ok || !payload) {

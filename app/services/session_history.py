@@ -22,6 +22,7 @@ _BATCH = 10
 _RANGE = "1mo"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 _RETRIES = 3
+_FETCH_BUDGET_SECONDS = 10.0
 _LISTINGS_PATH = Path(__file__).resolve().parents[1] / "data" / "tasi_main_symbols.json"
 
 
@@ -144,38 +145,60 @@ def fetch_main_market_closes(
     sessions: int = 10,
     today: date | None = None,
     client: httpx.Client | None = None,
+    budget_seconds: float = _FETCH_BUDGET_SECONDS,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Download 10 prior sessions and the latest close for TASI main-market names."""
+    """Download prior sessions and the latest close, stopping within the time budget."""
 
     tickers = main_market_symbols(symbols or listed_main_market_symbols())
     if not tickers:
         return [], []
     cutoff = today or now_riyadh().date()
     own_client = client is None
-    http = client or httpx.Client(timeout=30.0, headers={"User-Agent": _UA, "Accept": "application/json"})
+    budget = max(0.2, float(budget_seconds))
+    deadline = time.monotonic() + budget
+    http = client or httpx.Client(
+        timeout=httpx.Timeout(budget, connect=min(3.0, budget)),
+        headers={"User-Agent": _UA, "Accept": "application/json"},
+    )
+
+    def remaining() -> float:
+        return deadline - time.monotonic()
+
     bars: list[dict[str, Any]] = []
     quotes: list[dict[str, Any]] = []
     try:
         for start in range(0, len(tickers), _BATCH):
+            if remaining() <= 0.2:
+                logger.warning("EOD history fetch exceeded %.0fs; using the bars already downloaded", budget)
+                break
             chunk = tickers[start : start + _BATCH]
             joined = ",".join(f"{symbol}.SR" for symbol in chunk)
             payload = None
             for attempt in range(_RETRIES):
+                left = remaining()
+                if left <= 0.2:
+                    break
                 try:
-                    response = http.get(YAHOO_SPARK, params={"symbols": joined, "range": _RANGE, "interval": "1d"})
+                    response = http.get(
+                        YAHOO_SPARK,
+                        params={"symbols": joined, "range": _RANGE, "interval": "1d"},
+                        timeout=httpx.Timeout(left, connect=min(3.0, left)),
+                    )
                     response.raise_for_status()
                     payload = response.json()
                     break
                 except (httpx.HTTPError, ValueError) as exc:
                     logger.warning("Yahoo spark attempt %s failed for %s: %s", attempt + 1, chunk[:3], exc)
-                    time.sleep(0.4 * (attempt + 1))
+                    pause = min(0.4 * (attempt + 1), max(remaining(), 0.0))
+                    if pause > 0:
+                        time.sleep(pause)
             if payload is None:
                 continue
             chunk_bars, chunk_quotes = parse_spark_market(payload, today=cutoff, sessions=sessions)
             bars.extend(chunk_bars)
             quotes.extend(chunk_quotes)
-            if start + _BATCH < len(tickers):
-                time.sleep(0.12)
+            if start + _BATCH < len(tickers) and remaining() > 0.2:
+                time.sleep(min(0.12, remaining()))
     finally:
         if own_client:
             http.close()

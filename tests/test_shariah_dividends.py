@@ -54,6 +54,29 @@ def test_active_dividends_drops_past_eligibility_and_haram() -> None:
     assert all(row["shariah_status"] == "PURE" for row in pure)
 
 
+def test_dividend_is_hidden_the_day_after_eligibility(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.dividends.load_dividend_book",
+        lambda as_of=None: [
+            {
+                "symbol": "1120",
+                "cash_dividend": 1.0,
+                "eligibility_date": "2026-09-28",
+                "payment_date": "2026-10-12",
+            },
+            {
+                "symbol": "2222",
+                "cash_dividend": 0.5,
+                "eligibility_date": "2026-09-27",
+                "payment_date": "2026-10-10",
+            },
+        ],
+    )
+    rows = active_dividends(today=date(2026, 9, 28))
+    symbols = {row["symbol"] for row in rows}
+    assert symbols == {"1120"}
+
+
 def test_dividend_dates_land_on_tasi_weekdays() -> None:
     friday = date(2026, 9, 25)
     sunday = next_tasi_session_date(friday)
