@@ -13,27 +13,47 @@ SIGNAL_EOD_BOUNCE = "توصية إغلاق — اختراق بعد اختبار 
 KIND_MOMENTUM = "momentum"
 KIND_BOUNCE = "bounce"
 LOOKBACK = 10
-MIN_VOLUME_MULTIPLE = 1.5
-MIN_BREAKOUT_PCT = 0.25
+MIN_VOLUME_MULTIPLE = 1.2
+NEAR_VOLUME_MULTIPLE = 0.9
+MIN_BREAKOUT_PCT = 0.12
 MAX_EXTENSION_PCT = 8.0
 MAX_DAILY_CHANGE = 9.5
-MAX_UPPER_WICK = 0.42
-MIN_CLOSE_IN_RANGE = 0.62
+MAX_UPPER_WICK = 0.48
+MIN_CLOSE_IN_RANGE = 0.55
 MIN_REWARD_RATIO = 1.3
 MFI_EXHAUSTION = 82
 SCAN_LIMIT = 12
+MIN_VISIBLE = 4
 
 
 def scan_end_of_day(snapshots: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """List names that clear close-breakout entry and anti-trap filters."""
+    """List close entries, then fill toward four names closest to accumulation."""
 
-    rows: list[dict[str, Any]] = []
+    strict: list[dict[str, Any]] = []
+    near: list[dict[str, Any]] = []
     for item in snapshots:
         row = evaluate_close_setup(item)
         if row is not None:
-            rows.append(row)
-    rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
-    return keep_long_recommendations(rows)[:SCAN_LIMIT]
+            strict.append(row)
+            continue
+        fallback = evaluate_close_near_miss(item)
+        if fallback is not None:
+            near.append(fallback)
+    strict.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
+    picked = keep_long_recommendations(strict)
+    if len(picked) >= MIN_VISIBLE:
+        return picked[:SCAN_LIMIT]
+    seen = {str(row.get("symbol") or "") for row in picked}
+    near.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
+    for row in keep_long_recommendations(near):
+        symbol = str(row.get("symbol") or "")
+        if not symbol or symbol in seen:
+            continue
+        picked.append(row)
+        seen.add(symbol)
+        if len(picked) >= MIN_VISIBLE:
+            break
+    return picked[:SCAN_LIMIT]
 
 
 def evaluate_close_setup(snapshot: Mapping[str, Any], *, typical_volume: float = 0.0) -> dict[str, Any] | None:
@@ -235,6 +255,122 @@ def _evaluate_session_close(snapshot: Mapping[str, Any]) -> dict[str, Any] | Non
     }
 
 
+def evaluate_close_near_miss(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A name that missed the strict close rule but is the closest safe accumulation candidate."""
+
+    symbol = str(snapshot.get("symbol") or "").strip().upper()
+    if not symbol or not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
+        return None
+    closes, volumes = _close_volume_series(snapshot)
+    if len(closes) >= LOOKBACK + 1:
+        close = closes[-1]
+        volume = volumes[-1]
+        prior_closes = closes[-(LOOKBACK + 1) : -1]
+        prior_volumes = volumes[-(LOOKBACK + 1) : -1]
+        resistance = max(prior_closes)
+        avg_volume = sum(prior_volumes) / len(prior_volumes) if prior_volumes else 0.0
+        vol_ratio = (volume / avg_volume) if avg_volume > 0 else 0.0
+        sma = sum(closes[-LOOKBACK:]) / LOOKBACK
+        low = _positive(_number(snapshot.get("session_low"))) or min(close, prior_closes[-1])
+        high = _positive(_number(snapshot.get("session_high"))) or close
+    else:
+        close = _positive(_number(snapshot.get("last_price") or snapshot.get("close_price")))
+        prev = _positive(_number(snapshot.get("prev_close")))
+        volume = _positive(_number(snapshot.get("session_volume") or snapshot.get("volume"))) or 0.0
+        if close is None or prev is None:
+            return None
+        resistance = prev
+        stored_ratio = _number(snapshot.get("volume_ratio") or snapshot.get("liquidity_flow"))
+        vol_ratio = stored_ratio if stored_ratio is not None else 0.0
+        sma = (prev + close) / 2
+        low = _positive(_number(snapshot.get("session_low"))) or min(close, prev)
+        high = _positive(_number(snapshot.get("session_high"))) or close
+        prior_closes = [prev]
+    wide_session = len(closes) < LOOKBACK + 1
+    if close is None or volume <= 0 or vol_ratio < NEAR_VOLUME_MULTIPLE:
+        return None
+    if resistance <= 0 or close < resistance * 0.997:
+        return None
+    atr = _atr(snapshot, closes or [resistance, close], close)
+    change = _number(snapshot.get("change_percent"))
+    if change is None and resistance > 0:
+        change = ((close - resistance) / resistance) * 100
+    change = change or 0.0
+    if change < -0.15:
+        return None
+    mfi = _number(snapshot.get("institutional_mfi") or snapshot.get("mfi")) or 50.0
+    net_flow = _number(snapshot.get("net_flow")) or 0.0
+    trap = snapshot.get("trap") if isinstance(snapshot.get("trap"), Mapping) else {}
+    trap_kind = str(trap.get("kind") or "")
+    if not _liquidity_ok(snapshot, net_flow=net_flow, mfi=mfi, trap_kind=trap_kind):
+        return None
+    if net_flow < 0:
+        return None
+    blocked = _false_entry_reason(
+        snapshot,
+        close=close,
+        high=high,
+        low=low,
+        change=change,
+        sma=sma,
+        atr=atr,
+        resistance=resistance,
+        vol_ratio=vol_ratio,
+        mfi=mfi,
+        trap_kind=trap_kind,
+        max_range_pct=0.095 if wide_session else 0.06,
+    )
+    if blocked:
+        return None
+    target, stop = long_trade_levels(close, atr=atr, target_mult=1.6, stop_mult=1.0, swing_low=low)
+    target_f = float(target)
+    stop_f = float(stop)
+    if not is_valid_long_plan(close, target_f, stop_f):
+        return None
+    reward = (target_f - close) / max(close - stop_f, 1e-9)
+    if reward < MIN_REWARD_RATIO:
+        return None
+    shakeout = low < close * 0.985 and low < resistance
+    kind = KIND_BOUNCE if shakeout else KIND_MOMENTUM
+    signal = SIGNAL_EOD_BOUNCE if shakeout else SIGNAL_EOD_MOMENTUM
+    gap = (close - resistance) / resistance if resistance else 0.0
+    score = 46
+    if vol_ratio >= MIN_VOLUME_MULTIPLE:
+        score += 12
+    elif vol_ratio >= NEAR_VOLUME_MULTIPLE:
+        score += 6
+    if gap >= 0:
+        score += 8
+    if net_flow > 0:
+        score += 10
+    if mfi >= 55:
+        score += 6
+    score = min(score, 76)
+    name = str(snapshot.get("name") or company_name_for(symbol) or symbol)
+    return {
+        "symbol": symbol,
+        "name": name,
+        "close_price": round(close, 2),
+        "signal_type": signal,
+        "signal_kind": kind,
+        "confidence": f"{score}%",
+        "confidence_score": score,
+        "entry": True,
+        "entry_price": f"{close:.2f}",
+        "target_price": f"{target_f:.2f}",
+        "stop_loss": f"{stop_f:.2f}",
+        "reason": (
+            f"الأقرب لشرط التجميع المؤسسي على إغلاق {close:.2f} قرب مقاومة {resistance:.2f} "
+            f"بحجم {vol_ratio:.1f}× المتوسط وتدفق غير تصريفي — ارتقاب جلسة الغد."
+        ),
+        "entry_rule": "أقرب الأسماء المكتملة الهندسة لعتبة التجميع عندما لا يكتمل شرط الاختراق الصارم",
+        "volume_ratio": round(vol_ratio, 2),
+        "mfi": round(mfi, 1),
+        "scan_mode": "end_of_day",
+        "horizon": "next_session",
+    }
+
+
 def _breakout_ok(close: float, resistance: float, atr: float) -> bool:
     if close <= resistance:
         return False
@@ -336,6 +472,8 @@ def _confidence(
         score += 12
     elif vol_ratio >= 1.5:
         score += 8
+    elif vol_ratio >= MIN_VOLUME_MULTIPLE:
+        score += 5
     if net_flow > 0:
         score += 8
     if mfi >= 55:

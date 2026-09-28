@@ -90,7 +90,7 @@ def test_eod_scan_uses_today_session_when_history_is_short() -> None:
     rows = scan_end_of_day(
         [
             {
-                "symbol": "2380",
+                "symbol": "1120",
                 "last_price": 18.29,
                 "prev_close": 17.62,
                 "session_open": 17.62,
@@ -115,9 +115,26 @@ def test_eod_scan_uses_today_session_when_history_is_short() -> None:
         ]
     )
     symbols = {row["symbol"] for row in rows}
-    assert "2380" in symbols
+    assert "1120" in symbols
     assert "2222" not in symbols
     assert rows[0]["scan_mode"] == "end_of_day"
+
+
+def test_eod_scan_fills_four_names_closest_to_accumulation() -> None:
+    rows = scan_end_of_day(
+        [
+            _breakout_row("1120", 96.4, volume=1_050_000, net_flow=40_000),
+            _breakout_row("2222", 28.4, volume=1_080_000, net_flow=22_000),
+            _breakout_row("1140", 18.3, volume=1_020_000, net_flow=18_000),
+            _breakout_row("2020", 38.2, volume=1_100_000, net_flow=14_000),
+            _breakout_row("4030", 24.9, volume=1_200_000, net_flow=-12_000, change_percent=-0.4),
+        ]
+    )
+    symbols = {row["symbol"] for row in rows}
+    assert len(rows) >= 4
+    assert "4030" not in symbols
+    assert {"1120", "2222", "1140", "2020"} <= symbols
+    assert all(float(row["target_price"]) > float(row["entry_price"]) > float(row["stop_loss"]) > 0 for row in rows)
 
 
 def test_eod_scan_rejects_breakout_without_volume_confirmation() -> None:
