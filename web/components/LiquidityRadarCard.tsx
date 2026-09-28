@@ -23,6 +23,13 @@ import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { buildStockDossier, type StockDossier } from "@/lib/stockDossier";
 
+type QuoteMode = "live" | "waiting" | "last_close";
+
+function toQuoteMode(value: string | null | undefined): QuoteMode | undefined {
+  if (value === "live" || value === "waiting" || value === "last_close") return value;
+  return undefined;
+}
+
 export function LiquidityRadarCard({
   symbol,
   symbolName,
@@ -41,7 +48,7 @@ export function LiquidityRadarCard({
     ? {
         ...heldReport,
         last_price: tickPrice,
-        quote_mode: tickPrice != null ? "live" : "waiting",
+        quote_mode: toQuoteMode(tickPrice != null ? "live" : "waiting"),
         live_quote: tickPrice != null,
         buy_ratio: liveReport?.buy_ratio ?? null,
         sell_ratio: liveReport?.sell_ratio ?? null,
@@ -65,7 +72,9 @@ export function LiquidityRadarCard({
   );
   const dossier = buildStockDossier(symbol, tickPrice, liveReport);
   const title = displayCompanyTitle(symbol, symbolName);
-  const quoteMode = report?.quote_mode ?? (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
+  const quoteMode: QuoteMode | undefined =
+    toQuoteMode(report?.quote_mode) ??
+    (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
   const live = quoteMode === "live" && status === "live";
   const statusLabel = live
     ? ar.liveRadarLive
@@ -120,7 +129,14 @@ export function LiquidityRadarCard({
             {statusLabel}
           </span>
           {report ? <RegimePill regime={regime} /> : null}
-          {report ? <SignalPill report={report} /> : null}
+          {report ? (
+            <SignalPill
+              report={{
+                ...report,
+                quote_mode: report.quote_mode as "live" | "waiting" | "last_close" | undefined,
+              }}
+            />
+          ) : null}
           <RetryButton onRetry={retry} />
         </div>
       </div>
