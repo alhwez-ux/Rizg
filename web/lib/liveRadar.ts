@@ -98,20 +98,8 @@ export function parseLiveRadarPayload(
 export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick | null): LiveRadarReport {
   const tickPrice = authoritativeTickPrice(report.symbol, tick);
   const live = tickPrice != null;
-  if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase()) {
-    return {
-      ...report,
-      last_price: null,
-      quote_mode: "waiting",
-      live_quote: false,
-      buy_ratio: null,
-      sell_ratio: null,
-      net_flow: 0,
-      inflow: 0,
-      outflow: 0,
-      buy_volume: 0,
-      sell_volume: 0,
-    };
+  if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase() || tickPrice == null) {
+    return report;
   }
   const flag = tick.recommendation;
   const longSafe = isValidLongPlan(report.suggested_entry ?? tickPrice, report.target_price, report.stop_loss);

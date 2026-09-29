@@ -99,7 +99,7 @@ function DashboardShell() {
     () =>
       watchSnapshot.map((row) => ({
         ...row,
-        price: watchPrices.get(row.symbol.toUpperCase()) ?? null,
+        price: watchPrices.get(row.symbol.toUpperCase()) ?? row.price,
       })),
     [watchPrices, watchSnapshot],
   );

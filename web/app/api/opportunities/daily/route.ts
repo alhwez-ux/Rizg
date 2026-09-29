@@ -47,7 +47,8 @@ async function loadUpstream(pureOnly: boolean): Promise<Record<string, unknown>[
 
 function bindRow(row: Record<string, unknown>, lastPrices: Record<string, number>, today: string): Record<string, unknown> | null {
   const symbol = String(row.symbol || "").trim().toUpperCase();
-  const live = lastPrices[symbol];
+  const quoted = Number(row.last_price);
+  const live = lastPrices[symbol] ?? (Number.isFinite(quoted) && quoted > 0 ? quoted : undefined);
   const templateEntry = priceText(row.entry_price) ?? (live != null ? String(live) : null);
   const templateTarget = priceText(row.target_price);
   const templateStop = priceText(row.stop_loss);

@@ -19,6 +19,7 @@ from app.services.ranking_store import RankingStore
 from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
 from app.services.signals import keep_long_recommendations
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
+from app.services.tickchart_integration import warm_public_quotes
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ async def get_live_rankings_from_db(request: Request) -> RankingMatrixResponse:
 
 @router.get("/sector-rotation", response_model=SectorRotationResponse)
 async def get_sector_rotation_analysis(request: Request) -> SectorRotationResponse:
+    await warm_public_quotes(getattr(request.app.state, "tickchart", None))
     rows = _tickchart_rows(request)
     source = "TickChart"
     quote_mode = _tape_quote_mode(rows)
@@ -79,6 +81,7 @@ async def get_sector_rotation_analysis(request: Request) -> SectorRotationRespon
 
 @router.get("/sector-companies/{sector_name}", response_model=SectorCompaniesResponse)
 async def get_companies_by_sector(sector_name: str, request: Request) -> SectorCompaniesResponse:
+    await warm_public_quotes(getattr(request.app.state, "tickchart", None))
     rows = _tickchart_rows(request)
     payload = companies_for_sector(sector_name, live_rows=rows, tape_only=True)
     return SectorCompaniesResponse.model_validate(payload)
@@ -94,6 +97,7 @@ async def get_market_recommendations(
     phase = session_phase(now_riyadh())
     live = phase == "open"
     feed = getattr(request.app.state, "tickchart", None)
+    await warm_public_quotes(feed)
     cached = _cached_recommendation_rows(feed, live=live)
     if cached is not None:
         rows = cached
@@ -183,6 +187,7 @@ async def run_tadawul_daily_sync(_request: Request) -> SchedulerRunResponse:
 
 
 async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
+    await warm_public_quotes(getattr(request.app.state, "tickchart", None))
     store = _ranking_store(request)
     tape = {str(row.get("symbol")): row for row in _tickchart_rows(request)}
     cached = store.snapshot() or []
@@ -232,7 +237,26 @@ def _tickchart_rows(request: Request) -> list[dict]:
     feed = getattr(request.app.state, "tickchart", None)
     if feed is None:
         return []
-    return feed.market_rows()
+    merged: dict[str, dict] = {}
+    tape = feed.quote_tape() if hasattr(feed, "quote_tape") else []
+    for row in tape:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if symbol:
+            merged[symbol] = dict(row)
+    for row in feed.market_rows():
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        current = merged.get(symbol, {})
+        updated = dict(current)
+        for key, value in row.items():
+            if value is None or value == "":
+                continue
+            if key in {"volume", "value_traded", "net_flow"} and not value and current.get(key):
+                continue
+            updated[key] = value
+        merged[symbol] = updated
+    return list(merged.values())
 
 
 def _tape_quote_mode(rows: list[dict]) -> str:

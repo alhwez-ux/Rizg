@@ -84,6 +84,8 @@ assert.equal(overlaid.last_price, 18.42);
 assert.equal(overlaid.quote_mode, "live");
 assert.equal(overlaid.buy_ratio, 0.75);
 assert.equal(overlaid.sell_ratio, 0.25);
-assert.equal(overlayTickOnReport(report, null).last_price, null);
+assert.equal(overlayTickOnReport(report, null).last_price, 9);
+assert.equal(overlayTickOnReport(report, null).quote_mode, "last_close");
+assert.equal(overlayTickOnReport(report, null).net_flow, 10);
 
 console.log("stock dossier checks passed");

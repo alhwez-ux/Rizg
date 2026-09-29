@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { wsUrlTape } from "@/lib/api";
+import { apiFetch, wsUrlTape } from "@/lib/api";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { parseTick } from "@/lib/liquidity";
 
@@ -32,6 +32,43 @@ export function useTapeLastPrices(symbols: string[]): Map<string, number> {
   const wantedRef = useRef(wanted);
   wantedRef.current = wanted;
   const { isConnected } = useConnectionGuard();
+
+  useEffect(() => {
+    if (wanted.size === 0) return;
+    let stopped = false;
+    const load = async () => {
+      try {
+        const response = await apiFetch("/api/v1/tickchart/tape", { timeoutMs: 20_000 });
+        const payload = (await response.json().catch(() => null)) as { data?: unknown } | null;
+        if (!response.ok || !payload || !Array.isArray(payload.data) || stopped) return;
+        const batch = new Map<string, number>();
+        for (const item of payload.data) {
+          if (!item || typeof item !== "object") continue;
+          const row = item as { symbol?: unknown; last_price?: unknown; price?: unknown };
+          const symbol = String(row.symbol || "").trim().toUpperCase();
+          const price = Number(row.last_price ?? row.price);
+          if (!wantedRef.current.has(symbol) || !Number.isFinite(price) || price <= 0) continue;
+          batch.set(symbol, price);
+        }
+        if (batch.size === 0) return;
+        setLive((prev) => {
+          const next = new Map(prev);
+          for (const [symbol, price] of batch) next.set(symbol, price);
+          return next;
+        });
+      } catch {
+        // The socket still overlays a live print when the tape endpoint is quiet.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 20_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [wanted]);
 
   useEffect(() => {
     if (!isConnected || wanted.size === 0) return;

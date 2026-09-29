@@ -117,9 +117,11 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
       };
     }
     return {
-      isConnected: snapshot?.is_connected === true,
-      healthy: snapshot?.healthy === true,
-      planActive: snapshot?.plan_active === true,
+      // Readings stay available when the live plan or socket heartbeat is down.
+      // The heartbeat still arms Sahm/TickChart ingestion; it must not blank the tape.
+      isConnected: true,
+      healthy: snapshot?.healthy !== false,
+      planActive: snapshot?.plan_active !== false,
       planReason: snapshot?.plan_reason ?? null,
       checking,
     };

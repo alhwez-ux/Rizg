@@ -151,6 +151,13 @@ class TasiMarketScheduler:
     async def prepare_open(self) -> dict[str, Any]:
         """09:30 — load opening quotes and previous closes."""
 
+        feed = self._tickchart
+        refresher = getattr(feed, "ensure_public_quotes", None) if feed is not None else None
+        if callable(refresher):
+            try:
+                await asyncio.to_thread(refresher)
+            except Exception:
+                logger.exception("public quote refresh failed before the open")
         current = now_riyadh()
         quotes = await self._collect_quotes()
         payload = {
@@ -171,15 +178,27 @@ class TasiMarketScheduler:
         """Every 2 minutes during 10:00-15:00 — liquidity, volume, traps, alerts."""
 
         current = now_riyadh()
+        feed = self._tickchart
+        refresher = getattr(feed, "ensure_public_quotes", None) if feed is not None else None
+        if callable(refresher):
+            try:
+                await asyncio.to_thread(refresher)
+            except Exception:
+                logger.exception("public quote refresh failed")
         guard = getattr(self, "_guard", None)
         if not force and guard is not None and not guard.is_connected:
+            scanner = getattr(feed, "scan_explosive_watch", None) if feed is not None else None
+            if callable(scanner):
+                try:
+                    await asyncio.to_thread(scanner)
+                except Exception:
+                    logger.exception("explosive under-watch scan failed")
             return {"job": "scan", "skipped": True, "reason": "disconnected", "ran_at": current.isoformat()}
         if not force and not is_intraday_window(current):
             return {"job": "scan", "skipped": True, "reason": "outside_session", "ran_at": current.isoformat()}
         symbols = self._scan_symbols()
         alerts: list[dict[str, Any]] = []
         scanned = 0
-        feed = self._tickchart
         if feed is None or not getattr(feed, "enabled", False):
             payload = {
                 "job": "scan",
@@ -279,6 +298,12 @@ class TasiMarketScheduler:
         ranking_updated = 0
         rec_rows: list[dict[str, Any]] = []
         feed = self._tickchart
+        refresher = getattr(feed, "ensure_public_quotes", None) if feed is not None else None
+        if callable(refresher):
+            try:
+                await asyncio.to_thread(refresher)
+            except Exception:
+                logger.exception("public quote refresh failed at the close")
         if feed is not None:
             closer = getattr(feed, "close_recommendations", None)
             rec_rows = list(closer() if callable(closer) else feed.opportunities())

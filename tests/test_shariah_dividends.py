@@ -77,6 +77,25 @@ def test_dividend_is_hidden_the_day_after_eligibility(monkeypatch) -> None:
     assert symbols == {"1120"}
 
 
+def test_stale_dividend_book_falls_back_to_the_rolling_calendar(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.dividends.load_dividend_book",
+        lambda as_of=None: [
+            {
+                "symbol": "1120",
+                "cash_dividend": 1.0,
+                "eligibility_date": "2020-01-05",
+                "payment_date": "2020-02-02",
+            }
+        ],
+    )
+    today = date(2026, 9, 29)
+    rows = active_dividends(today=today)
+    assert rows
+    assert all(row["eligibility_date"] >= today.isoformat() for row in rows)
+    assert "1010" not in {row["symbol"] for row in rows}
+
+
 def test_dividend_dates_land_on_tasi_weekdays() -> None:
     friday = date(2026, 9, 25)
     sunday = next_tasi_session_date(friday)

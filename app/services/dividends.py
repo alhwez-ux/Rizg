@@ -43,8 +43,20 @@ def active_dividends(*, today: date | None = None, pure_only: bool = False) -> l
     """Return TASI names whose eligibility date is still today or later."""
 
     cutoff = today or now_riyadh().date()
+    rows = _active_from_book(load_dividend_book(as_of=cutoff), cutoff, pure_only=pure_only)
+    if rows:
+        return rows
+    return _active_from_book([_materialize(item, cutoff) for item in _SAMPLE], cutoff, pure_only=pure_only)
+
+
+def _active_from_book(
+    book: list[dict[str, Any]],
+    cutoff: date,
+    *,
+    pure_only: bool,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for item in load_dividend_book(as_of=cutoff):
+    for item in book:
         ticker = str(item.get("symbol") or "").strip().upper()
         eligibility = _as_date(item.get("eligibility_date") or item.get("eligibilityDate"))
         if not ticker or not is_tasi_main_symbol(ticker) or eligibility is None:

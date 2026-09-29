@@ -1,6 +1,9 @@
+import asyncio
+
 from fastapi import APIRouter, Request, status
 
 from app.models.screener import FollowedListIn, FollowedListOut, UnderWatchResponse, WatchlistItemIn, WatchlistResponse
+from app.services.tickchart_integration import warm_public_quotes
 
 router = APIRouter(prefix="/api/v1/watchlist", tags=["watchlist"])
 
@@ -28,6 +31,11 @@ async def save_followed(payload: FollowedListIn, request: Request) -> FollowedLi
 async def get_under_watch(request: Request) -> UnderWatchResponse:
     store = getattr(request.app.state, "under_watch", None)
     feed = getattr(request.app.state, "tickchart", None)
+    if feed is not None:
+        await warm_public_quotes(feed)
+        scanner = getattr(feed, "scan_explosive_watch", None)
+        if callable(scanner):
+            await asyncio.to_thread(scanner)
     if store is None and feed is not None:
         store = getattr(feed, "under_watch", None)
     getter = getattr(store, "snapshot", None)

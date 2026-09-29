@@ -47,16 +47,16 @@ export function LiquidityRadarCard({
   const report: LiveRadarReport | null = heldReport
     ? {
         ...heldReport,
-        last_price: tickPrice,
-        quote_mode: toQuoteMode(tickPrice != null ? "live" : "waiting"),
+        last_price: tickPrice ?? heldReport.last_price,
+        quote_mode: tickPrice != null ? "live" : toQuoteMode(heldReport.quote_mode) ?? (heldReport.last_price ? "last_close" : "waiting"),
         live_quote: tickPrice != null,
-        buy_ratio: liveReport?.buy_ratio ?? null,
-        sell_ratio: liveReport?.sell_ratio ?? null,
-        buy_volume: liveReport?.buy_volume ?? 0,
-        sell_volume: liveReport?.sell_volume ?? 0,
-        net_flow: liveReport?.net_flow ?? 0,
-        inflow: liveReport?.inflow ?? 0,
-        outflow: liveReport?.outflow ?? 0,
+        buy_ratio: tickPrice != null ? (liveReport?.buy_ratio ?? heldReport.buy_ratio) : heldReport.buy_ratio,
+        sell_ratio: tickPrice != null ? (liveReport?.sell_ratio ?? heldReport.sell_ratio) : heldReport.sell_ratio,
+        buy_volume: tickPrice != null ? (liveReport?.buy_volume ?? heldReport.buy_volume) : heldReport.buy_volume,
+        sell_volume: tickPrice != null ? (liveReport?.sell_volume ?? heldReport.sell_volume) : heldReport.sell_volume,
+        net_flow: tickPrice != null ? (liveReport?.net_flow ?? heldReport.net_flow) : heldReport.net_flow,
+        inflow: tickPrice != null ? (liveReport?.inflow ?? heldReport.inflow) : heldReport.inflow,
+        outflow: tickPrice != null ? (liveReport?.outflow ?? heldReport.outflow) : heldReport.outflow,
       }
     : null;
   const regime = useSymbolRegime(

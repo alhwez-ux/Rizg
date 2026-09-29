@@ -1,8 +1,11 @@
+import asyncio
+
 from fastapi import APIRouter, Query, Request
 
 from app.models.schemas import DailyOpportunitiesResponse
 from app.services.daily_opportunities import scan_daily_opportunities
 from app.services.tasi_clock import now_riyadh, session_phase
+from app.services.tickchart_integration import warm_public_quotes
 
 router = APIRouter(prefix="/api/v1/opportunities", tags=["opportunities"])
 
@@ -15,7 +18,17 @@ async def get_daily_opportunities(
     """High-probability intraday longs with a locked entry and at least 1:2 reward."""
 
     feed = getattr(request.app.state, "tickchart", None)
+    await warm_public_quotes(feed)
     recommendations = _cached_recommendations(feed)
+    if not recommendations and feed is not None:
+        builder = getattr(feed, "close_recommendations", None)
+        if callable(builder):
+            try:
+                built = await asyncio.to_thread(builder)
+            except Exception:
+                built = None
+            if isinstance(built, list) and built:
+                recommendations = built
     payload = scan_daily_opportunities(
         feed,
         recommendations=recommendations,

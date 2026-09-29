@@ -12,6 +12,7 @@ from app.models.schemas import (
 )
 from app.services.shariah import company_name_for, resolve_listed_company, search_listed_companies
 from app.services.tickchart_autosync import parse_export_text
+from app.services.tickchart_integration import warm_public_quotes
 
 router = APIRouter(prefix="/api/v1/tickchart", tags=["tickchart"])
 _HISTORY_FETCH_TIMEOUT_SECONDS = 10.0
@@ -32,6 +33,7 @@ async def tickchart_status(request: Request) -> TickChartStatusResponse:
 @router.get("/tape")
 async def tickchart_tape(request: Request) -> dict[str, Any]:
     feed = getattr(request.app.state, "tickchart", None)
+    await warm_public_quotes(feed)
     rows = feed.quote_tape() if feed is not None else []
     return {"success": True, "source": "TickChart", "count": len(rows), "data": rows}
 
@@ -39,6 +41,7 @@ async def tickchart_tape(request: Request) -> dict[str, Any]:
 @router.get("/market")
 async def tickchart_market(request: Request) -> dict[str, Any]:
     feed = getattr(request.app.state, "tickchart", None)
+    await warm_public_quotes(feed)
     rows = feed.market_rows() if feed is not None else []
     return {"success": True, "source": "TickChart", "count": len(rows), "data": rows}
 

@@ -140,7 +140,8 @@ function publishPick(item: AnalystBookPick, today: string, pureOnly: boolean, li
   if (!item.valid_until || item.valid_until < today) return null;
   const houses = item.houses.map((name) => name.trim()).filter(Boolean);
   if (!houses.length || !isValidLongPlan(item.entry_price, item.target_price, item.stop_loss)) return null;
-  if (live == null || !(live > 0)) return null;
+  const anchor = live != null && live > 0 ? live : item.entry_price;
+  if (!(anchor > 0)) return null;
   const locked = lockScaledPlan(
     "analyst",
     symbol,
@@ -148,7 +149,7 @@ function publishPick(item: AnalystBookPick, today: string, pureOnly: boolean, li
     item.entry_price,
     item.target_price,
     item.stop_loss,
-    live,
+    anchor,
   );
   if (!locked) return null;
   const status = shariahStatus(symbol);
@@ -158,7 +159,7 @@ function publishPick(item: AnalystBookPick, today: string, pureOnly: boolean, li
     name: listedNameFor(symbol) || stock?.companyNameAr || symbol,
     sector: stock?.sector || "",
     houses,
-    last_price: Number(live.toFixed(2)),
+    last_price: Number(anchor.toFixed(2)),
     entry_price: locked.entry_price,
     target_price: locked.target_price,
     stop_loss: locked.stop_loss,

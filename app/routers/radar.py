@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.core.exceptions import TickChartNotConfiguredError
 from app.models.schemas import RadarLiveResponse, TriggerTestAlertResponse
 from app.services.telegram_alert_bot import TelegramAlertBot
+from app.services.tickchart_integration import warm_public_quotes
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ async def get_live_liquidity_radar(
         raise TickChartNotConfiguredError()
 
     ticker = symbol.strip().upper()
+    await warm_public_quotes(feed)
     report = await feed.ensure_radar(ticker)
     if report.get("live_quote"):
         telegram = getattr(request.app.state, "telegram", None)

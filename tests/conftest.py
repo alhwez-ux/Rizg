@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
+
+os.environ.setdefault("RIZG_DISABLE_PUBLIC_QUOTES", "1")
 
 import pytest
 
