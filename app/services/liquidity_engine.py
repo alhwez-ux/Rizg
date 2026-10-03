@@ -39,6 +39,16 @@ def _live_signal_engine():
     return _LIVE_SIGNAL_ENGINE
 
 
+def _block_side(state: _TickerState) -> str | None:
+    if state.block_trades <= 0 or state.block_volume <= ZERO:
+        return None
+    if state.block_buy_volume > state.block_sell_volume and state.block_buy_volume > ZERO:
+        return "buy"
+    if state.block_sell_volume > state.block_buy_volume and state.block_sell_volume > ZERO:
+        return "sell"
+    return None
+
+
 def reset_live_signal_engine(engine=None) -> None:
     """Replace or drop the process-wide live signal latch (tests)."""
 
@@ -107,6 +117,7 @@ class MarketLevels:
     last_price: Decimal | None = None
     session_high: Decimal | None = None
     session_low: Decimal | None = None
+    vwap_15m: Decimal | None = None
 
 
 @dataclass
@@ -127,6 +138,11 @@ class _TickerState:
     session_low: Decimal | None = None
     prev_close: Decimal | None = None
     true_ranges: deque[Decimal] = field(default_factory=lambda: deque(maxlen=14))
+    vwap_window: deque[tuple[datetime, Decimal, Decimal]] = field(default_factory=lambda: deque(maxlen=4000))
+    block_trades: int = 0
+    block_volume: Decimal = ZERO
+    block_buy_volume: Decimal = ZERO
+    block_sell_volume: Decimal = ZERO
     bid: Decimal | None = None
     ask: Decimal | None = None
     bid_size: Decimal | None = None
@@ -141,6 +157,20 @@ class _TickerState:
         if self.vwap_vol <= ZERO:
             return None
         return _quantize(self.vwap_pv / self.vwap_vol, PRICE_QUANTUM)
+
+    def rolling_vwap(self, *, minutes: int = 15, now: datetime | None = None) -> Decimal | None:
+        moment = now or datetime.now()
+        cutoff_seconds = max(1, int(minutes)) * 60
+        pv = ZERO
+        vol = ZERO
+        for stamp, price, volume in self.vwap_window:
+            if (moment - stamp).total_seconds() > cutoff_seconds:
+                continue
+            pv += price * volume
+            vol += volume
+        if vol <= ZERO:
+            return None
+        return _quantize(pv / vol, PRICE_QUANTUM)
 
     @property
     def book_pressure(self) -> Decimal | None:
@@ -338,6 +368,22 @@ class LiquidityEngine:
                 return _TickerState(symbol=ticker).snapshot()
             return state.snapshot()
 
+    def record_block(self, symbol: str, volume: Number, side: TradeSide | None) -> None:
+        """Count a confirmed block print so entry/exit can require block volume."""
+
+        qty = _quantize(_to_decimal(volume, field_name="volume"), self._volume_quantum)
+        if qty <= ZERO or side not in (TradeSide.BUY, TradeSide.SELL):
+            return
+        ticker = self._normalize_symbol(symbol)
+        with self._lock:
+            state = self._sessions.setdefault(ticker, _TickerState(symbol=ticker))
+            state.block_trades += 1
+            state.block_volume = _quantize(state.block_volume + qty, self._volume_quantum)
+            if side == TradeSide.BUY:
+                state.block_buy_volume = _quantize(state.block_buy_volume + qty, self._volume_quantum)
+            else:
+                state.block_sell_volume = _quantize(state.block_sell_volume + qty, self._volume_quantum)
+
     def recommendation_flag(self, symbol: str) -> str | None:
         """دخول/خروج from the live SignalEngine, or None when the tape is quiet."""
 
@@ -348,6 +394,11 @@ class LiquidityEngine:
             return None
         session = self.session_snapshot(ticker)
         levels = self.levels_snapshot(ticker)
+        with self._lock:
+            state = self._sessions.get(ticker)
+            block_trades = state.block_trades if state is not None else 0
+            block_volume = state.block_volume if state is not None else ZERO
+            block_side = _block_side(state) if state is not None else None
         inputs = apply_levels(
             SignalInputs(
                 inflow=session.inflow,
@@ -356,6 +407,9 @@ class LiquidityEngine:
                 buy_volume=session.buy_volume,
                 sell_volume=session.sell_volume,
                 price=session.last_price or levels.last_price,
+                block_trades=block_trades,
+                block_volume=block_volume,
+                block_side=block_side,
                 tracked=True,
                 symbol=ticker,
             ),
@@ -459,6 +513,7 @@ class LiquidityEngine:
             last_price=state.last_price,
             session_high=state.session_high,
             session_low=state.session_low,
+            vwap_15m=state.rolling_vwap(minutes=15),
         )
 
     def _update_vwap(self, state: _TickerState, price: Decimal, volume: Decimal) -> None:
@@ -466,6 +521,7 @@ class LiquidityEngine:
             return
         state.vwap_pv = _quantize(state.vwap_pv + (price * volume), self._money_quantum)
         state.vwap_vol = _quantize(state.vwap_vol + volume, self._volume_quantum)
+        state.vwap_window.append((datetime.now(), price, volume))
 
     def _update_session_range(self, state: _TickerState, price: Decimal) -> None:
         if state.session_high is None or price > state.session_high:
@@ -764,6 +820,10 @@ class LiquidityRadarEngine(LiquidityEngine):
                 session_value=extra_value,
                 avg_volume=extra_avg if extra_avg is not None else avg_volume,
                 swing_low=extra_swing if extra_swing is not None else swing_low or levels.session_low,
+                block_trades=int(extra.get("block_trades") or 0),
+                block_volume=_optional_decimal(extra.get("block_volume")),
+                block_side=str(extra.get("block_side") or "") or None,
+                vwap_15m=_optional_decimal(extra.get("vwap_15m")) or levels.vwap_15m,
                 tracked=True,
                 symbol=ticker,
             ),

@@ -7,16 +7,42 @@ from app.services.signals import SignalEngine, SignalInputs
 from app.services.watchlist import WatchlistService
 
 
+def _entry(**overrides: object) -> SignalInputs:
+    payload: dict[str, object] = {
+        "inflow": Decimal("80000"),
+        "outflow": Decimal("20000"),
+        "buy_volume": Decimal("9000"),
+        "sell_volume": Decimal("3000"),
+        "price": Decimal("25"),
+        "vwap_15m": Decimal("24.4"),
+        "block_trades": 2,
+        "block_volume": Decimal("180000"),
+        "block_side": "buy",
+    }
+    payload.update(overrides)
+    return SignalInputs(**payload)  # type: ignore[arg-type]
+
+
+def _exit_tape(**overrides: object) -> SignalInputs:
+    payload: dict[str, object] = {
+        "inflow": Decimal("18000"),
+        "outflow": Decimal("82000"),
+        "buy_volume": Decimal("2000"),
+        "sell_volume": Decimal("8000"),
+        "price": Decimal("24.10"),
+        "vwap": Decimal("24.50"),
+        "vwap_15m": Decimal("24.40"),
+        "block_trades": 2,
+        "block_volume": Decimal("180000"),
+        "block_side": "sell",
+    }
+    payload.update(overrides)
+    return SignalInputs(**payload)  # type: ignore[arg-type]
+
+
 def test_entry_requires_net_inflow_and_aggressive_buying() -> None:
     engine = SignalEngine(net_flow_threshold=Decimal("15000"), aggressive_ratio=Decimal("0.58"))
-    decision = engine.evaluate(
-        SignalInputs(
-            inflow=Decimal("80000"),
-            outflow=Decimal("20000"),
-            buy_volume=Decimal("9000"),
-            sell_volume=Decimal("3000"),
-        )
-    )
+    decision = engine.evaluate(_entry())
     assert decision.entry is True
     assert decision.exit is False
     assert decision.flow_verified is True
@@ -43,8 +69,9 @@ def test_value_ratio_used_when_aggressive_volume_is_missing() -> None:
     decision = engine.evaluate(
         SignalInputs(inflow=Decimal("80000"), outflow=Decimal("20000"))
     )
-    assert decision.entry is True
+    assert decision.entry is False
     assert decision.buy_ratio == Decimal("0.8000")
+    assert any("كتل" in reason for reason in decision.reasons)
 
 
 def test_sell_volume_blocks_entry_even_with_positive_net_value() -> None:
@@ -85,9 +112,9 @@ def test_agile_entry_on_modest_net_flow_and_buy_pressure() -> None:
             sell_volume=Decimal("480"),
         )
     )
-    assert decision.entry is True
+    assert decision.entry is False
     assert decision.exit is False
-    assert decision.reasons[0] == "إشارة دخول 🚀"
+    assert any("حياد مستقر" in reason for reason in decision.reasons)
 
 
 def test_agile_exit_ignores_flat_or_minor_fade() -> None:
@@ -117,14 +144,7 @@ def test_agile_exit_ignores_flat_or_minor_fade() -> None:
 
 def test_exit_requires_net_outflow_and_heavy_selling() -> None:
     engine = SignalEngine(net_flow_threshold=Decimal("15000"), aggressive_ratio=Decimal("0.58"))
-    decision = engine.evaluate(
-        SignalInputs(
-            inflow=Decimal("18000"),
-            outflow=Decimal("82000"),
-            buy_volume=Decimal("2000"),
-            sell_volume=Decimal("8000"),
-        )
-    )
+    decision = engine.evaluate(_exit_tape())
     assert decision.entry is False
     assert decision.exit is True
     assert decision.reasons[0] == "إشارة خروج / تصريف ⚠️"
@@ -132,15 +152,7 @@ def test_exit_requires_net_outflow_and_heavy_selling() -> None:
 
 def test_untracked_entry_is_unexpected_radar_candidate() -> None:
     engine = SignalEngine()
-    decision = engine.evaluate(
-        SignalInputs(
-            inflow=Decimal("90000"),
-            outflow=Decimal("10000"),
-            buy_volume=Decimal("12000"),
-            sell_volume=Decimal("2000"),
-            tracked=False,
-        )
-    )
+    decision = engine.evaluate(_entry(tracked=False))
     assert decision.entry is True
     assert decision.unexpected is True
 
@@ -163,6 +175,10 @@ def test_watchlist_and_radar_share_the_same_flow_rules(tmp_path) -> None:
         {
             "symbol": "4030",
             "price": "24.50",
+            "vwap_15m": "24.20",
+            "block_trades": 2,
+            "block_volume": "180000",
+            "block_side": "buy",
             "volume": "1000",
             "change_percent": "-0.4",
             "liquidity": {
@@ -180,6 +196,10 @@ def test_watchlist_and_radar_share_the_same_flow_rules(tmp_path) -> None:
             "symbol": "2222",
             "name": "أرامكو",
             "price": "27.10",
+            "vwap_15m": "27.40",
+            "block_trades": 2,
+            "block_volume": "180000",
+            "block_side": "sell",
             "volume": "9000",
             "change_percent": "1.2",
             "liquidity": {
@@ -257,13 +277,10 @@ def test_entry_suggests_bid_or_vwap_with_atr_target_and_stop() -> None:
         atr_stop_mult=Decimal("1.0"),
     )
     decision = engine.evaluate(
-        SignalInputs(
-            inflow=Decimal("80000"),
-            outflow=Decimal("20000"),
-            buy_volume=Decimal("9000"),
-            sell_volume=Decimal("3000"),
+        _entry(
             price=Decimal("24.80"),
             vwap=Decimal("24.50"),
+            vwap_15m=Decimal("24.40"),
             atr=Decimal("0.40"),
             bid=Decimal("24.48"),
             ask=Decimal("24.82"),
@@ -280,17 +297,7 @@ def test_entry_suggests_bid_or_vwap_with_atr_target_and_stop() -> None:
 
 def test_exit_recommends_ask_or_vwap() -> None:
     engine = SignalEngine(net_flow_threshold=Decimal("15000"), aggressive_ratio=Decimal("0.58"))
-    decision = engine.evaluate(
-        SignalInputs(
-            inflow=Decimal("18000"),
-            outflow=Decimal("82000"),
-            buy_volume=Decimal("2000"),
-            sell_volume=Decimal("8000"),
-            price=Decimal("24.10"),
-            vwap=Decimal("24.50"),
-            ask=Decimal("24.12"),
-        )
-    )
+    decision = engine.evaluate(_exit_tape(ask=Decimal("24.12")))
     assert decision.exit is True
     assert decision.suggested_exit == Decimal("24.50")
     assert decision.suggested_entry is None
@@ -304,9 +311,9 @@ def test_relative_ranking_fires_top_share_below_absolute_floor() -> None:
     engine = SignalEngine(net_flow_threshold=Decimal("15000"), entry_share=Decimal("0.15"))
     top = engine.evaluate(SignalInputs(net_flow=Decimal("950"), symbol="1120"), peer_nets=peers)
     missed = engine.evaluate(SignalInputs(net_flow=Decimal("400"), symbol="4030"), peer_nets=peers)
-    assert top.entry is True
+    assert top.entry is False
     assert missed.entry is False
-    assert any("15%" in reason for reason in top.reasons)
+    assert any("حياد مستقر" in reason for reason in top.reasons)
 
 
 def test_buying_spike_fires_on_quiet_positive_tape() -> None:
@@ -327,8 +334,8 @@ def test_buying_spike_fires_on_quiet_positive_tape() -> None:
             symbol="4190",
         )
     )
-    assert aggressive.entry is True
-    assert book.entry is True
+    assert aggressive.entry is False
+    assert book.entry is False
 
 
 def test_proxy_green_print_ranks_against_peers() -> None:
@@ -343,4 +350,4 @@ def test_proxy_green_print_ranks_against_peers() -> None:
         ),
         peer_nets=peers,
     )
-    assert decision.entry is True
+    assert decision.entry is False

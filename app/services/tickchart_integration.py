@@ -352,12 +352,14 @@ class TickChartFeed:
             if fresh:
                 try:
                     result = self._engine.process_trade(symbol, price, volume, timestamp=timestamp)
-                    self._tape(symbol).observe_print(
+                    printed = self._tape(symbol).observe_print(
                         price,
                         volume,
                         side=result.side,
                         block_floor=self._block_floor,
                     )
+                    if printed.get("block"):
+                        self._engine.record_block(symbol, volume, result.side)
                     self._last_trade_time[symbol] = timestamp.isoformat()
                 except Exception:
                     logger.exception("failed to ingest TickChart snapshot for %s", symbol)
@@ -657,15 +659,16 @@ class TickChartFeed:
                 "avg_volume": avg_volume,
                 "swing_low": swing_low,
                 "peer_nets": self._peer_nets(),
+                "block_trades": live.get("block_trades") or 0,
+                "block_volume": live.get("block_volume") or live.get("last_block_value"),
+                "block_side": live.get("block_side") or live.get("large_block_side"),
+                "vwap_15m": live.get("vwap_15m"),
             },
         )
         trap = live.get("trap") or report.get("trap")
         if trap:
             report["trap"] = trap
-            if trap.get("kind") in {"silent_accumulation", "hidden_accumulation"}:
-                report["signal"] = "entry"
-                report["entry"] = True
-            elif trap.get("kind") in {"bull_trap", "bear_trap", "silent_distribution"}:
+            if trap.get("kind") in {"bull_trap", "bear_trap", "silent_distribution"} and not report.get("entry"):
                 report["signal"] = "trap"
             reasons = list(report.get("reasons") or [])
             if trap["label"] not in reasons:
@@ -2008,12 +2011,14 @@ class TickChartFeed:
             return False
         try:
             result = self._engine.process_trade(symbol, price, volume, timestamp=timestamp)
-            self._tape(symbol).observe_print(
+            printed = self._tape(symbol).observe_print(
                 price,
                 volume,
                 side=result.side,
                 block_floor=self._block_floor,
             )
+            if printed.get("block"):
+                self._engine.record_block(symbol, volume, result.side)
             message = self._engine.stream_message(result)
             await self._manager.broadcast(symbol, message.as_json())
             if self._alerts is not None:

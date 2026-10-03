@@ -56,6 +56,7 @@ class SymbolTape:
     session_quantity: Decimal = ZERO
     session_value: Decimal = ZERO
     block_trades: int = 0
+    block_quantity: Decimal = ZERO
     last_block_value: Decimal | None = None
     prev_close: Decimal | None = None
 
@@ -77,6 +78,7 @@ class SymbolTape:
         institutional = _is_block(value, quantity, self.values, self.quantities, block_floor)
         if institutional:
             self.block_trades += 1
+            self.block_quantity += quantity
             self.last_block_value = value
             if side == TradeSide.BUY:
                 self.inst_inflow += value
@@ -117,6 +119,17 @@ class SymbolTape:
 
     def institutional_mfi(self) -> Decimal | None:
         return self.mfi(self.inst_inflow, self.inst_outflow)
+
+    def block_side(self) -> str | None:
+        """Buy or sell only when block notional is one-sided. Mixed tape stays neutral."""
+
+        if self.block_trades <= 0 or self.block_quantity <= ZERO:
+            return None
+        if self.inst_inflow > self.inst_outflow and self.inst_inflow > ZERO:
+            return "buy"
+        if self.inst_outflow > self.inst_inflow and self.inst_outflow > ZERO:
+            return "sell"
+        return None
 
     def retail_mfi(self) -> Decimal | None:
         return self.mfi(self.retail_inflow, self.retail_outflow)
@@ -298,6 +311,8 @@ class SymbolTape:
             "retail_outflow": _json(self.retail_outflow),
             "volume_ratio": _json(self.volume_ratio()),
             "block_trades": self.block_trades,
+            "block_volume": _json(self.block_quantity),
+            "block_side": self.block_side(),
             "last_block_value": _json(self.last_block_value),
             "clustered": clusters["clustered"],
             "clustered_buys": clusters["clustered_buys"],

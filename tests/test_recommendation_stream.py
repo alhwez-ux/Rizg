@@ -51,17 +51,27 @@ def test_stream_message_includes_recommendation() -> None:
     assert payload["symbol"] == "4030"
 
 
-def test_engine_emits_entry_recommendation() -> None:
+def test_engine_stays_neutral_without_the_three_pillars() -> None:
     engine = LiquidityEngine()
     engine.process_trade("4030", Decimal("10"), Decimal("100"))
     result = engine.process_trade("4030", Decimal("11"), Decimal("2000"))
+    assert engine.recommendation_flag("4030") is None
+    assert engine.stream_message(result).as_json()["recommendation"] is None
+
+
+def test_engine_emits_entry_only_when_flow_blocks_and_vwap_align() -> None:
+    engine = LiquidityEngine()
+    engine.process_trade("4030", Decimal("10"), Decimal("1000"))
+    result = engine.process_trade("4030", Decimal("11"), Decimal("50000"))
+    engine.record_block("4030", Decimal("50000"), TradeSide.BUY)
     assert engine.recommendation_flag("4030") == "دخول"
     assert engine.stream_message(result).as_json()["recommendation"] == "دخول"
 
 
-def test_engine_emits_exit_recommendation() -> None:
+def test_engine_emits_exit_only_when_flow_blocks_and_vwap_align() -> None:
     engine = LiquidityEngine()
-    engine.process_trade("4030", Decimal("11"), Decimal("100"))
-    result = engine.process_trade("4030", Decimal("10"), Decimal("2000"))
+    engine.process_trade("4030", Decimal("12"), Decimal("1000"))
+    result = engine.process_trade("4030", Decimal("10"), Decimal("60000"))
+    engine.record_block("4030", Decimal("60000"), TradeSide.SELL)
     assert engine.recommendation_flag("4030") == "خروج"
     assert engine.stream_message(result).as_json()["recommendation"] == "خروج"

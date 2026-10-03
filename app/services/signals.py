@@ -46,6 +46,10 @@ class SignalInputs:
     book_pressure: Decimal | None = None
     avg_volume: Decimal | None = None
     swing_low: Decimal | None = None
+    block_trades: int = 0
+    block_volume: Decimal | None = None
+    block_side: str | None = None
+    vwap_15m: Decimal | None = None
     in_gainers: bool = False
     in_volume_leaders: bool = False
     in_value_leaders: bool = False
@@ -82,6 +86,63 @@ class _SymbolLatch:
     last_entry_at: float = 0.0
     last_exit_at: float = 0.0
     published: str = ""
+
+
+@dataclass(frozen=True)
+class _Alignment:
+    entry: bool
+    exit: bool
+    notes: tuple[str, ...]
+
+
+def _institutional_alignment(
+    inputs: SignalInputs,
+    *,
+    net: Decimal | None,
+    proxied: bool,
+) -> _Alignment:
+    """دخول فقط عند توافق السيولة الموجبة وحجم الكتل والسعر فوق VWAP 15 دقيقة.
+
+    الخروج عكس ذلك. أي شرط ناقص يُبقي الحالة حياداً مستقراً.
+    """
+
+    notes: list[str] = []
+    positive_net = (not proxied) and net is not None and net > _ZERO
+    negative_net = (not proxied) and net is not None and net < _ZERO
+    notes.append("صافي السيولة موجب" if positive_net else "صافي السيولة غير موجب")
+
+    blocks = max(0, int(inputs.block_trades or 0))
+    block_volume = _positive(inputs.block_volume)
+    side = str(inputs.block_side or "").strip().lower()
+    buy_blocks = blocks >= 1 and block_volume is not None and side == "buy"
+    sell_blocks = blocks >= 1 and block_volume is not None and side == "sell"
+    if buy_blocks:
+        notes.append(f"تأكيد حجم الكتل الشرائية: {blocks}")
+    elif sell_blocks:
+        notes.append(f"تأكيد حجم الكتل البيعية: {blocks}")
+    else:
+        notes.append("لا يوجد تأكيد حجم لصفقات الكتل")
+
+    price = _positive(inputs.price)
+    vwap_15 = _positive(inputs.vwap_15m)
+    above = price is not None and vwap_15 is not None and price > vwap_15
+    below = price is not None and vwap_15 is not None and price < vwap_15
+    if above:
+        notes.append("السعر فوق متوسط 15 دقيقة")
+    elif below:
+        notes.append("السعر تحت متوسط 15 دقيقة")
+    else:
+        notes.append("متوسط 15 دقيقة غير متحقق")
+
+    entry = positive_net and buy_blocks and above
+    exit_signal = negative_net and sell_blocks and below
+    if entry and exit_signal:
+        entry = False
+        exit_signal = False
+        notes.append("تعارض الشروط — حياد")
+    elif not entry and not exit_signal:
+        notes.append("حياد مستقر — الشروط الثلاثة غير متحققة معاً")
+    return _Alignment(entry=entry, exit=exit_signal, notes=tuple(notes))
 
 
 class SignalEngine:
@@ -181,52 +242,23 @@ class SignalEngine:
                 reasons.append("ضغط دفتر البيع أعلى من الطلب")
                 score += Decimal("0.4")
 
-        aggressive_buy = buy_ratio is not None and buy_ratio >= self._aggressive
-        book_buy = book_pressure is not None and book_pressure >= self._book_threshold
-        volume_spike = surge is not None and surge >= self._volume_surge
-        buying_spike = aggressive_buy or book_buy or volume_spike
-        not_selling = buy_ratio is None or buy_ratio >= _HALF
         tape_ready = _has_tape(inputs, inflow=inflow, outflow=outflow, net=net)
         cutoff = positive_net_cutoff(peer_nets, share=self._entry_share) if peer_nets is not None else None
-        relative_hit = bool(cutoff is not None and net is not None and net >= cutoff and not_selling)
-        spike_hit = bool(net is not None and net > 0 and buying_spike and not_selling)
-        absolute_hit = bool(
-            (not proxied)
-            and net is not None
-            and net >= self._net_threshold
-            and (buy_ratio is None or aggressive_buy)
-        )
+        alignment = _institutional_alignment(inputs, net=net, proxied=proxied)
+        reasons.extend(alignment.notes)
+        raw_entry = alignment.entry
+        raw_exit = alignment.exit
         volume_confirmed = surge is not None and surge >= Decimal("1.5")
         has_volume_profile = _positive(inputs.avg_volume) is not None
-        raw_entry = bool(relative_hit or spike_hit or absolute_hit)
         if has_volume_profile and raw_entry and not volume_confirmed:
             reasons.append("كسر بدون تأكيد حجم مقابل متوسط 10 جلسات — احتمال اختراق وهمي")
             raw_entry = False
-        raw_exit = _raw_exit(
-            net=net,
-            tape_ready=tape_ready,
-            raw_entry=raw_entry,
-            sell_ratio=sell_ratio,
-            book_pressure=book_pressure,
-            surge=surge,
-            exit_ceiling=self._exit_ceiling,
-            net_threshold=self._net_threshold,
-            aggressive=self._aggressive,
-            book_threshold=self._book_threshold,
-        )
         entry, exit_signal = self._stabilize(
             inputs.symbol,
             raw_entry=raw_entry,
             raw_exit=raw_exit,
             reasons=reasons,
         )
-        if raw_exit:
-            reasons.append("انعكاس زخم أو استنزاف سيولة وليس ضجيجاً لحظياً")
-        if relative_hit:
-            pct = int(self._entry_share * 100)
-            reasons.append(f"ضمن أعلى {pct}% من صافي التدفق الموجب بين الأقران")
-        if spike_hit and not relative_hit:
-            reasons.append("ضغط شراء لحظي (كمية عدوانية أو دفتر أو ارتفاع حجم)")
         if entry and volume_confirmed:
             reasons.append("تأكيد سيولة: الكمية العدوانية أعلى من متوسط 10 جلسات")
 
@@ -252,14 +284,6 @@ class SignalEngine:
             score += Decimal("3.5")
             if sell_ratio is not None:
                 score += (sell_ratio - self._aggressive) * Decimal("4")
-        elif net is not None and net > self._exit_ceiling and buy_ratio is not None and not aggressive_buy:
-            reasons.append("صافي التدفق موجب لكن ضغط الشراء غير كافٍ للدخول")
-        elif net is not None and net > 0 and not entry:
-            reasons.append(
-                f"لم يصل لعتبة الدخول النسبية (cutoff={cutoff}) ولا يوجد ضغط شراء لحظي"
-            )
-        elif net is not None and (buy_ratio is None and sell_ratio is None):
-            reasons.append("لا توجد بيانات كمية/قيمة كافية لتأكيد الضغط العدواني")
         elif not tape_ready:
             reasons.append("بانتظار تدفق سيولة موثّق (صافي + شراء/بيع)")
 
@@ -271,9 +295,9 @@ class SignalEngine:
             surge=surge,
             cutoff=cutoff,
             proxied=proxied,
-            relative_hit=relative_hit,
-            spike_hit=spike_hit,
-            absolute_hit=absolute_hit,
+            relative_hit=alignment.entry,
+            spike_hit=False,
+            absolute_hit=alignment.entry,
             entry=entry,
             exit_signal=exit_signal,
             reasons=reasons,
@@ -369,12 +393,17 @@ class SignalEngine:
             return False, True
 
         if state.published == "entry":
-            reasons.append("المحافظة على الدخول حتى تأكيد انعكاس الزخم أو استنزاف السيولة")
+            if state.quiet_streak >= _QUIET_CLEAR_HITS:
+                state.published = ""
+                reasons.append("حياد مستقر — شروط الدخول لم تعد متحققة")
+                return False, False
+            reasons.append("المحافظة على الدخول حتى يغيب التوافق ثلاثة فحوص أو يتأكد الخروج")
             return True, False
         if state.published == "exit" and state.quiet_streak < _QUIET_CLEAR_HITS:
             return False, True
         if state.quiet_streak >= _QUIET_CLEAR_HITS:
             state.published = ""
+            reasons.append("حياد مستقر")
         return False, False
 
 
@@ -553,6 +582,10 @@ def apply_levels(inputs: SignalInputs, levels: MarketLevels | None) -> SignalInp
         ask_size=inputs.ask_size or levels.ask_size,
         book_pressure=inputs.book_pressure or levels.book_pressure,
         avg_volume=inputs.avg_volume,
+        block_trades=inputs.block_trades,
+        block_volume=inputs.block_volume,
+        block_side=inputs.block_side,
+        vwap_15m=inputs.vwap_15m or getattr(levels, "vwap_15m", None),
         swing_low=inputs.swing_low or getattr(levels, "session_low", None) or getattr(levels, "low", None),
         in_gainers=inputs.in_gainers,
         in_volume_leaders=inputs.in_volume_leaders,

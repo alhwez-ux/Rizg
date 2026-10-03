@@ -101,10 +101,6 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
   if (!tick || tick.symbol.toUpperCase() !== report.symbol.toUpperCase() || tickPrice == null) {
     return report;
   }
-  const flag = tick.recommendation;
-  const longSafe = isValidLongPlan(report.suggested_entry ?? tickPrice, report.target_price, report.stop_loss);
-  const entry = flag === "دخول" ? longSafe : flag === "خروج" ? false : report.entry && longSafe;
-  const exit = flag === "خروج" ? true : flag === "دخول" && longSafe ? false : report.exit;
   return {
     ...report,
     last_price: tickPrice,
@@ -117,9 +113,6 @@ export function overlayTickOnReport(report: LiveRadarReport, tick: LiquidityTick
     sell_volume: tick.sellVolume,
     ...liveVolumeRatios(tick.buyVolume, tick.sellVolume),
     trade_count: tick.tradeCount || report.trade_count,
-    entry,
-    exit,
-    signal: entry ? "entry" : exit ? "exit" : report.trap ? "trap" : report.signal,
   };
 }
 

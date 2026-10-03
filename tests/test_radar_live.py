@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,7 @@ from app.core.config import Settings
 from app.core.middleware import register_exception_handlers
 from app.routers.radar import router as radar_router
 from app.routers.tickchart import router as tickchart_router
+from app.models.trade import TradeSide
 from app.services.last_quotes import LastQuoteBook
 from app.services.liquidity_engine import LiquidityRadarEngine
 from app.services.tickchart_integration import TickChartFeed
@@ -311,6 +313,15 @@ def test_radar_entry_from_ranked_stored_net_flow(tmp_path: Path, monkeypatch) ->
             {"symbol": "4190", "last_price": 10.0, "net_flow": 200, "change_percent": 0.01, "volume": 10_000},
         ]
     )
+    feed._engine.process_trade("1120", Decimal("90"), Decimal("1000"))
+    feed._engine.process_trade("1120", Decimal("96.5"), Decimal("10000"))
+    feed._tape("1120").observe_print(
+        Decimal("96.5"),
+        Decimal("10000"),
+        side=TradeSide.BUY,
+        block_floor=feed._block_floor,
+    )
+    feed._engine.record_block("1120", Decimal("10000"), TradeSide.BUY)
     report = feed.radar_report("1120")
     quiet = feed.radar_report("4190")
     assert report["entry"] is True

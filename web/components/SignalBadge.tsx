@@ -31,7 +31,11 @@ export function RecommendationStatus({ value }: { value: RecommendationFlag | nu
       </span>
     );
   }
-  return null;
+  return (
+    <span className="inline-block shrink-0 text-[15px] font-semibold tracking-tight text-zinc-400">
+      {ar.liveRadarNeutral}
+    </span>
+  );
 }
 
 export function SignalBadge({ row }: { row: ScreenerRow }) {
@@ -52,7 +56,7 @@ export function SignalBadge({ row }: { row: ScreenerRow }) {
   }
   return (
     <span className="inline-flex rounded-full border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-xs text-zinc-500">
-      {ar.waitingFlow}
+      {ar.liveRadarNeutral}
     </span>
   );
 }

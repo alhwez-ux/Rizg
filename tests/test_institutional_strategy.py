@@ -76,6 +76,11 @@ def test_ten_session_volume_profile_required_when_present() -> None:
             sell_volume=Decimal("30"),
             volume=Decimal("4000"),
             avg_volume=Decimal("2000"),
+            price=Decimal("25"),
+            vwap_15m=Decimal("24.4"),
+            block_trades=2,
+            block_volume=Decimal("180000"),
+            block_side="buy",
             symbol="2222",
         )
     )

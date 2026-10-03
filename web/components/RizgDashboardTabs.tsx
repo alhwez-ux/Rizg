@@ -4,7 +4,6 @@ import { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, typ
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
-import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
 import { AnalystConsensusCard } from "@/components/AnalystConsensusCard";
 import { DailyLiquidityCard } from "@/components/DailyLiquidityCard";
 import { DailyOpportunitiesCard } from "@/components/DailyOpportunitiesCard";
@@ -22,7 +21,6 @@ import { ShariahFilterBar } from "@/components/ShariahFilterBar";
 import { DividendsCalendarCard } from "@/components/DividendsCalendarCard";
 import { PreOpenCard } from "@/components/PreOpenCard";
 import { SmartMoneyCard } from "@/components/SmartMoneyCard";
-import { SmartMoneyIcon } from "@/components/SmartMoneyIcon";
 import { RecoveryCard } from "@/components/RecoveryCard";
 import NotificationCenter from "./NotificationCenter";
 import { useAnalystConsensus } from "@/hooks/useAnalystConsensus";
@@ -37,28 +35,33 @@ import { listedNameFor } from "@/lib/listedCompanies";
 import type { UnderWatchRow } from "@/lib/underWatch";
 import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
-import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 
-type PrimaryTab = "home" | "preopen" | "daily" | "analysts" | "recovery" | "dividends";
-type HomeSection = "sectors" | "radar" | "flow" | "funds" | "recommendations" | "ranking";
+type PrimaryTab = "home" | "opportunities" | "tools";
+type ToolId = "preopen" | "funds" | "analysts" | "recovery" | "dividends" | "ranking";
 
-function isHomeSection(value: string | null): value is HomeSection {
-  return (
-    value === "sectors" ||
-    value === "radar" ||
-    value === "flow" ||
+function parseTool(value: string | null): ToolId | null {
+  if (
+    value === "preopen" ||
     value === "funds" ||
-    value === "recommendations" ||
+    value === "analysts" ||
+    value === "recovery" ||
+    value === "dividends" ||
     value === "ranking"
-  );
+  ) {
+    return value;
+  }
+  return null;
 }
 
-function parseView(tab: string | null, section: string | null): { primary: PrimaryTab; section: HomeSection } {
-  if (isHomeSection(tab)) return { primary: "home", section: tab };
-  const primary: PrimaryTab =
-    tab === "preopen" || tab === "daily" || tab === "analysts" || tab === "recovery" || tab === "dividends" ? tab : "home";
-  return { primary, section: isHomeSection(section) ? section : "sectors" };
+function parseView(tab: string | null, section: string | null): { primary: PrimaryTab; tool: ToolId | null } {
+  if (tab === "daily" || tab === "opportunities" || section === "recommendations" || section === "flow") {
+    return { primary: "opportunities", tool: null };
+  }
+  const tool = parseTool(tab) || parseTool(section);
+  if (tool) return { primary: "tools", tool };
+  if (tab === "tools") return { primary: "tools", tool: "preopen" };
+  return { primary: "home", tool: null };
 }
 
 function DashboardShell() {
@@ -66,11 +69,10 @@ function DashboardShell() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { tone } = useTasiTone();
-  const { live: sessionLive } = useTasiSession();
   const tablistId = useId();
   const view = parseView(searchParams.get("tab"), searchParams.get("section"));
   const activeTab = view.primary;
-  const homeSection = view.section;
+  const activeTool = view.tool;
   const selectedSector = searchParams.get("sector");
   const radarSymbol = searchParams.get("symbol");
   const radarName = searchParams.get("name");
@@ -103,31 +105,28 @@ function DashboardShell() {
       })),
     [watchPrices, watchSnapshot],
   );
-  const place = `${activeTab}:${homeSection}`;
+  const place = `${activeTab}:${activeTool ?? ""}`;
   const placeRef = useRef(place);
   const tabs = useMemo(
     () =>
       [
         { id: "home" as const, label: ar.tabsHome, icon: "💧" },
-        { id: "preopen" as const, label: ar.tabsPreopen, icon: "🌅" },
-        { id: "daily" as const, label: ar.tabsDaily, icon: "⚡" },
-        { id: "analysts" as const, label: ar.tabsAnalysts, icon: "👁" },
-        { id: "recovery" as const, label: ar.tabsRecovery, icon: "🧮" },
-        { id: "dividends" as const, label: ar.tabsDividends, icon: "💰" },
+        { id: "opportunities" as const, label: ar.tabsOpportunities, icon: "⚡" },
+        { id: "tools" as const, label: ar.tabsTools, icon: "🧰" },
       ] satisfies { id: PrimaryTab; label: string; icon: string }[],
     [],
   );
-  const homeSections = useMemo(
+  const tools = useMemo(
     () =>
       [
-        { id: "sectors" as const, label: ar.homeSectors },
-        { id: "radar" as const, label: ar.homeRadar },
-        { id: "flow" as const, label: ar.homeFlow },
+        { id: "preopen" as const, label: ar.tabsPreopen },
         { id: "funds" as const, label: ar.homeFunds },
-        { id: "recommendations" as const, label: sessionLive ? ar.recoButtonLive : ar.recoButtonEod },
+        { id: "analysts" as const, label: ar.tabsAnalysts },
+        { id: "recovery" as const, label: ar.tabsRecovery },
+        { id: "dividends" as const, label: ar.tabsDividends },
         { id: "ranking" as const, label: ar.homeRanking },
-      ] satisfies { id: HomeSection; label: string }[],
-    [sessionLive],
+      ] satisfies { id: ToolId; label: string }[],
+    [],
   );
 
   const replaceQuery = useCallback(
@@ -152,12 +151,16 @@ function DashboardShell() {
     (id: PrimaryTab) => {
       closeWatch();
       if (id === "home") {
-        replaceQuery({ tab: null, symbol: null, name: null });
+        replaceQuery({ tab: null, section: null, symbol: null, name: null });
         return;
       }
-      replaceQuery({ tab: id, section: null, sector: null, symbol: null, name: null });
+      if (id === "opportunities") {
+        replaceQuery({ tab: "opportunities", section: null, sector: null, symbol: null, name: null });
+        return;
+      }
+      replaceQuery({ tab: "tools", section: activeTool ?? "preopen", sector: null, symbol: null, name: null });
     },
-    [closeWatch, replaceQuery],
+    [activeTool, closeWatch, replaceQuery],
   );
 
   const revealWatch = useCallback(() => {
@@ -173,18 +176,12 @@ function DashboardShell() {
     setWatchSnapshot([]);
   }, [place]);
 
-  const setHomeSection = useCallback(
-    (id: HomeSection) => {
+  const setTool = useCallback(
+    (id: ToolId) => {
       closeWatch();
-      replaceQuery({
-        tab: null,
-        section: id === "sectors" ? null : id,
-        sector: id === "sectors" ? selectedSector : null,
-        symbol: id === "radar" || id === "sectors" ? radarSymbol : null,
-        name: id === "radar" || id === "sectors" ? radarName : null,
-      });
+      replaceQuery({ tab: "tools", section: id, sector: null, symbol: null, name: null });
     },
-    [closeWatch, radarName, radarSymbol, replaceQuery, selectedSector],
+    [closeWatch, replaceQuery],
   );
 
   useEffect(() => {
@@ -206,7 +203,7 @@ function DashboardShell() {
     (company: { symbol: string; name: string }) => {
       closeWatch();
       addCompany(company);
-      replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: company.name, sector: null });
+      replaceQuery({ tab: null, section: null, symbol: company.symbol, name: company.name, sector: null });
     },
     [addCompany, closeWatch, replaceQuery],
   );
@@ -254,7 +251,7 @@ function DashboardShell() {
             onFollow={(company) => {
               closeWatch();
               addCompany(company);
-              replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: null, sector: null });
+              replaceQuery({ tab: null, section: null, symbol: company.symbol, name: null, sector: null });
             }}
           />
         </div>
@@ -290,7 +287,7 @@ function DashboardShell() {
                   explosive={visibleWatchRows.some((row) => row.explosive)}
                   hidden={visibleWatchRows.some((row) => row.hidden_accumulation)}
                 />
-              ) : tab.id === "preopen" && preopenPayload?.in_window ? (
+              ) : tab.id === "tools" && preopenPayload?.in_window ? (
                 <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300 opacity-75" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-300" />
@@ -318,136 +315,58 @@ function DashboardShell() {
           <UnderWatchSection rows={watchRows} onClose={closeWatch} />
         ) : null}
 
-        {!watchOpen && activeTab === "preopen" ? (
-          <PreOpenCard
-            payload={preopenPayload}
-            loading={preopenLoading}
-            error={preopenError}
-            shariahFilter={shariahFilter}
-            onOpenSymbol={openWatchedCompany}
-          />
+        {!watchOpen && activeTab === "opportunities" ? (
+          <div className="space-y-6">
+            <p className="text-center text-xs text-zinc-400">{ar.opportunitiesHint}</p>
+            <DailyOpportunitiesCard
+              payload={dailyPayload}
+              loading={dailyLoading}
+              error={dailyError}
+              onOpenSymbol={openWatchedCompany}
+            />
+            <RecommendationsCard shariahFilter={shariahFilter} />
+            <DailyLiquidityCard
+              shariahFilter={shariahFilter}
+              onOpenSymbol={(company) => {
+                closeWatch();
+                addCompany(company);
+                replaceQuery({ tab: null, section: null, symbol: company.symbol, name: company.name, sector: null });
+              }}
+            />
+          </div>
         ) : null}
 
-        {!watchOpen && activeTab === "daily" ? (
-          <DailyOpportunitiesCard
-            payload={dailyPayload}
-            loading={dailyLoading}
-            error={dailyError}
-            onOpenSymbol={openWatchedCompany}
-          />
-        ) : null}
-
-        {!watchOpen && activeTab === "analysts" ? (
-          <AnalystConsensusCard
-            payload={analystPayload}
-            loading={analystLoading}
-            error={analystError}
-            onOpenSymbol={openWatchedCompany}
-          />
-        ) : null}
-
-        {!watchOpen && activeTab === "recovery" ? (
-          <RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} />
-        ) : null}
-
-        {!watchOpen && activeTab === "dividends" ? (
-          <DividendsCalendarCard
-            rows={dividendRows}
-            loading={dividendLoading}
-            error={dividendError}
-            hint={dividendHint}
-            asOf={dividendAsOf}
-            onOpen={openWatchedCompany}
-          />
-        ) : null}
-
-        {activeTab === "home" ? (
+        {!watchOpen && activeTab === "tools" ? (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {homeSections.map((section) => {
-                const selected = !watchOpen && homeSection === section.id;
+              {tools.map((tool) => {
+                const selected = activeTool === tool.id;
                 return (
                   <button
-                    key={section.id}
+                    key={tool.id}
                     type="button"
-                    onClick={() => setHomeSection(section.id)}
+                    onClick={() => setTool(tool.id)}
                     className={`inline-flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
                       selected
                         ? "bg-zinc-100 text-zinc-950"
                         : "border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100"
                     }`}
                   >
-                    {section.id === "recommendations" && !sessionLive ? (
-                      <CloseRecommendationIcon className="h-4 w-4 shrink-0" />
-                    ) : section.id === "funds" ? (
-                      <SmartMoneyIcon className="h-4 w-4 shrink-0" />
-                    ) : null}
-                    {section.label}
+                    {tool.label}
                   </button>
                 );
               })}
             </div>
-
-            {watchOpen ? (
-              <UnderWatchSection rows={watchRows} onClose={closeWatch} />
-            ) : null}
-
-            {!watchOpen && homeSection === "sectors" ? (
-              <SectorHeatmapCard
-                selectedSector={selectedSector}
-                radarSymbol={radarSymbol}
-                radarName={radarName}
+            {activeTool === "preopen" ? (
+              <PreOpenCard
+                payload={preopenPayload}
+                loading={preopenLoading}
+                error={preopenError}
                 shariahFilter={shariahFilter}
-                onSelectSector={(sector) => replaceQuery({ tab: null, section: null, sector, symbol: null, name: null })}
-                onOpenRadar={(company) =>
-                  replaceQuery({
-                    tab: null,
-                    section: null,
-                    sector: selectedSector,
-                    symbol: company?.symbol ?? null,
-                    name: company?.name ?? null,
-                  })
-                }
+                onOpenSymbol={openWatchedCompany}
               />
             ) : null}
-
-            {!watchOpen && homeSection === "radar" ? (
-              <div className="space-y-4">
-                <div className="text-center">
-                  <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
-                  <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  {radarCards.length === 0 ? (
-                    <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
-                  ) : visibleRadarCards.length === 0 ? (
-                    <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
-                  ) : (
-                    visibleRadarCards.map((item) => (
-                      <LiquidityRadarCard
-                        key={item.symbol}
-                        symbol={item.symbol}
-                        symbolName={item.symbolName}
-                        onRemove={() => removeRadarCompany(item.symbol)}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : null}
-
-            {!watchOpen && homeSection === "flow" ? (
-              <DailyLiquidityCard
-                shariahFilter={shariahFilter}
-                onOpenSymbol={(company) => {
-                  closeWatch();
-                  addCompany(company);
-                  replaceQuery({ tab: null, section: "radar", symbol: company.symbol, name: company.name, sector: null });
-                }}
-              />
-            ) : null}
-
-            {!watchOpen && homeSection === "funds" ? (
+            {activeTool === "funds" ? (
               <SmartMoneyCard
                 payload={fundsPayload}
                 loading={fundsLoading}
@@ -456,10 +375,75 @@ function DashboardShell() {
                 onOpenSymbol={openWatchedCompany}
               />
             ) : null}
+            {activeTool === "analysts" ? (
+              <AnalystConsensusCard
+                payload={analystPayload}
+                loading={analystLoading}
+                error={analystError}
+                onOpenSymbol={openWatchedCompany}
+              />
+            ) : null}
+            {activeTool === "recovery" ? <RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} /> : null}
+            {activeTool === "dividends" ? (
+              <DividendsCalendarCard
+                rows={dividendRows}
+                loading={dividendLoading}
+                error={dividendError}
+                hint={dividendHint}
+                asOf={dividendAsOf}
+                onOpen={openWatchedCompany}
+              />
+            ) : null}
+            {activeTool === "ranking" ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
+          </div>
+        ) : null}
 
-            {!watchOpen && homeSection === "recommendations" ? <RecommendationsCard shariahFilter={shariahFilter} /> : null}
-
-            {!watchOpen && homeSection === "ranking" ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
+        {activeTab === "home" ? (
+          <div className="space-y-6">
+            <p className="text-center text-xs text-zinc-400">{ar.liveDashboardHint}</p>
+            {watchOpen ? <UnderWatchSection rows={watchRows} onClose={closeWatch} /> : null}
+            {!watchOpen ? (
+              <>
+                <SectorHeatmapCard
+                  selectedSector={selectedSector}
+                  radarSymbol={radarSymbol}
+                  radarName={radarName}
+                  shariahFilter={shariahFilter}
+                  onSelectSector={(sector) => replaceQuery({ tab: null, section: null, sector, symbol: null, name: null })}
+                  onOpenRadar={(company) =>
+                    replaceQuery({
+                      tab: null,
+                      section: null,
+                      sector: selectedSector,
+                      symbol: company?.symbol ?? null,
+                      name: company?.name ?? null,
+                    })
+                  }
+                />
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <h3 className="text-lg font-bold text-zinc-100">{ar.marketRadarTitle}</h3>
+                    <p className="mt-1 text-xs text-zinc-400">{ar.marketRadarHint}</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    {radarCards.length === 0 ? (
+                      <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.marketRadarEmpty}</p>
+                    ) : visibleRadarCards.length === 0 ? (
+                      <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
+                    ) : (
+                      visibleRadarCards.map((item) => (
+                        <LiquidityRadarCard
+                          key={item.symbol}
+                          symbol={item.symbol}
+                          symbolName={item.symbolName}
+                          onRemove={() => removeRadarCompany(item.symbol)}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

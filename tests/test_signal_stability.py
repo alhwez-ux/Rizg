@@ -22,6 +22,11 @@ def _buy(**overrides: object) -> SignalInputs:
         "outflow": Decimal("20000"),
         "buy_volume": Decimal("9000"),
         "sell_volume": Decimal("3000"),
+        "price": Decimal("25"),
+        "vwap_15m": Decimal("24.4"),
+        "block_trades": 2,
+        "block_volume": Decimal("180000"),
+        "block_side": "buy",
         "symbol": "1120",
     }
     payload.update(overrides)
@@ -34,6 +39,11 @@ def _sell(**overrides: object) -> SignalInputs:
         "outflow": Decimal("82000"),
         "buy_volume": Decimal("2000"),
         "sell_volume": Decimal("8000"),
+        "price": Decimal("24"),
+        "vwap_15m": Decimal("24.6"),
+        "block_trades": 2,
+        "block_volume": Decimal("180000"),
+        "block_side": "sell",
         "symbol": "1120",
     }
     payload.update(overrides)
