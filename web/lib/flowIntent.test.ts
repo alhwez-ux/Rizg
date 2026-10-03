@@ -86,7 +86,9 @@ const held = holdDisplayedRows(
 const early = holdDisplayedRows(held, [{ symbol: "2222", name: "أرامكو", price: 28 }], 10_000);
 assert.equal(early.length, 2);
 assert.equal(early[0].row.price, 80);
-const later = holdDisplayedRows(early, [{ symbol: "2222", name: "أرامكو", price: 28 }], 45_000);
+const stillHeld = holdDisplayedRows(early, [{ symbol: "2222", name: "أرامكو", price: 28 }], 45_000);
+assert.equal(stillHeld.length, 2);
+const later = holdDisplayedRows(early, [{ symbol: "2222", name: "أرامكو", price: 28 }], 60_000);
 assert.deepEqual(
   later.map((item) => item.symbol),
   ["2222"],

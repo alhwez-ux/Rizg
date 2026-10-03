@@ -1,5 +1,5 @@
-/** How long a radar name stays fixed once it is on screen (inside the 30–60s band). */
-export const RADAR_DISPLAY_MS = 45_000;
+/** How long a radar screen stays fixed before it may change. */
+export const RADAR_DISPLAY_MS = 60_000;
 const RADAR_DISPLAY_LIMIT = 12;
 
 export interface HeldRow<T> {
@@ -13,6 +13,7 @@ export function holdDisplayedRows<T extends { symbol: string }>(
   incoming: T[],
   now: number,
   holdMs = RADAR_DISPLAY_MS,
+  limit = RADAR_DISPLAY_LIMIT,
 ): HeldRow<T>[] {
   const incomingBySymbol = new Map(incoming.map((row) => [row.symbol, row]));
   const next: HeldRow<T>[] = [];
@@ -33,7 +34,7 @@ export function holdDisplayedRows<T extends { symbol: string }>(
   }
 
   for (const row of incoming) {
-    if (seen.has(row.symbol) || next.length >= RADAR_DISPLAY_LIMIT) continue;
+    if (seen.has(row.symbol) || next.length >= limit) continue;
     next.push({ symbol: row.symbol, row, shownAt: now });
   }
   return next;

@@ -32,6 +32,7 @@ import { useDividends } from "@/hooks/useDividends";
 import { usePreOpen } from "@/hooks/usePreOpen";
 import { useSmartMoney } from "@/hooks/useSmartMoney";
 import { listedNameFor } from "@/lib/listedCompanies";
+import { holdDisplayedRows, nextDisplayWake, type HeldRow } from "@/lib/radarHold";
 import type { UnderWatchRow } from "@/lib/underWatch";
 import { parseShariahFilter, passesShariahFilter } from "@/lib/shariah";
 import { useTasiTone } from "@/hooks/useTasiTone";
@@ -78,6 +79,8 @@ function DashboardShell() {
   const radarName = searchParams.get("name");
   const { companies: radarCards, addCompany, removeCompany, ready: radarReady } = useMarketRadarList();
   const { rows: underWatchRows } = useUnderWatch();
+  const heldWatchRef = useRef<HeldRow<UnderWatchRow>[]>([]);
+  const [watchHoldTick, setWatchHoldTick] = useState(0);
   const shariahFilter = parseShariahFilter(searchParams.get("shariah"));
   const { rows: dividendRows, hint: dividendHint, asOf: dividendAsOf, error: dividendError, loading: dividendLoading } =
     useDividends(shariahFilter === "pure");
@@ -89,10 +92,19 @@ function DashboardShell() {
     () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
     [radarCards, shariahFilter],
   );
-  const visibleWatchRows = useMemo(
-    () => underWatchRows.filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
-    [shariahFilter, underWatchRows],
-  );
+  const visibleWatchRows = useMemo(() => {
+    const incoming = underWatchRows.filter((row) => passesShariahFilter(row.symbol, shariahFilter));
+    const fresh = new Map(incoming.map((row) => [row.symbol, row]));
+    const eligible = heldWatchRef.current.filter((item) => passesShariahFilter(item.symbol, shariahFilter));
+    const held = holdDisplayedRows(eligible, incoming, Date.now(), undefined, Number.POSITIVE_INFINITY);
+    const next = held.map((item) => {
+      const live = fresh.get(item.symbol);
+      if (!live) return item;
+      return { ...item, row: { ...item.row, price: live.price, change_percent: live.change_percent } };
+    });
+    heldWatchRef.current = next;
+    return next.map((item) => item.row);
+  }, [shariahFilter, underWatchRows, watchHoldTick]);
   const [watchOpen, setWatchOpen] = useState(false);
   const [watchSnapshot, setWatchSnapshot] = useState<UnderWatchRow[]>([]);
   const watchSymbols = useMemo(() => (watchOpen ? watchSnapshot.map((row) => row.symbol) : []), [watchOpen, watchSnapshot]);
@@ -167,6 +179,13 @@ function DashboardShell() {
     if (visibleWatchRows.length === 0) return;
     setWatchSnapshot(visibleWatchRows);
     setWatchOpen(true);
+  }, [visibleWatchRows]);
+
+  useEffect(() => {
+    const wait = nextDisplayWake(heldWatchRef.current, Date.now());
+    if (wait == null) return;
+    const timer = window.setTimeout(() => setWatchHoldTick((value) => value + 1), Math.max(wait, 0) + 30);
+    return () => window.clearTimeout(timer);
   }, [visibleWatchRows]);
 
   useEffect(() => {

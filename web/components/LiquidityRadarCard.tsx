@@ -12,12 +12,7 @@ import {
 } from "@/lib/liquidity";
 import { useHeldReport } from "@/hooks/useHeldReport";
 import { useSymbolRegime } from "@/hooks/useSymbolRegime";
-import { authoritativeTickPrice } from "@/lib/livePrice";
-import {
-  overlayTickOnReport,
-  type LiveRadarReport,
-  type LiveRadarSignal,
-} from "@/lib/liveRadar";
+import { type LiveRadarReport, type LiveRadarSignal } from "@/lib/liveRadar";
 import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
@@ -40,37 +35,20 @@ export function LiquidityRadarCard({
   onRemove?: () => void;
 }) {
   const { data, loading, refresh } = useLiveRadar(symbol);
-  const { tick, status } = useLiquiditySocket(wsUrlFor(symbol));
-  const liveReport = data?.analysis ? overlayTickOnReport(data.analysis, tick) : null;
-  const heldReport = useHeldReport(symbol, liveReport);
-  const tickPrice = authoritativeTickPrice(symbol, tick);
-  const report: LiveRadarReport | null = heldReport
-    ? {
-        ...heldReport,
-        last_price: tickPrice ?? heldReport.last_price,
-        quote_mode: tickPrice != null ? "live" : toQuoteMode(heldReport.quote_mode) ?? (heldReport.last_price ? "last_close" : "waiting"),
-        live_quote: tickPrice != null,
-        buy_ratio: tickPrice != null ? (liveReport?.buy_ratio ?? heldReport.buy_ratio) : heldReport.buy_ratio,
-        sell_ratio: tickPrice != null ? (liveReport?.sell_ratio ?? heldReport.sell_ratio) : heldReport.sell_ratio,
-        buy_volume: tickPrice != null ? (liveReport?.buy_volume ?? heldReport.buy_volume) : heldReport.buy_volume,
-        sell_volume: tickPrice != null ? (liveReport?.sell_volume ?? heldReport.sell_volume) : heldReport.sell_volume,
-        net_flow: tickPrice != null ? (liveReport?.net_flow ?? heldReport.net_flow) : heldReport.net_flow,
-        inflow: tickPrice != null ? (liveReport?.inflow ?? heldReport.inflow) : heldReport.inflow,
-        outflow: tickPrice != null ? (liveReport?.outflow ?? heldReport.outflow) : heldReport.outflow,
-      }
-    : null;
+  const { status } = useLiquiditySocket(wsUrlFor(symbol));
+  const report = useHeldReport(symbol, data?.analysis ?? null);
   const regime = useSymbolRegime(
     symbol,
-    tick && tick.symbol.toUpperCase() === symbol.toUpperCase()
+    report
       ? {
-          netFlow: tick.netFlow,
-          buyVolume: tick.buyVolume,
-          sellVolume: tick.sellVolume,
-          price: tick.lastPrice ?? tick.price,
+          netFlow: report.net_flow,
+          buyVolume: report.buy_volume,
+          sellVolume: report.sell_volume,
+          price: report.last_price,
         }
       : null,
   );
-  const dossier = buildStockDossier(symbol, tickPrice, liveReport);
+  const dossier = buildStockDossier(symbol, report?.last_price ?? null, report);
   const title = displayCompanyTitle(symbol, symbolName);
   const quoteMode: QuoteMode | undefined =
     toQuoteMode(report?.quote_mode) ??

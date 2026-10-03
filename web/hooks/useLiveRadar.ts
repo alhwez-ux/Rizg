@@ -6,7 +6,7 @@ import { fetchLiveRadar, type LiveRadarResponse } from "@/lib/liveRadar";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
-const POLL_MS = 2_000;
+const POLL_MS = 60_000;
 
 export function useLiveRadar(symbol: string, interval = "1d") {
   const [data, setData] = useState<LiveRadarResponse | null>(null);

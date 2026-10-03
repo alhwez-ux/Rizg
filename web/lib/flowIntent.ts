@@ -7,7 +7,7 @@ export const FLOW_MIN_SPAN_MS = 300_000;
 /** |block score| must clear this before تجميع or تصريف is treated as real. */
 export const REGIME_ENTER = 0.3;
 /** A shown side stays up at least this long before it may switch. */
-export const REGIME_DWELL_MS = 45_000;
+export const REGIME_DWELL_MS = 60_000;
 /** A print below this notional is not an institutional block. */
 export const BLOCK_NOTIONAL = 100_000;
 const DUST_NOTIONAL = 1;
