@@ -58,10 +58,16 @@ class LastQuoteBook:
                     continue
                 qty = extras.get("volume")
                 session_date = extras.pop("session_date", None)
-                day = (session_date if isinstance(session_date, date) else day_default).isoformat()
+                if isinstance(session_date, date):
+                    day = session_date.isoformat()
+                elif session_date:
+                    day = str(session_date)[:10]
+                else:
+                    day = day_default.isoformat()
                 row: dict[str, Any] = {
                     "symbol": ticker,
                     "last_price": number,
+                    "session_date": day,
                     "at": datetime.now(timezone.utc).isoformat(),
                 }
                 if qty and qty > 0:
@@ -70,7 +76,6 @@ class LastQuoteBook:
                 extra_keys = (
                     "value_traded",
                     "change_percent",
-                    "net_flow",
                     "prev_close",
                     "high",
                     "low",
@@ -83,6 +88,8 @@ class LastQuoteBook:
                         row[key] = value
                     elif previous.get(key) is not None:
                         row[key] = previous[key]
+                if extras.get("net_flow") is not None:
+                    row["net_flow"] = extras.get("net_flow")
                 if accumulate_volume:
                     prev_volume = previous.get("volume")
                     if qty and qty > 0:
@@ -128,6 +135,25 @@ class LastQuoteBook:
         except (TypeError, ValueError):
             return None
         return number if number > 0 else None
+
+    def official_close(self, symbol: str) -> float | None:
+        """Newest completed daily close. A later history bar wins over an older quote."""
+
+        ticker = str(symbol or "").strip().upper()
+        with self._guard:
+            quote = dict(self._quotes.get(ticker) or {})
+            bars = [dict(row) for row in self._history.get(ticker) or []]
+        quote_price = _positive(quote.get("last_price"))
+        quote_day = str(quote.get("session_date") or "")[:10]
+        best_price = quote_price
+        best_day = quote_day
+        if bars:
+            bar = bars[-1]
+            bar_day = str(bar.get("date") or "")[:10]
+            bar_price = _positive(bar.get("close"))
+            if bar_price is not None and bar_day and (not best_day or bar_day >= best_day):
+                return bar_price
+        return best_price
 
     def snapshot(self) -> list[dict[str, Any]]:
         with self._guard:

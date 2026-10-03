@@ -154,6 +154,8 @@ class TickChartFeed:
         self._peer_nets_cache: tuple[float, list[float]] | None = None
         self._delayed_pull_at: float = 0.0
         self._public_quotes_at: float = 0.0
+        self._quote_cursor = 0
+        self._quote_cycle_done = False
         from app.services.entry_snapshot_store import EntrySnapshotStore
 
         self._entry_store = entry_store or EntrySnapshotStore()
@@ -613,12 +615,15 @@ class TickChartFeed:
         live = tape.snapshot()
         stored = self._quotes.get(ticker) or {}
         ranking = self._ranking_row(ticker) or {}
-        last_price = live.get("last_price") or _json_number(session.last_price) or _json_number(levels.last_price)
-        live_tick = last_price is not None
-        if last_price is None:
-            last_price = stored.get("last_price") or self._quotes.price(ticker)
-        if last_price is None:
-            last_price = ranking.get("last_price") or self._ranking_price(ticker)
+        phase = session_phase(now_riyadh())
+        official = self._quotes.official_close(ticker)
+        tape_price = live.get("last_price") or _json_number(session.last_price) or _json_number(levels.last_price)
+        if phase == "open" and tape_price:
+            last_price = tape_price
+            live_tick = True
+        else:
+            last_price = official or tape_price or stored.get("last_price") or ranking.get("last_price") or self._ranking_price(ticker)
+            live_tick = False
         change = stored.get("change_percent")
         if change is None:
             change = live.get("change_percent")
@@ -628,12 +633,7 @@ class TickChartFeed:
         session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
         engine_flow = _json_number(session.net_flow) or 0
         stored_flow = _json_number(stored.get("net_flow")) or 0
-        if abs(stored_flow) >= abs(engine_flow):
-            net_flow = stored_flow or engine_flow or 0
-        else:
-            net_flow = engine_flow or stored_flow or 0
-        if not net_flow and session_value and change:
-            net_flow = float(session_value) * (float(change) / 100.0)
+        net_flow = engine_flow or stored_flow or 0
         history = self._quotes.close_history(ticker)
         prior_volumes = [bar.get("volume") for bar in history[:-1]][-10:] if history else []
         avg_volume = None
@@ -681,7 +681,6 @@ class TickChartFeed:
             spread = round(float(ask) - float(bid), 6)
         if last_price is None:
             last_price = report.get("last_price")
-        phase = session_phase(now_riyadh())
         if live_tick and phase == "open":
             quote_mode = "live"
         elif last_price is not None:
@@ -767,7 +766,7 @@ class TickChartFeed:
             return None
         stored = self._quotes.get(ticker) or {}
         try:
-            price = float(stored.get("last_price") or 0)
+            price = float(self._quotes.official_close(ticker) or stored.get("last_price") or 0)
         except (TypeError, ValueError):
             return None
         if price <= 0:
@@ -790,8 +789,6 @@ class TickChartFeed:
             net_flow = float(stored.get("net_flow") or 0)
         except (TypeError, ValueError):
             net_flow = 0.0
-        if not net_flow and value and change:
-            net_flow = value * (change / 100.0)
         return {
             "symbol": ticker,
             "name": company_name_for(ticker) or stored.get("name") or ticker,
@@ -831,8 +828,6 @@ class TickChartFeed:
             if value <= 0 and price > 0 and volume > 0:
                 value = price * volume
             net_flow = float(report.get("net_flow") or 0)
-            if not net_flow and value and change:
-                net_flow = value * (change / 100.0)
             rows.append(
                 {
                     "symbol": symbol,
@@ -1054,7 +1049,7 @@ class TickChartFeed:
             if not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
                 continue
             try:
-                price = float(item.get("last_price") or 0)
+                price = float(self._quotes.official_close(symbol) or item.get("last_price") or 0)
             except (TypeError, ValueError):
                 continue
             if price <= 0:
@@ -1077,8 +1072,6 @@ class TickChartFeed:
                 value = 0.0
             if value <= 0 and price > 0 and volume > 0:
                 value = price * volume
-            if not net_flow and value and change:
-                net_flow = value * (change / 100.0)
             rows.append(
                 {
                     "symbol": symbol,
@@ -1251,12 +1244,14 @@ class TickChartFeed:
         if fetcher is None and os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
             return 0
         now = time.monotonic()
-        if fetcher is None and self._public_quotes_at and now - self._public_quotes_at < 90:
-            return 0
-        self._public_quotes_at = now
+        if fetcher is None and self._public_quotes_at:
+            wait = 90 if self._quote_cycle_done else 15
+            if now - self._public_quotes_at < wait:
+                return 0
         symbols = self.main_market_symbols() or self._universe_symbols()
         if not symbols:
             return 0
+        symbols = self._next_quote_window(symbols, 30)
         load = fetcher
         if load is None:
             from app.services.session_history import fetch_main_market_closes
@@ -1287,17 +1282,26 @@ class TickChartFeed:
                 volume = 0.0
             if price > 0 and volume > 0 and not row.get("value_traded"):
                 row["value_traded"] = price * volume
-            try:
-                change = float(row.get("change_percent")) if row.get("change_percent") is not None else None
-            except (TypeError, ValueError):
-                change = None
-            if change and row.get("value_traded") and not row.get("net_flow"):
-                row["net_flow"] = float(row["value_traded"]) * (change / 100.0)
             shaped.append(row)
         applied = self._quotes.apply_closes(shaped) if shaped else 0
+        if fetcher is None:
+            self._public_quotes_at = time.monotonic()
         if applied == 0 and not self._quotes.snapshot():
             self.ensure_close_book()
         return applied
+
+    def _next_quote_window(self, symbols: list[str], size: int) -> list[str]:
+        """Walk the main market in slices so later names are not stuck on an old close."""
+
+        count = len(symbols)
+        if count == 0:
+            return []
+        width = max(1, min(int(size), count))
+        start = self._quote_cursor % count
+        window = [symbols[(start + offset) % count] for offset in range(width)]
+        self._quote_cursor = (start + width) % count
+        self._quote_cycle_done = start + width >= count
+        return window
 
     def hydrate_main_market_history(self, *, sessions: int = 10) -> dict[str, Any]:
         """Refresh last close + 10 prior sessions from public daily bars; tape is the fallback."""
