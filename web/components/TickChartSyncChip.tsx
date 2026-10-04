@@ -1,30 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
+import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { ar } from "@/lib/ar";
 import { resolveListedCompany, searchListedCompanies, type ListedCompany } from "@/lib/listedCompanies";
 import {
   fetchTickChartStatus,
   followTickChartSymbol,
   refreshTickChartLive,
-  uploadTickChartFile,
   type TickChartStatus,
 } from "@/lib/tickchartStatus";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
 export function TickChartSyncChip({
   onFollow,
+  showStream = true,
+  showSearch = true,
+  showSession = true,
+  showStamp = true,
 }: {
   onFollow?: (company: { symbol: string; name: string }) => void;
+  showStream?: boolean;
+  showSearch?: boolean;
+  showSession?: boolean;
+  showStamp?: boolean;
 }) {
   const [status, setStatus] = useState<TickChartStatus | null>(null);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<ListedCompany[]>([]);
-  const [busy, setBusy] = useState<"follow" | "refresh" | "upload" | null>(null);
+  const [busy, setBusy] = useState<"follow" | "refresh" | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
   const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
@@ -120,44 +127,36 @@ export function TickChartSyncChip({
     }
   };
 
-  const upload = async (file: File) => {
-    setBusy("upload");
-    setMessage(null);
-    try {
-      const ingested = await uploadTickChartFile(file);
-      setMessage(`${ar.tickchartUploaded} ${ingested}`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : ar.tickchartUploadError);
-    } finally {
-      setBusy(null);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
+  if (!showStream && !showSearch && !showSession && !showStamp) return null;
 
   return (
-    <div className="flex w-full flex-col gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3 sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div
-          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-            live
-              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-              : local
+    <div className="flex w-full flex-col gap-3">
+      {showStream ? (
+        <div className="flex justify-center">
+          <div
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold ${
+              live
                 ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-                : lastClose
-                ? "border-sky-500/20 bg-sky-500/10 text-sky-300"
-                : "border-zinc-700 bg-zinc-900 text-zinc-400"
-          }`}
-          title={ar.tickchartSyncHint}
-        >
-          <span
-            className={`h-2 w-2 rounded-full ${
-              live || local ? "animate-pulse bg-emerald-400" : lastClose ? "bg-sky-400" : "bg-zinc-500"
+                : local
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                  : lastClose
+                    ? "border-sky-500/20 bg-sky-500/10 text-sky-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400"
             }`}
-          />
-          {label}
+            title={ar.tickchartSyncHint}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                live || local ? "animate-pulse bg-emerald-400" : lastClose ? "bg-sky-400" : "bg-zinc-500"
+              }`}
+            />
+            {ar.tickchartStream}
+            <span className="font-medium opacity-80">· {label}</span>
+          </div>
         </div>
-      </div>
+      ) : null}
 
+      {showSearch ? (
       <div className="relative flex flex-col gap-2 sm:flex-row">
         <div className="relative min-w-0 flex-1">
           <input
@@ -207,37 +206,30 @@ export function TickChartSyncChip({
         >
           {busy === "follow" ? ar.tickchartFollowing : ar.tickchartFollow}
         </button>
-        <label className="flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-zinc-700 px-4 text-sm font-semibold text-zinc-300 transition hover:border-emerald-500 hover:text-emerald-300">
-          {busy === "upload" ? ar.tickchartUploading : ar.tickchartUpload}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.json,.txt,.tsv,text/csv,application/json"
-            className="hidden"
-            onChange={(event) => {
-              const next = event.target.files?.[0];
-              if (next) void upload(next);
-            }}
-          />
-        </label>
-        <div className="flex min-w-[9.5rem] flex-col items-stretch">
+      </div>
+      ) : null}
+      {showSession ? (
+        <div className="flex flex-row flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             onClick={() => void refresh()}
             disabled={busy !== null}
-            className="min-h-11 rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
           >
             {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
           </button>
-          <p className="mt-1 text-center text-[11px] leading-4 text-zinc-500">
-            {ar.tickchartLastSync}
-            <span dir="ltr" className="mt-0.5 block font-mono text-zinc-400">
-              {formatSyncTime(lastSyncAt || status?.last_sync_at)}
-            </span>
-          </p>
+          <TasiSchedulerChip />
         </div>
-      </div>
-      {message ? <p className="text-xs text-zinc-400">{message}</p> : null}
+      ) : null}
+      {showStamp ? (
+        <p className="text-center text-[11px] leading-5 text-zinc-500">
+          {ar.tickchartLastSync}
+          <span dir="ltr" className="ms-2 font-mono text-zinc-300">
+            {formatSyncTime(lastSyncAt || status?.last_sync_at)}
+          </span>
+        </p>
+      ) : null}
+      {message ? <p className="text-center text-xs text-zinc-400">{message}</p> : null}
     </div>
   );
 }
