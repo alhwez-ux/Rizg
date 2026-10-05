@@ -80,6 +80,19 @@ def is_preopen_window(moment: datetime | None = None) -> bool:
     return session_phase(moment) == "preopen"
 
 
+def latest_completed_session(moment: datetime | None = None) -> date:
+    """Last Sunday–Thursday session whose close is final (15:30 Asia/Riyadh)."""
+
+    current = now_riyadh(moment)
+    clock = current.time().replace(microsecond=0)
+    if is_tasi_weekday(current) and clock >= POST_CLOSE:
+        return current.date()
+    day = current.date() - timedelta(days=1)
+    while day.weekday() in {FRIDAY, SATURDAY}:
+        day -= timedelta(days=1)
+    return day
+
+
 def phase_label(phase: str) -> str:
     return {
         "weekend": "عطلة تاسي",

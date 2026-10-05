@@ -4,6 +4,7 @@ import { RecommendationStatus } from "@/components/SignalBadge";
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
 import {
+  formatCompact,
   formatMoney,
   formatPercent,
   formatPrice,
@@ -132,9 +133,6 @@ export function LiquidityRadarCard({
           phase={report.session_phase}
           price={report.last_price}
           vwap={report.session_vwap ?? report.vwap}
-          open={report.session_open}
-          high={report.session_high}
-          low={report.session_low}
           stance={valuationStance(report.last_price, dossier.fairValue)}
         />
       ) : null}
@@ -159,35 +157,16 @@ function SessionPathStrip({
   phase,
   price,
   vwap,
-  open,
-  high,
-  low,
   stance,
 }: {
   quoteMode?: string | null;
   phase?: string | null;
   price: number | null;
   vwap: number | null;
-  open?: number | null;
-  high?: number | null;
-  low?: number | null;
   stance: ReturnType<typeof valuationStance>;
 }) {
-  const tape = resolveTapePath({ quoteMode, phase, price, vwap, open, high, low });
+  const tape = resolveTapePath({ quoteMode, phase, price, vwap });
   const tone = tape.path === "up" ? "path-up" : tape.path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-300";
-  const title =
-    tape.path === "up" ? ar.sessionPathUp : tape.path === "down" ? ar.sessionPathDown : ar.sessionPathPost;
-  const hint =
-    tape.mode === "post"
-      ? tape.path === "down"
-        ? ar.postPathDownHint
-        : tape.path === "up"
-          ? ar.postPathUpHint
-          : ar.sessionPathPost
-      : tape.path === "down"
-        ? ar.sessionPathDownHint
-        : ar.sessionPathUpHint;
-  const anchorLabel = tape.mode === "post" ? ar.sessionDayAverage : ar.sessionVwap;
   const valuation =
     stance === "over"
       ? ar.valuationOver
@@ -202,22 +181,40 @@ function SessionPathStrip({
       : stance === "attractive"
         ? "text-emerald-200"
         : "text-zinc-400";
+  const gap =
+    tape.price != null && tape.anchor != null && tape.anchor > 0
+      ? ((tape.price - tape.anchor) / tape.anchor) * 100
+      : null;
 
   return (
     <section className={`mt-4 w-full rounded-xl border p-4 ${tone}`}>
-      {tape.mode === "post" ? <p className="mb-2 text-[11px] font-semibold opacity-80">{ar.sessionPathPost}</p> : null}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">
-          {tape.anchor != null ? anchorLabel : ar.liveRadarLastClosePrice}:{" "}
+          {ar.liveRadarLastClosePrice}:{" "}
           <strong dir="ltr" className="font-mono text-sm">
-            {priceText(tape.anchor ?? tape.price)}
+            {priceText(tape.price)}
           </strong>
         </span>
-        {tape.path === "unknown" ? null : (
-          <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-sm font-bold">{title}</span>
-        )}
+        <span className="text-xs font-medium">
+          {ar.sessionVwap}:{" "}
+          <strong dir="ltr" className="font-mono text-sm">
+            {priceText(tape.anchor)}
+          </strong>
+        </span>
+        {gap != null ? (
+          <span className="text-xs font-medium">
+            {ar.sessionVwapGap}:{" "}
+            <strong dir="ltr" className="font-mono text-sm">
+              {formatCompact(gap)}%
+            </strong>
+          </span>
+        ) : null}
       </div>
-      <p className="mt-2 text-xs leading-5">{hint}</p>
+      {tape.path === "up" ? (
+        <p className="mt-3 inline-flex rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">{ar.sessionPathUp}</p>
+      ) : tape.path === "down" ? (
+        <p className="mt-3 inline-flex rounded-full bg-rose-600 px-3 py-1.5 text-sm font-bold text-white">{ar.sessionPathDown}</p>
+      ) : null}
       <p className={`mt-2 text-xs font-semibold leading-5 ${valuationTone}`}>{valuation}</p>
     </section>
   );

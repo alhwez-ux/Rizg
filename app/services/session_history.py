@@ -108,10 +108,15 @@ def parse_spark_market(
         volumes = quote.get("volume") if isinstance(quote, dict) else None
         if not isinstance(stamps, list) or not isinstance(closes, list):
             continue
+        meta = chart.get("meta") if isinstance(chart.get("meta"), dict) else {}
+        market_price = _positive(meta.get("regularMarketPrice"))
+        last_index = len(stamps) - 1
         series: list[dict[str, Any]] = []
         for index, stamp in enumerate(stamps):
             day = _riyadh_day(stamp)
             close = _positive(closes[index] if index < len(closes) else None)
+            if close is None and index == last_index and market_price is not None:
+                close = market_price
             if day is None or close is None:
                 continue
             volume = _number(volumes[index] if isinstance(volumes, list) and index < len(volumes) else 0) or 0.0
@@ -122,7 +127,8 @@ def parse_spark_market(
         prior = [row for row in series if str(row["date"]) < cutoff.isoformat()][-want:]
         bars.extend(prior)
         last = series[-1]
-        prev = prior[-1]["close"] if prior else None
+        earlier = [row for row in series if str(row["date"]) < str(last["date"])]
+        prev = earlier[-1]["close"] if earlier else None
         change = None
         if prev and prev > 0:
             change = round(((last["close"] - prev) / prev) * 100, 4)

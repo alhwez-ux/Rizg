@@ -132,6 +132,41 @@ def test_parse_spark_bars_keeps_main_market_sessions_before_today() -> None:
     assert all(row["symbol"] != "9510" for row in quotes)
 
 
+def test_missing_daily_close_uses_regular_market_price() -> None:
+    sunday = int(datetime(2026, 10, 4, 12, 0, tzinfo=_RIYADH).timestamp())
+    monday = int(datetime(2026, 10, 5, 12, 0, tzinfo=_RIYADH).timestamp())
+    payload = {
+        "spark": {
+            "result": [
+                {
+                    "symbol": "4263.SR",
+                    "response": [
+                        {
+                            "meta": {"regularMarketPrice": 173.0, "symbol": "4263.SR"},
+                            "timestamp": [sunday, monday],
+                            "indicators": {
+                                "quote": [
+                                    {
+                                        "close": [169.0, None],
+                                        "volume": [120_513, 269_236],
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    bars, quotes = parse_spark_market(payload, today=date(2026, 10, 6), sessions=10)
+    assert quotes[0]["symbol"] == "4263"
+    assert quotes[0]["last_price"] == 173.0
+    assert quotes[0]["session_date"] == date(2026, 10, 5)
+    assert quotes[0]["prev_close"] == 169.0
+    assert bars[-1]["close"] == 173.0
+    assert bars[-1]["date"] == "2026-10-05"
+
+
 def test_bundled_tape_seeds_main_market_close_book(tmp_path: Path) -> None:
     book = LastQuoteBook(tmp_path / "empty.json")
     assert book.price("2222") is None

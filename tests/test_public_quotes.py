@@ -84,6 +84,28 @@ def test_newer_daily_bar_replaces_a_stale_print(tmp_path: Path, monkeypatch) -> 
     assert report["entry"] is False
 
 
+def test_dated_session_close_survives_a_later_print(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    tuesday = datetime(2026, 10, 6, 0, 31, tzinfo=ZoneInfo("Asia/Riyadh"))
+    monkeypatch.setattr("app.services.last_quotes.now_riyadh", lambda moment=None: tuesday)
+    monkeypatch.setattr("app.services.tasi_clock.now_riyadh", lambda moment=None: tuesday)
+    feed = _feed(tmp_path)
+    feed._quotes.apply_closes(
+        [{"symbol": "4263", "last_price": 173.0, "session_date": date(2026, 10, 5), "volume": 269_236}]
+    )
+    feed._quotes.apply_closes([{"symbol": "4263", "last_price": 169.0, "volume": 10}])
+    assert feed._quotes.price("4263") == 173.0
+    feed._quotes.apply_closes(
+        [{"symbol": "4263", "last_price": 169.0, "session_date": date(2026, 10, 6), "volume": 10}]
+    )
+    assert feed._quotes.official_close("4263") == 173.0
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    feed._engine.process_trade("4263", Decimal("169"), Decimal("10"))
+    assert feed.radar_report("4263")["last_price"] == 173.0
+
+
 def test_public_quote_refresh_reaches_later_symbols(tmp_path: Path) -> None:
     feed = _feed(tmp_path)
     seen: list[list[str]] = []

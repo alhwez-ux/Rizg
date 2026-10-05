@@ -16,6 +16,7 @@ from app.models.schemas import (
     DividendsResponse,
 )
 from app.services.ranking_store import RankingStore
+from app.services.shariah import company_name_for
 from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
 from app.services.signals import keep_long_recommendations
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
@@ -196,6 +197,7 @@ async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
         symbol = str(row.get("symbol") or "").upper()
         live = tape.get(symbol) or {}
         merged = dict(row)
+        merged["name"] = _listed_company_name(symbol, merged.get("name") or live.get("name"))
         if live.get("last_price") is not None:
             merged["last_price"] = live["last_price"]
         if live.get("volume"):
@@ -205,7 +207,7 @@ async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
         rows = [
             {
                 "symbol": item["symbol"],
-                "name": item.get("name"),
+                "name": _listed_company_name(str(item.get("symbol") or ""), item.get("name")),
                 "last_price": item.get("last_price"),
                 "volume": item.get("volume"),
                 "matrix_score": 0,
@@ -317,6 +319,17 @@ def _recommendation_rows(request: Request, *, live: bool) -> list[dict]:
     if callable(opportunities):
         return opportunities()
     return []
+
+
+def _listed_company_name(symbol: str, current: object) -> str:
+    ticker = str(symbol or "").strip().upper()
+    listed = company_name_for(ticker)
+    if listed and listed != ticker:
+        return listed
+    text = str(current or "").strip()
+    if text and text.upper() != ticker:
+        return text
+    return listed or text or ticker
 
 
 def _ranking_store(request: Request) -> RankingStore:

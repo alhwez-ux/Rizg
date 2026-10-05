@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.screener import is_tasi_main_symbol
-from app.services.tasi_clock import now_riyadh
+from app.services.tasi_clock import latest_completed_session, now_riyadh
 
 _DEFAULT_PATH = Path("data/tickchart_last_quotes.json")
 _BUNDLED_TAPE = Path(__file__).resolve().parents[1] / "data" / "tasi_close_tape.json"
@@ -60,10 +60,16 @@ class LastQuoteBook:
                 session_date = extras.pop("session_date", None)
                 if isinstance(session_date, date):
                     day = session_date.isoformat()
+                    dated = True
                 elif session_date:
                     day = str(session_date)[:10]
+                    dated = len(day) >= 10
                 else:
                     day = day_default.isoformat()
+                    dated = False
+                previous = self._quotes.get(ticker) or {}
+                if not dated and previous.get("close_source") == "session":
+                    continue
                 row: dict[str, Any] = {
                     "symbol": ticker,
                     "last_price": number,
@@ -72,7 +78,6 @@ class LastQuoteBook:
                 }
                 if qty and qty > 0:
                     row["volume"] = qty
-                previous = self._quotes.get(ticker) or {}
                 extra_keys = (
                     "value_traded",
                     "change_percent",
@@ -90,6 +95,12 @@ class LastQuoteBook:
                         row[key] = previous[key]
                 if extras.get("net_flow") is not None:
                     row["net_flow"] = extras.get("net_flow")
+                elif previous.get("net_flow") is not None:
+                    row["net_flow"] = previous["net_flow"]
+                if dated:
+                    row["close_source"] = "session"
+                elif previous.get("close_source"):
+                    row["close_source"] = previous["close_source"]
                 if accumulate_volume:
                     prev_volume = previous.get("volume")
                     if qty and qty > 0:
@@ -137,22 +148,28 @@ class LastQuoteBook:
         return number if number > 0 else None
 
     def official_close(self, symbol: str) -> float | None:
-        """Newest completed daily close. A later history bar wins over an older quote."""
+        """Newest daily close on or before the last completed TASI session."""
 
         ticker = str(symbol or "").strip().upper()
+        cutoff = latest_completed_session().isoformat()
         with self._guard:
             quote = dict(self._quotes.get(ticker) or {})
             bars = [dict(row) for row in self._history.get(ticker) or []]
+        best_price: float | None = None
+        best_day = ""
         quote_price = _positive(quote.get("last_price"))
         quote_day = str(quote.get("session_date") or "")[:10]
-        best_price = quote_price
-        best_day = quote_day
-        if bars:
-            bar = bars[-1]
+        if quote_price is not None and quote_day and quote_day <= cutoff:
+            best_price = quote_price
+            best_day = quote_day
+        for bar in bars:
             bar_day = str(bar.get("date") or "")[:10]
             bar_price = _positive(bar.get("close"))
-            if bar_price is not None and bar_day and (not best_day or bar_day >= best_day):
-                return bar_price
+            if bar_price is None or not bar_day or bar_day > cutoff:
+                continue
+            if not best_day or bar_day >= best_day:
+                best_price = bar_price
+                best_day = bar_day
         return best_price
 
     def snapshot(self) -> list[dict[str, Any]]:

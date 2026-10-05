@@ -97,21 +97,12 @@ export interface TapePath {
   anchor: number | null;
 }
 
-/** Typical price of the completed day when a full-session VWAP was not kept. */
-export function typicalPrice(high: number | null, low: number | null, close: number | null): number | null {
-  if (high == null || low == null || close == null || high <= 0 || low <= 0 || close <= 0) return null;
-  return roundTo((high + low + close) / 3, 2);
-}
-
+/** Path exists only when both the price and a volume-weighted VWAP are real. */
 export function resolveTapePath(input: TapePathInput): TapePath {
   const price = positive(input.price);
   const vwap = positive(input.vwap);
   const live = input.quoteMode === "live" && (input.phase == null || input.phase === "open");
-  if (live && price != null && vwap != null) {
-    return { mode: "live", path: sessionPath(price, vwap), price, anchor: vwap };
-  }
-  const anchor = vwap ?? typicalPrice(positive(input.high), positive(input.low), price) ?? positive(input.open);
-  return { mode: "post", path: sessionPath(price, anchor), price, anchor };
+  return { mode: live ? "live" : "post", path: sessionPath(price, vwap), price, anchor: vwap };
 }
 
 /** Session VWAP is the volume-weighted price. Equal or above is the upward path. */
