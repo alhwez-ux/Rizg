@@ -32,3 +32,38 @@ export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
   }
   return payload;
 }
+
+const RANK_CACHE_MS = 5 * 60_000;
+let rankCache: { at: number; rows: RankingRow[] } | null = null;
+let rankInflight: Promise<RankingRow[]> | null = null;
+
+async function loadRanks(): Promise<RankingRow[]> {
+  if (rankCache && Date.now() - rankCache.at < RANK_CACHE_MS) return rankCache.rows;
+  if (!rankInflight) {
+    rankInflight = fetchRankingMatrix()
+      .then((payload) => {
+        const rows = payload.data ?? [];
+        rankCache = { at: Date.now(), rows };
+        return rows;
+      })
+      .finally(() => {
+        rankInflight = null;
+      });
+  }
+  return rankInflight;
+}
+
+export async function companyRankFor(symbol: string): Promise<RankingRow | null> {
+  const key = symbol.trim().toUpperCase();
+  if (!key) return null;
+  const rows = await loadRanks();
+  return rows.find((row) => row.symbol.trim().toUpperCase() === key) ?? null;
+}
+
+export function strengthTone(category: string): "strong" | "steady" | "mid" | "weak" | "risk" {
+  if (category.includes("قلاع")) return "strong";
+  if (category.includes("واعدة")) return "steady";
+  if (category.includes("خاسر") || category.includes("مخاطر")) return "risk";
+  if (category.includes("ضعيف")) return "weak";
+  return "mid";
+}

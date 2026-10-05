@@ -18,7 +18,7 @@ export function TasiIndexBadge() {
 
   return (
     <div
-      className={`inline-flex min-h-11 items-center gap-3 rounded-xl border px-3 py-1.5 ${toneClass}`}
+      className={`inline-flex h-11 items-center gap-2 rounded-full border px-3 ${toneClass}`}
       title={ar.tasiIndexHint}
     >
       <span className="flex items-center gap-1.5 text-xs font-black tracking-wide">
@@ -28,9 +28,9 @@ export function TasiIndexBadge() {
       <span className="font-mono text-sm font-bold" dir="ltr">
         {quote.value == null ? "—" : quote.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </span>
-      <span className="flex flex-col items-end font-mono text-[11px] leading-4" dir="ltr">
-        <span>{signedPoints(quote.change)}</span>
-        <span>{formatPercent(quote.changePercent, 2)}</span>
+      <span className="font-mono text-[11px]" dir="ltr">
+        {signedPoints(quote.change)}
+        <span className="ms-1">{formatPercent(quote.changePercent, 2)}</span>
       </span>
     </div>
   );

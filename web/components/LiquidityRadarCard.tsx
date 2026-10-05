@@ -16,6 +16,7 @@ import { type LiveRadarReport, type LiveRadarSignal } from "@/lib/liveRadar";
 import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
+import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { buildStockDossier, type StockDossier } from "@/lib/stockDossier";
 
 type QuoteMode = "live" | "waiting" | "last_close";
@@ -94,6 +95,7 @@ export function LiquidityRadarCard({
               {symbol}
             </span>
           </h3>
+          <CompanyStrengthLine symbol={symbol} />
           <p className="mt-1 hidden text-xs text-zinc-500 sm:block">{ar.liveRadarHint}</p>
         </div>
         <div className={`hidden flex-wrap items-center gap-2 sm:flex ${onRemove ? "pl-[5.5rem]" : ""}`}>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { ar } from "@/lib/ar";
 import { resolveListedCompany, searchListedCompanies, type ListedCompany } from "@/lib/listedCompanies";
+import { companyRankFor, strengthTone } from "@/lib/rankingMatrix";
 import {
   fetchTickChartStatus,
   followTickChartSymbol,
@@ -32,6 +33,8 @@ export function TickChartSyncChip({
   const [busy, setBusy] = useState<"follow" | "refresh" | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [rankNote, setRankNote] = useState<{ symbol: string; category: string | null } | null>(null);
+  const followSeq = useRef(0);
   const { isConnected } = useConnectionGuard();
 
   useEffect(() => {
@@ -102,8 +105,20 @@ export function TickChartSyncChip({
       const name = result.name && result.name !== result.symbol ? result.name : local?.name || result.symbol;
       setQuery("");
       setSuggestions([]);
+      setRankNote(null);
       onFollow?.({ symbol: result.symbol, name });
       setMessage(`${ar.tickchartFollowed} ${name} (${result.symbol})`);
+      const followed = result.symbol;
+      const seq = ++followSeq.current;
+      void companyRankFor(followed)
+        .then((rank) => {
+          if (followSeq.current !== seq) return;
+          setRankNote({ symbol: followed, category: rank?.category ?? null });
+        })
+        .catch(() => {
+          if (followSeq.current !== seq) return;
+          setRankNote({ symbol: followed, category: null });
+        });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : ar.tickchartFollowError);
     } finally {
@@ -230,11 +245,25 @@ export function TickChartSyncChip({
         </p>
       ) : null}
       {message ? <p className="text-center text-xs text-zinc-400">{message}</p> : null}
+      {rankNote ? (
+        <p className={`text-center text-xs font-semibold ${strengthClass(rankNote.category)}`}>
+          {rankNote.category ? `${ar.followStrength}: ${rankNote.category}` : ar.followStrengthMissing}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export default TickChartSyncChip;
+
+function strengthClass(category: string | null): string {
+  const tone = category ? strengthTone(category) : "mid";
+  if (tone === "strong") return "text-emerald-300";
+  if (tone === "steady") return "text-sky-300";
+  if (tone === "weak") return "text-amber-300";
+  if (tone === "risk") return "text-rose-300";
+  return "text-zinc-300";
+}
 
 function formatSyncTime(value: string | null | undefined): string {
   if (!value) return ar.tickchartLastSyncNever;

@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 import { ar } from "@/lib/ar";
 import { PIN_MAX_LENGTH } from "@/lib/auth/public-constants";
 
-export function AuthControls() {
+export function AuthControls({ showPassword = true, showLogout = true }: { showPassword?: boolean; showLogout?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [pin, setPin] = useState("");
@@ -45,28 +45,34 @@ export function AuthControls() {
     }
   };
 
+  if (!showPassword && !showLogout) return null;
+
   return (
     <>
+      {showPassword ? (
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         title={ar.authChangePin}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:border-emerald-500 hover:text-emerald-300"
       >
         <span className="sr-only">{ar.authChangePin}</span>
         <KeyIcon />
       </button>
+      ) : null}
+      {showLogout ? (
       <button
         type="button"
         onClick={() => {
           void logout();
         }}
         title={ar.authLogout}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:border-rose-400 hover:text-rose-300"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:border-rose-400 hover:text-rose-300"
       >
         <span className="sr-only">{ar.authLogout}</span>
         <LogoutIcon />
       </button>
+      ) : null}
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

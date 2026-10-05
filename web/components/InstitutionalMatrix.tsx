@@ -82,6 +82,17 @@ export function InstitutionalMatrix({
 
   if (columns.length === 0) return null;
 
+  const settled = Boolean(snapshot) && !fundsLoading;
+  const allEmpty = columns.every((column) => column.rows.length === 0);
+  if (settled && allEmpty) {
+    return (
+      <section className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-4 py-2 text-center">
+        <p className="text-sm font-bold text-zinc-300">{ar.matrixTitle}</p>
+        <p className="text-[11px] text-zinc-500">{error ? ar.radarLoadError : ar.matrixEmptyAll}</p>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3 text-start">
       <div className="text-center">
@@ -89,20 +100,20 @@ export function InstitutionalMatrix({
         <p className="mt-1 text-xs text-zinc-400">{ar.matrixHint}</p>
       </div>
       {error ? <p className="text-center text-xs text-rose-300">{ar.radarLoadError}</p> : null}
-      <div className={`grid gap-3 ${columns.length > 1 ? "md:grid-cols-2 xl:grid-cols-4" : ""}`}>
+      <div className={`grid items-start gap-3 ${columns.length > 1 ? "md:grid-cols-2 xl:grid-cols-4" : ""}`}>
         {columns.map((column) => (
           <section
             key={column.id}
-            className={`flex min-h-48 flex-col rounded-2xl border p-3 ${toneClass(column.tone)}`}
+            className={`flex flex-col rounded-2xl border p-3 ${column.rows.length === 0 ? "" : "min-h-48"} ${toneClass(column.tone)}`}
           >
-            <header className="mb-3 flex items-center justify-between gap-2">
+            <header className={`flex items-center justify-between gap-2 ${column.rows.length === 0 ? "mb-1" : "mb-3"}`}>
               <h3 className="text-sm font-black">{column.title}</h3>
               <span className="font-mono text-xs opacity-70">{column.rows.length}</span>
             </header>
             {waiting || (fundsLoading && (column.id === "accumulation" || column.id === "distribution") && column.rows.length === 0) ? (
               <p className="px-1 py-6 text-center text-xs text-zinc-500">{ar.matrixLoading}</p>
             ) : column.rows.length === 0 ? (
-              <p className="px-1 py-6 text-center text-xs text-zinc-500">{column.empty}</p>
+              <p className="px-1 py-2 text-center text-xs text-zinc-500">{column.empty}</p>
             ) : (
               <ul className="max-h-[28rem] space-y-2 overflow-y-auto">
                 {column.rows.map((card) => (

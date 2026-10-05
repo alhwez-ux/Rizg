@@ -15,35 +15,21 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       aria-label={label}
       title={label}
       suppressHydrationWarning
-      className={`inline-flex h-10 items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950/70 px-3 text-xs font-semibold text-zinc-200 transition hover:border-amber-400 hover:text-amber-200 ${className}`}
+      className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-amber-400/50 bg-zinc-950 text-amber-200 transition hover:border-amber-300 hover:text-amber-100 ${className}`}
     >
-      {isDay ? <MoonIcon /> : <SunIcon />}
-      <span>{label}</span>
+      <Crescent filled={!isDay} />
     </button>
   );
 }
 
-function SunIcon() {
+function Crescent({ filled }: { filled: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3.4" stroke="currentColor" strokeWidth="1.8" />
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
       <path
-        d="M12 3.2v1.8M12 19v1.8M4.9 4.9l1.3 1.3M17.8 17.8l1.3 1.3M3.2 12h1.8M19 12h1.8M4.9 19.1l1.3-1.3M17.8 6.2l1.3-1.3"
+        d="M15.8 14.6A6.2 6.2 0 0 1 9.2 4.6 7.2 7.2 0 1 0 19.4 16a6.1 6.1 0 0 1-3.6-1.4z"
+        fill={filled ? "currentColor" : "none"}
         stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-      <path
-        d="M16.5 13.2A6.4 6.4 0 0 1 10.8 5 6.6 6.6 0 1 0 19 14.4a6.3 6.3 0 0 1-2.5-1.2z"
-        stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.6"
         strokeLinejoin="round"
       />
     </svg>

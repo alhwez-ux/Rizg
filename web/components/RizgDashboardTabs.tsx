@@ -262,16 +262,24 @@ function DashboardShell() {
     <section className="mx-auto flex w-full max-w-7xl flex-col items-center gap-6 px-4 pb-6 pt-10 text-center text-zinc-100 sm:px-6 lg:px-8">
       {visible.notifications ? <NotificationCenter /> : null}
       <div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center shadow-glow backdrop-blur-md sm:p-6">
-        <div className="flex items-center gap-3">
-          <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" withWordmark={false} title={ar.brand} tone={tone} />
-          <h1 className="text-3xl font-black tracking-wide text-zinc-50">{ar.brand}</h1>
-        </div>
+        <div className="flex w-full flex-col items-center gap-3">
+          <div className="flex items-center gap-3">
+            <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" withWordmark={false} title={ar.brand} tone={tone} />
+            <h1 className="text-3xl font-black tracking-wide text-zinc-50">{ar.brand}</h1>
+          </div>
           <DashboardControlPanel
             map={visible}
             onToggle={toggleVisible}
             onReset={resetVisible}
-            trailing={<TasiIndexBadge />}
+            leading={
+              <>
+                <TasiIndexBadge />
+                {visible.theme ? <ThemeToggle /> : null}
+              </>
+            }
+            trailing={visible.auth ? <AuthControls showPassword={false} /> : null}
           />
+        </div>
         <div className="flex w-full flex-col items-center gap-3">
           <div className="flex flex-wrap items-center justify-center gap-3">
             {visible.shariah ? (
@@ -280,9 +288,8 @@ function DashboardShell() {
                 onChange={(next) => replaceQuery({ shariah: next === "pure" ? "pure" : null })}
               />
             ) : null}
-            {visible.theme ? <ThemeToggle /> : null}
+            {visible.password ? <AuthControls showLogout={false} /> : null}
             {visible.install ? <InstallAppButton /> : null}
-            {visible.auth ? <AuthControls /> : null}
           </div>
           <TickChartSyncChip
             showStream={visible.stream}
