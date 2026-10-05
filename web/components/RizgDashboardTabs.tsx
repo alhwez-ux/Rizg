@@ -16,6 +16,9 @@ import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import { DashboardControlPanel } from "@/components/DashboardControlPanel";
+import { DataSkeleton } from "@/components/DataSkeleton";
+import { PanelBoundary } from "@/components/PanelBoundary";
+import { TrustBar } from "@/components/TrustBar";
 import { TasiIndexBadge } from "@/components/TasiIndexBadge";
 import { InstitutionalMatrix } from "@/components/InstitutionalMatrix";
 import { UnderWatchBanner, UnderWatchSection, WatchPulse } from "@/components/UnderWatchSection";
@@ -259,7 +262,7 @@ function DashboardShell() {
   );
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col items-center gap-6 px-4 pb-6 pt-10 text-center text-zinc-100 sm:px-6 lg:px-8">
+    <section className="mx-auto flex w-full min-w-0 max-w-7xl flex-col items-center gap-6 px-4 pb-28 pt-10 text-center text-zinc-100 sm:px-6 lg:px-8">
       {visible.notifications ? <NotificationCenter /> : null}
       <div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center shadow-glow backdrop-blur-md sm:p-6">
         <div className="flex w-full flex-col items-center gap-3">
@@ -369,15 +372,18 @@ function DashboardShell() {
           <div className="space-y-6">
             <p className="text-center text-xs text-zinc-400">{ar.opportunitiesHint}</p>
             {visible.opportunitiesDaily ? (
+              <PanelBoundary>
               <DailyOpportunitiesCard
                 payload={dailyPayload}
                 loading={dailyLoading}
                 error={dailyError}
                 onOpenSymbol={openWatchedCompany}
               />
+              </PanelBoundary>
             ) : null}
-            {visible.opportunitiesReco ? <RecommendationsCard shariahFilter={shariahFilter} /> : null}
+            {visible.opportunitiesReco ? <PanelBoundary><RecommendationsCard shariahFilter={shariahFilter} /></PanelBoundary> : null}
             {visible.opportunitiesFlow ? (
+              <PanelBoundary>
               <DailyLiquidityCard
                 shariahFilter={shariahFilter}
                 onOpenSymbol={(company) => {
@@ -386,6 +392,7 @@ function DashboardShell() {
                   replaceQuery({ tab: null, section: null, symbol: company.symbol, name: company.name, sector: null });
                 }}
               />
+              </PanelBoundary>
             ) : null}
           </div>
         ) : null}
@@ -412,6 +419,7 @@ function DashboardShell() {
               })}
             </div>
             {activeTool === "preopen" && visible.toolPreopen ? (
+              <PanelBoundary>
               <PreOpenCard
                 payload={preopenPayload}
                 loading={preopenLoading}
@@ -419,8 +427,10 @@ function DashboardShell() {
                 shariahFilter={shariahFilter}
                 onOpenSymbol={openWatchedCompany}
               />
+              </PanelBoundary>
             ) : null}
             {activeTool === "funds" && visible.toolFunds ? (
+              <PanelBoundary>
               <SmartMoneyCard
                 payload={fundsPayload}
                 loading={fundsLoading}
@@ -428,17 +438,21 @@ function DashboardShell() {
                 shariahFilter={shariahFilter}
                 onOpenSymbol={openWatchedCompany}
               />
+              </PanelBoundary>
             ) : null}
             {activeTool === "analysts" && visible.toolAnalysts ? (
+              <PanelBoundary>
               <AnalystConsensusCard
                 payload={analystPayload}
                 loading={analystLoading}
                 error={analystError}
                 onOpenSymbol={openWatchedCompany}
               />
+              </PanelBoundary>
             ) : null}
-            {activeTool === "recovery" && visible.toolRecovery ? <RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} /> : null}
+            {activeTool === "recovery" && visible.toolRecovery ? <PanelBoundary><RecoveryCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} /></PanelBoundary> : null}
             {activeTool === "dividends" && visible.toolDividends ? (
+              <PanelBoundary>
               <DividendsCalendarCard
                 rows={dividendRows}
                 loading={dividendLoading}
@@ -447,8 +461,9 @@ function DashboardShell() {
                 asOf={dividendAsOf}
                 onOpen={openWatchedCompany}
               />
+              </PanelBoundary>
             ) : null}
-            {activeTool === "ranking" && visible.toolRanking ? <RankingRevealCard shariahFilter={shariahFilter} /> : null}
+            {activeTool === "ranking" && visible.toolRanking ? <PanelBoundary><RankingRevealCard shariahFilter={shariahFilter} /></PanelBoundary> : null}
           </div>
         ) : null}
 
@@ -457,10 +472,15 @@ function DashboardShell() {
             {visible.heatmap || visible.followedRadar ? (
               <p className="text-center text-xs text-zinc-400">{ar.liveDashboardHint}</p>
             ) : null}
-            {watchOpen ? <UnderWatchSection rows={watchRows} onClose={closeWatch} /> : null}
+            {watchOpen ? (
+              <PanelBoundary>
+                <UnderWatchSection rows={watchRows} onClose={closeWatch} />
+              </PanelBoundary>
+            ) : null}
             {!watchOpen ? (
               <>
                 {visible.matrix ? (
+                  <PanelBoundary>
                   <InstitutionalMatrix
                     shariahFilter={shariahFilter}
                     funds={fundsPayload?.data ?? []}
@@ -471,8 +491,10 @@ function DashboardShell() {
                     showDistribution={visible.columnDistribution}
                     onOpen={openWatchedCompany}
                   />
+                  </PanelBoundary>
                 ) : null}
                 {visible.heatmap ? (
+                <PanelBoundary>
                 <SectorHeatmapCard
                   selectedSector={selectedSector}
                   radarSymbol={radarSymbol}
@@ -489,6 +511,7 @@ function DashboardShell() {
                     })
                   }
                 />
+                </PanelBoundary>
                 ) : null}
                 {visible.followedRadar ? (
                 <div className="space-y-4">
@@ -503,12 +526,13 @@ function DashboardShell() {
                       <p className="text-center text-sm text-zinc-500 lg:col-span-2">{ar.shariahFilterEmpty}</p>
                     ) : (
                       visibleRadarCards.map((item) => (
+                        <PanelBoundary key={item.symbol}>
                         <LiquidityRadarCard
-                          key={item.symbol}
                           symbol={item.symbol}
                           symbolName={item.symbolName}
                           onRemove={() => removeRadarCompany(item.symbol)}
                         />
+                        </PanelBoundary>
                       ))
                     )}
                   </div>
@@ -519,6 +543,7 @@ function DashboardShell() {
           </div>
         ) : null}
       </div>
+      <TrustBar />
     </section>
   );
 }
@@ -527,7 +552,9 @@ export function RizgDashboardTabs() {
   return (
     <Suspense
       fallback={
-        <section className="mx-auto max-w-7xl px-4 py-10 text-sm text-zinc-500">{ar.heatmapLoading}</section>
+        <section className="mx-auto max-w-7xl px-4 py-10">
+          <DataSkeleton kind="chart" />
+        </section>
       }
     >
       <DashboardShell />

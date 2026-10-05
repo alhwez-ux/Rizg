@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { SmartMoneyIcon } from "@/components/SmartMoneyIcon";
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPrice } from "@/lib/liquidity";
@@ -144,7 +145,7 @@ export function SmartMoneyCard({
       {error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
-        <p className="py-10 text-sm text-zinc-500">{ar.fundsLoading}</p>
+        <DataSkeleton kind="table" rows={4} />
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.fundsEmpty}</p>
       ) : (

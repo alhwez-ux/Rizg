@@ -1,5 +1,6 @@
 "use client";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import type { DailyOpportunitiesResponse, DailyOpportunityRow } from "@/lib/dailyOpportunities";
 import { isValidLongPlan } from "@/lib/tradeGeometry";
@@ -84,7 +85,7 @@ export function DailyOpportunitiesCard({
       {error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
-        <p className="py-10 text-sm text-zinc-500">{ar.dailyLoading}</p>
+        <DataSkeleton kind="grid" rows={2} />
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.dailyEmpty}</p>
       ) : (

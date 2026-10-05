@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
 import { useTasiSession } from "@/hooks/useTasiSession";
@@ -226,7 +227,6 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const hint = cached && !live ? ar.recoCached : live ? ar.recoHintLive : ar.recoHintEod;
   const badge = live ? ar.recoLive : sessionLabel || sessionPhaseLabel || ar.recoClosed;
   const emptyLabel = live ? ar.recoEmptyLive : ar.recoEmptyEod;
-  const loadingLabel = live ? ar.recoLoadingLive : ar.recoLoadingEod;
   const priceLabel = live ? ar.recoColPriceLive : ar.recoColCloseEod;
   const horizonLabel = live ? ar.recoHorizonLive : ar.recoHorizon;
 
@@ -302,7 +302,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
       ) : null}
 
       {loading && !loaded && visible.length === 0 ? (
-        <RecoSpinner label={loadingLabel} />
+        <DataSkeleton kind="table" rows={5} />
       ) : error && visible.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : visible.length === 0 ? (
@@ -396,15 +396,6 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         </div>
       ) : null}
     </section>
-  );
-}
-
-function RecoSpinner({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 py-10" role="status" aria-live="polite">
-      <span className="h-10 w-10 animate-spin rounded-full border-2 border-zinc-700 border-t-sky-400" />
-      <p className="max-w-md text-center text-sm text-zinc-400">{label}</p>
-    </div>
   );
 }
 

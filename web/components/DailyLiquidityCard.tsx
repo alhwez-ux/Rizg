@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { fetchDailyLiquidity, type DailyLiquidityRow, type LiquidityGrade } from "@/lib/dailyLiquidity";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
@@ -210,7 +211,7 @@ export function DailyLiquidityCard({
         </div>
       ) : (
         <div className="rounded-xl border border-zinc-800/50 bg-zinc-950/40 p-8 text-center text-sm text-zinc-400">
-          {loading ? ar.flowDetectorLoading : ar.flowDetectorHidden}
+          {loading ? <DataSkeleton kind="table" rows={5} /> : ar.flowDetectorHidden}
         </div>
       )}
     </section>

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { buySharePercent, type PreOpenRow, type PreOpenScanResponse, type PreOpenSignalKind } from "@/lib/preopen";
@@ -208,7 +209,7 @@ export function PreOpenCard({
       {error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
-        <p className="py-10 text-sm text-zinc-500">{ar.preopenLoading}</p>
+        <DataSkeleton kind="table" rows={4} />
       ) : rows.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.preopenEmpty}</p>
       ) : (

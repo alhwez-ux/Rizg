@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
@@ -154,7 +155,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
         </div>
       ) : (
         <div className="rounded-xl border border-zinc-800/50 bg-zinc-950/40 p-8 text-center text-sm text-zinc-400">
-          {loading ? ar.rankingLoading : error ? error : ar.rankingHidden}
+          {loading ? <DataSkeleton kind="table" rows={6} /> : error ? error : ar.rankingHidden}
         </div>
       )}
     </section>

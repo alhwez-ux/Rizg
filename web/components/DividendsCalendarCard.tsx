@@ -1,5 +1,6 @@
 "use client";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { formatRiyadhDate, isUpcomingEligibility, type DividendRow } from "@/lib/dividends";
 
@@ -34,7 +35,7 @@ export function DividendsCalendarCard({
       {error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && visible.length === 0 ? (
-        <p className="py-10 text-sm text-zinc-500">{ar.dividendsLoading}</p>
+        <DataSkeleton kind="table" rows={4} />
       ) : visible.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">
           {ar.dividendsEmpty}

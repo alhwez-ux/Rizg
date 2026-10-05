@@ -12,6 +12,7 @@ import {
   exitBoard,
   type BoardCard,
 } from "@/lib/institutionalMatrix";
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { formatPrice } from "@/lib/liquidity";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import type { ShariahFilter } from "@/lib/shariah";
@@ -111,7 +112,7 @@ export function InstitutionalMatrix({
               <span className="font-mono text-xs opacity-70">{column.rows.length}</span>
             </header>
             {waiting || (fundsLoading && (column.id === "accumulation" || column.id === "distribution") && column.rows.length === 0) ? (
-              <p className="px-1 py-6 text-center text-xs text-zinc-500">{ar.matrixLoading}</p>
+              <DataSkeleton kind="grid" rows={2} />
             ) : column.rows.length === 0 ? (
               <p className="px-1 py-2 text-center text-xs text-zinc-500">{column.empty}</p>
             ) : (

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice } from "@/lib/liquidity";
 import { listedNameFor, searchListedCompanies, type ListedCompany } from "@/lib/listedCompanies";
@@ -329,7 +330,7 @@ export function RecoveryCard({
           ) : null}
         </>
       ) : loading ? (
-        <p className="mt-6 text-sm text-zinc-500">{ar.recoveryLoading}</p>
+        <div className="mt-6"><DataSkeleton kind="table" rows={3} /></div>
       ) : (
         <p className="mt-6 text-sm text-zinc-500">{ar.recoveryIdle}</p>
       )}

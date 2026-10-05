@@ -17,6 +17,7 @@ import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { buildStockDossier, type StockDossier } from "@/lib/stockDossier";
 
 type QuoteMode = "live" | "waiting" | "last_close";
@@ -122,7 +123,9 @@ export function LiquidityRadarCard({
       </div>
 
       {loading && !report ? (
-        <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarLoading}</p>
+        <div className="mt-4">
+          <DataSkeleton kind="card" />
+        </div>
       ) : report ? (
         <ReportBody report={report} source={data?.source} regime={regime} dossier={dossier} />
       ) : (

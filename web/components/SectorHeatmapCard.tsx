@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DataSkeleton } from "@/components/DataSkeleton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { ar } from "@/lib/ar";
 import { formatMoney } from "@/lib/liquidity";
@@ -214,8 +215,8 @@ export function SectorHeatmapCard({
 
   if (loadingSectors && sectors.length === 0) {
     return (
-      <section className="animate-pulse rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-6 text-center text-sm text-zinc-400 shadow-glow">
-        {ar.heatmapLoading}
+      <section className="rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-6 shadow-glow">
+        <DataSkeleton kind="chart" />
       </section>
     );
   }
@@ -381,7 +382,7 @@ function CompanyTable({
       </div>
 
       {loading ? (
-        <div className="animate-pulse p-8 text-center text-zinc-400">{ar.heatmapPanelLoading}</div>
+        <DataSkeleton kind="table" rows={5} />
       ) : error ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
           {error}

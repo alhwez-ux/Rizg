@@ -25,10 +25,10 @@
     radial-gradient(900px 400px at 0% 0%, rgba(244, 63, 94, 0.06), transparent 45%),
     #07090d;
   --rizg-fg: #f4f4f5;
-  --rizg-gain: #00e676;
-  --rizg-gain-glow: 0 0 8px rgba(0, 230, 118, 0.55), 0 0 18px rgba(0, 230, 118, 0.22);
-  --rizg-loss: #f87171;
-  --rizg-loss-glow: 0 0 6px rgba(248, 113, 113, 0.28);
+  --rizg-gain: #8fd4b0;
+  --rizg-gain-glow: none;
+  --rizg-loss: #f0a3a8;
+  --rizg-loss-glow: none;
 }
 
 [data-theme="light"] {
@@ -67,6 +67,23 @@ body {
 body {
   background: var(--rizg-page);
   color: var(--rizg-fg);
+}
+
+/* Softer tape colors for long sessions. Day theme remaps these again below. */
+[data-theme="dark"] .text-emerald-300,
+[data-theme="dark"] .text-emerald-400 {
+  color: #8fd4b0;
+}
+[data-theme="dark"] .text-rose-200,
+[data-theme="dark"] .text-rose-300,
+[data-theme="dark"] .text-rose-400 {
+  color: #f0a3a8;
+}
+
+.overflow-x-auto {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 
 /* Pale accent text used on dark cards becomes ink on the day theme. Night classes stay untouched. */

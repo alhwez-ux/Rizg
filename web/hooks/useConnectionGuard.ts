@@ -19,6 +19,7 @@ export interface ConnectionGuardValue {
   planActive: boolean;
   planReason: string | null;
   checking: boolean;
+  apiUp: boolean | null;
 }
 
 const IDLE: ConnectionGuardValue = {
@@ -27,6 +28,7 @@ const IDLE: ConnectionGuardValue = {
   planActive: false,
   planReason: null,
   checking: true,
+  apiUp: null,
 };
 
 const ConnectionGuardContext = createContext<ConnectionGuardValue>(IDLE);
@@ -114,6 +116,7 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
         planActive: snapshot?.plan_active ?? true,
         planReason: snapshot?.plan_reason ?? null,
         checking: false,
+        apiUp: null,
       };
     }
     return {
@@ -124,6 +127,7 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
       planActive: snapshot?.plan_active !== false,
       planReason: snapshot?.plan_reason ?? null,
       checking,
+      apiUp: checking && !snapshot ? null : snapshot?.healthy !== false,
     };
   }, [checking, pathname, snapshot, visible]);
 
