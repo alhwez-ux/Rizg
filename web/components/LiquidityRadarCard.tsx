@@ -21,7 +21,7 @@ import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { companyRankFor } from "@/lib/rankingMatrix";
-import { buildStockDossier, sessionPath, valuationStance, type FieldState, type StockDossier } from "@/lib/stockDossier";
+import { buildStockDossier, resolveTapePath, valuationStance, type FieldState, type StockDossier } from "@/lib/stockDossier";
 
 type QuoteMode = "live" | "waiting" | "last_close";
 
@@ -128,8 +128,13 @@ export function LiquidityRadarCard({
 
       {report ? (
         <SessionPathStrip
+          quoteMode={report.quote_mode}
+          phase={report.session_phase}
           price={report.last_price}
           vwap={report.session_vwap ?? report.vwap}
+          open={report.session_open}
+          high={report.session_high}
+          low={report.session_low}
           stance={valuationStance(report.last_price, dossier.fairValue)}
         />
       ) : null}
@@ -150,18 +155,39 @@ export function LiquidityRadarCard({
 }
 
 function SessionPathStrip({
+  quoteMode,
+  phase,
   price,
   vwap,
+  open,
+  high,
+  low,
   stance,
 }: {
+  quoteMode?: string | null;
+  phase?: string | null;
   price: number | null;
   vwap: number | null;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
   stance: ReturnType<typeof valuationStance>;
 }) {
-  const path = sessionPath(price, vwap);
-  const tone = path === "up" ? "path-up" : path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-400";
-  const title = path === "up" ? ar.sessionPathUp : path === "down" ? ar.sessionPathDown : ar.sessionPathUnknown;
-  const hint = path === "up" ? ar.sessionPathUpHint : path === "down" ? ar.sessionPathDownHint : ar.dossierMissing;
+  const tape = resolveTapePath({ quoteMode, phase, price, vwap, open, high, low });
+  const tone = tape.path === "up" ? "path-up" : tape.path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-300";
+  const title =
+    tape.path === "up" ? ar.sessionPathUp : tape.path === "down" ? ar.sessionPathDown : ar.sessionPathPost;
+  const hint =
+    tape.mode === "post"
+      ? tape.path === "down"
+        ? ar.postPathDownHint
+        : tape.path === "up"
+          ? ar.postPathUpHint
+          : ar.sessionPathPost
+      : tape.path === "down"
+        ? ar.sessionPathDownHint
+        : ar.sessionPathUpHint;
+  const anchorLabel = tape.mode === "post" ? ar.sessionDayAverage : ar.sessionVwap;
   const valuation =
     stance === "over"
       ? ar.valuationOver
@@ -178,17 +204,20 @@ function SessionPathStrip({
         : "text-zinc-400";
 
   return (
-    <section className="mt-4 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-3 text-center">
-      <div className={`rounded-xl border px-3 py-2 ${tone}`}>
-        <p className="text-base font-black">{title}</p>
-        <p className="mt-1 text-xs leading-5">{hint}</p>
-        <p className="mt-2 text-xs">
-          {ar.sessionVwap}{" "}
-          <span dir="ltr" className="font-mono text-sm font-bold">
-            {priceText(vwap)}
-          </span>
-        </p>
+    <section className={`mt-4 w-full rounded-xl border p-4 ${tone}`}>
+      {tape.mode === "post" ? <p className="mb-2 text-[11px] font-semibold opacity-80">{ar.sessionPathPost}</p> : null}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-xs font-medium">
+          {tape.anchor != null ? anchorLabel : ar.liveRadarLastClosePrice}:{" "}
+          <strong dir="ltr" className="font-mono text-sm">
+            {priceText(tape.anchor ?? tape.price)}
+          </strong>
+        </span>
+        {tape.path === "unknown" ? null : (
+          <span className="inline-flex items-center justify-center rounded-full px-3 py-1 text-sm font-bold">{title}</span>
+        )}
       </div>
+      <p className="mt-2 text-xs leading-5">{hint}</p>
       <p className={`mt-2 text-xs font-semibold leading-5 ${valuationTone}`}>{valuation}</p>
     </section>
   );

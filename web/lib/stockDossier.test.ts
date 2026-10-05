@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { overlayTickOnReport, type LiveRadarReport } from "./liveRadar";
-import { buildStockDossier, liquidityScore, sessionPath, valuationStance } from "./stockDossier";
+import { buildStockDossier, liquidityScore, resolveTapePath, sessionPath, valuationStance } from "./stockDossier";
 import type { LiquidityTick } from "./liquidity";
 
 const rajhi = buildStockDossier("1120", 100, {
@@ -99,6 +99,15 @@ assert.equal(sessionPath(101, 100), "up");
 assert.equal(sessionPath(99, 100), "down");
 assert.equal(sessionPath(null, 100), "unknown");
 assert.equal(sessionPath(100, null), "unknown");
+assert.equal(resolveTapePath({ quoteMode: "live", phase: "open", price: 105, vwap: 100 }).mode, "live");
+assert.equal(resolveTapePath({ quoteMode: "live", phase: "open", price: 105, vwap: 100 }).path, "up");
+const closed = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 99, vwap: null, high: 102, low: 98 });
+assert.equal(closed.mode, "post");
+assert.equal(closed.anchor, 99.67);
+assert.equal(closed.path, "down");
+const aboveOpen = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 101, vwap: null, open: 100 });
+assert.equal(aboveOpen.path, "up");
+assert.equal(aboveOpen.anchor, 100);
 
 const filled = buildStockDossier("9999", 50, null, { peRatio: 10, dividendYieldPct: 1.5, settled: true });
 assert.equal(filled.peRatio, 10);

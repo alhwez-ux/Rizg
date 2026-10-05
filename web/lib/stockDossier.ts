@@ -80,6 +80,40 @@ export function buildStockDossier(
   };
 }
 
+export interface TapePathInput {
+  quoteMode?: string | null;
+  phase?: string | null;
+  price: number | null;
+  vwap: number | null;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+}
+
+export interface TapePath {
+  mode: "live" | "post";
+  path: SessionPath;
+  price: number | null;
+  anchor: number | null;
+}
+
+/** Typical price of the completed day when a full-session VWAP was not kept. */
+export function typicalPrice(high: number | null, low: number | null, close: number | null): number | null {
+  if (high == null || low == null || close == null || high <= 0 || low <= 0 || close <= 0) return null;
+  return roundTo((high + low + close) / 3, 2);
+}
+
+export function resolveTapePath(input: TapePathInput): TapePath {
+  const price = positive(input.price);
+  const vwap = positive(input.vwap);
+  const live = input.quoteMode === "live" && (input.phase == null || input.phase === "open");
+  if (live && price != null && vwap != null) {
+    return { mode: "live", path: sessionPath(price, vwap), price, anchor: vwap };
+  }
+  const anchor = vwap ?? typicalPrice(positive(input.high), positive(input.low), price) ?? positive(input.open);
+  return { mode: "post", path: sessionPath(price, anchor), price, anchor };
+}
+
 /** Session VWAP is the volume-weighted price. Equal or above is the upward path. */
 export function sessionPath(price: number | null, vwap: number | null): SessionPath {
   if (price == null || vwap == null || price <= 0 || vwap <= 0 || !Number.isFinite(price) || !Number.isFinite(vwap)) {

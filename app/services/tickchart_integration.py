@@ -762,6 +762,9 @@ class TickChartFeed:
         report["session_vwap"] = session_vwap
         if report.get("vwap") is None and session_vwap is not None:
             report["vwap"] = session_vwap
+        report["session_open"] = _json_number(stored.get("open"))
+        report["session_high"] = _json_number(stored.get("high")) or _json_number(levels.session_high)
+        report["session_low"] = _json_number(stored.get("low")) or _json_number(levels.session_low)
         return report
 
     def _stored_market_row(self, symbol: str) -> dict[str, Any] | None:
