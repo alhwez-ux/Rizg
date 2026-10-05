@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { overlayTickOnReport, type LiveRadarReport } from "./liveRadar";
-import { buildStockDossier, liquidityScore, valuationStance } from "./stockDossier";
+import { buildStockDossier, liquidityScore, sessionPath, valuationStance } from "./stockDossier";
 import type { LiquidityTick } from "./liquidity";
 
 const rajhi = buildStockDossier("1120", 100, {
@@ -94,6 +94,11 @@ assert.equal(valuationStance(97, 100), "attractive");
 assert.equal(valuationStance(90, 100), "attractive");
 assert.equal(valuationStance(104, 100), "near");
 assert.equal(valuationStance(null, 100), "pending");
+assert.equal(sessionPath(100, 100), "up");
+assert.equal(sessionPath(101, 100), "up");
+assert.equal(sessionPath(99, 100), "down");
+assert.equal(sessionPath(null, 100), "unknown");
+assert.equal(sessionPath(100, null), "unknown");
 
 const filled = buildStockDossier("9999", 50, null, { peRatio: 10, dividendYieldPct: 1.5, settled: true });
 assert.equal(filled.peRatio, 10);

@@ -21,7 +21,7 @@ import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { companyRankFor } from "@/lib/rankingMatrix";
-import { buildStockDossier, valuationStance, type FieldState, type StockDossier } from "@/lib/stockDossier";
+import { buildStockDossier, sessionPath, valuationStance, type FieldState, type StockDossier } from "@/lib/stockDossier";
 
 type QuoteMode = "live" | "waiting" | "last_close";
 
@@ -126,6 +126,14 @@ export function LiquidityRadarCard({
         </div>
       </div>
 
+      {report ? (
+        <SessionPathStrip
+          price={report.last_price}
+          vwap={report.session_vwap ?? report.vwap}
+          stance={valuationStance(report.last_price, dossier.fairValue)}
+        />
+      ) : null}
+
       {loading && !report ? (
         <div className="mt-4">
           <DataSkeleton kind="card" />
@@ -139,6 +147,60 @@ export function LiquidityRadarCard({
       <RetryButton onRetry={retry} className="mx-auto mt-4 sm:hidden" />
     </article>
   );
+}
+
+function SessionPathStrip({
+  price,
+  vwap,
+  stance,
+}: {
+  price: number | null;
+  vwap: number | null;
+  stance: ReturnType<typeof valuationStance>;
+}) {
+  const path = sessionPath(price, vwap);
+  const tone = path === "up" ? "path-up" : path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-400";
+  const title = path === "up" ? ar.sessionPathUp : path === "down" ? ar.sessionPathDown : ar.sessionPathUnknown;
+  const hint = path === "up" ? ar.sessionPathUpHint : path === "down" ? ar.sessionPathDownHint : ar.dossierMissing;
+  const valuation =
+    stance === "over"
+      ? ar.valuationOver
+      : stance === "attractive"
+        ? ar.valuationAttractive
+        : stance === "near"
+          ? ar.valuationNear
+          : ar.valuationPending;
+  const valuationTone =
+    stance === "over"
+      ? "text-orange-200"
+      : stance === "attractive"
+        ? "text-emerald-200"
+        : "text-zinc-400";
+
+  return (
+    <section className="mt-4 w-full rounded-2xl border border-zinc-800 bg-zinc-950/40 px-3 py-3 text-center">
+      <div className={`rounded-xl border px-3 py-2 ${tone}`}>
+        <p className="text-base font-black">{title}</p>
+        <p className="mt-1 text-xs leading-5">{hint}</p>
+        <p className="mt-2 text-xs">
+          {ar.sessionVwap}{" "}
+          <span dir="ltr" className="font-mono text-sm font-bold">
+            {priceText(vwap)}
+          </span>
+        </p>
+      </div>
+      <p className={`mt-2 text-xs font-semibold leading-5 ${valuationTone}`}>{valuation}</p>
+    </section>
+  );
+}
+
+function priceText(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return ar.dossierMissing;
+  return formatPrice(value);
+}
+
+function dashText(value: string): string {
+  return value === "—" ? ar.dossierMissing : value;
 }
 
 function RetryButton({ onRetry, className }: { onRetry: () => void; className?: string }) {
@@ -175,7 +237,7 @@ function CompactSummary({ report, regime }: { report: LiveRadarReport; regime: T
       <div>
         <p className="text-xs text-zinc-500">{priceLabel}</p>
         <p dir="ltr" className="mt-1 font-mono text-sm font-semibold text-zinc-100">
-          {formatPrice(report.last_price)}
+          {priceText(report.last_price)}
         </p>
       </div>
       <div>
@@ -251,11 +313,11 @@ function ReportBody({
           />
           <Metric
             label={report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice}
-            value={formatPrice(report.last_price)}
+            value={priceText(report.last_price)}
           />
           <Metric
             label={ar.heatmapColChange}
-            value={formatPercent(report.change_percent)}
+            value={dashText(formatPercent(report.change_percent))}
             tone={(report.change_percent ?? 0) > 0 ? "up" : (report.change_percent ?? 0) < 0 ? "down" : "flat"}
           />
         </div>
@@ -263,13 +325,13 @@ function ReportBody({
         {report.bid != null || report.ask != null ? (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
             <span>
-              {ar.bid} <span dir="ltr">{formatPrice(report.bid ?? null)}</span>
+              {ar.bid} <span dir="ltr">{priceText(report.bid)}</span>
             </span>
             <span>
-              {ar.ask} <span dir="ltr">{formatPrice(report.ask ?? null)}</span>
+              {ar.ask} <span dir="ltr">{priceText(report.ask)}</span>
             </span>
             <span>
-              {ar.spread} <span dir="ltr">{formatPrice(report.spread ?? null)}</span>
+              {ar.spread} <span dir="ltr">{priceText(report.spread)}</span>
             </span>
           </p>
         ) : null}
@@ -293,33 +355,33 @@ function ReportBody({
 
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
           <span>
-            {ar.vwap} <span dir="ltr">{formatPrice(report.vwap)}</span>
+            {ar.sessionVwap} <span dir="ltr">{priceText(report.session_vwap ?? report.vwap)}</span>
           </span>
           <span>
-            {ar.atr} <span dir="ltr">{formatPrice(report.atr)}</span>
+            {ar.atr} <span dir="ltr">{priceText(report.atr)}</span>
           </span>
           <span>
-            {ar.buyPressure} {formatRatio(report.buy_ratio)}
+            {ar.buyPressure} {dashText(formatRatio(report.buy_ratio))}
           </span>
           <span>
-            {ar.sellPressure} {formatRatio(report.sell_ratio)}
+            {ar.sellPressure} {dashText(formatRatio(report.sell_ratio))}
           </span>
           <span>
             MFI مؤسسي{" "}
             <span dir="ltr">
               {report.institutional_mfi != null || report.mfi != null
                 ? `${Math.round(report.institutional_mfi ?? report.mfi ?? 0)}%`
-                : "—"}
+                : ar.dossierMissing}
             </span>
           </span>
           <span>
             MFI أفراد{" "}
-            <span dir="ltr">{report.retail_mfi != null ? `${Math.round(report.retail_mfi)}%` : "—"}</span>
+            <span dir="ltr">{report.retail_mfi != null ? `${Math.round(report.retail_mfi)}%` : ar.dossierMissing}</span>
           </span>
           <span>
             تضاعف الحجم{" "}
             <span dir="ltr">
-              {report.volume_ratio != null ? `${report.volume_ratio.toFixed(2)}×` : "—"}
+              {report.volume_ratio != null ? `${report.volume_ratio.toFixed(2)}×` : ar.dossierMissing}
             </span>
           </span>
           <span>

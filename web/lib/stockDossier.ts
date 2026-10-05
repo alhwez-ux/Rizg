@@ -16,6 +16,7 @@ export interface TapeLiquidityInput {
 
 export type FieldState = "ready" | "updating" | "missing";
 export type ValuationStance = "over" | "attractive" | "near" | "pending";
+export type SessionPath = "up" | "down" | "unknown";
 
 export interface DossierFundamentals {
   peRatio?: number | null;
@@ -77,6 +78,14 @@ export function buildStockDossier(
     healthState: health != null ? "ready" : peRatio == null && dividendYieldPct == null && !settled ? "updating" : "missing",
     debtState: debtToMarket != null ? "ready" : "missing",
   };
+}
+
+/** Session VWAP is the volume-weighted price. Equal or above is the upward path. */
+export function sessionPath(price: number | null, vwap: number | null): SessionPath {
+  if (price == null || vwap == null || price <= 0 || vwap <= 0 || !Number.isFinite(price) || !Number.isFinite(vwap)) {
+    return "unknown";
+  }
+  return price >= vwap ? "up" : "down";
 }
 
 /** Premium above 5% is stretched. At or below fair value is the attractive zone. */

@@ -756,6 +756,12 @@ class TickChartFeed:
             report["watch_flag"] = None
             report["explosive"] = False
             report["hidden_accumulation"] = False
+        session_vwap = _json_number(levels.vwap)
+        if session_vwap is None:
+            session_vwap = _session_vwap(live.get("session_value"), live.get("session_volume"))
+        report["session_vwap"] = session_vwap
+        if report.get("vwap") is None and session_vwap is not None:
+            report["vwap"] = session_vwap
         return report
 
     def _stored_market_row(self, symbol: str) -> dict[str, Any] | None:
@@ -2213,6 +2219,14 @@ def _json_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _session_vwap(value: Any, volume: Any) -> float | None:
+    turnover = _json_number(value)
+    quantity = _json_number(volume)
+    if turnover is None or quantity is None or quantity <= 0 or turnover <= 0:
+        return None
+    return round(turnover / quantity, 4)
 
 
 def _numeric_text(value: Any) -> str:

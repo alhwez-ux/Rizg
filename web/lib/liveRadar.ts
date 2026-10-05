@@ -29,6 +29,7 @@ export interface LiveRadarReport {
   sell_ratio: number | null;
   last_price: number | null;
   vwap: number | null;
+  session_vwap?: number | null;
   atr: number | null;
   suggested_entry: number | null;
   suggested_exit: number | null;
@@ -161,6 +162,7 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     sell_ratio: toFiniteNumber(row.sell_ratio),
     last_price: toFiniteNumber(row.last_price),
     vwap: toFiniteNumber(row.vwap),
+    session_vwap: toFiniteNumber(row.session_vwap) ?? toFiniteNumber(row.vwap),
     atr: toFiniteNumber(row.atr),
     suggested_entry: toFiniteNumber(row.suggested_entry),
     suggested_exit: toFiniteNumber(row.suggested_exit),
