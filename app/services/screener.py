@@ -12,6 +12,7 @@ import httpx
 from app.core.config import Settings
 from app.models.screener import MarketPulse, ScreenerRow, ScreenerSnapshot, UnderWatchRow
 from app.models.trade import SessionFlow, recommendation_label
+from app.services.fundamental_alignment import align_tape, entry_allowed
 from app.services.liquidity_engine import LiquidityEngine
 from app.services.market_cache import MarketCache
 from app.services.sahm_data_provider import prefer_sahm_rest_url, resolve_sahm_api_key, sahm_auth_headers
@@ -256,6 +257,28 @@ class ScreenerService:
             for symbol, row in list(rows.items()):
                 if row.entry_signal or row.exit_signal:
                     continue
+                surge = float(row.volume_surge) if row.volume_surge is not None else None
+                _forced_entry, forced_exit, paper_notes = align_tape(
+                    False,
+                    False,
+                    symbol=symbol,
+                    change_percent=float(row.change_percent or 0),
+                    volume_surge=surge,
+                    net_positive=row.net_flow > 0,
+                )
+                if forced_exit:
+                    rows[symbol] = row.model_copy(
+                        update={
+                            "entry_signal": False,
+                            "exit_signal": True,
+                            "recommendation": recommendation_label(exit_signal=True),
+                            "reasons": [*paper_notes, *list(row.reasons)],
+                        }
+                    )
+                    priority.append(symbol)
+                    continue
+                if not entry_allowed(symbol):
+                    continue
                 if row.net_flow >= cutoff and (row.buy_ratio is None or row.buy_ratio >= Decimal("0.50")):
                     rows[symbol] = row.model_copy(
                         update={
@@ -263,6 +286,7 @@ class ScreenerService:
                             "recommendation": recommendation_label(entry=True),
                             "reasons": [
                                 "إشارة دخول 🚀",
+                                "الورقة المالية سليمة: مكرر الربحية ودين الفائدة والربحية ضمن الحدود",
                                 f"ضمن أعلى 15% من صافي التدفق الموجب بين الأقران",
                                 *list(row.reasons),
                             ],

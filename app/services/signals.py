@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from typing import Any, Callable, Iterable
 
+from app.services.fundamental_alignment import align_tape
 from app.services.liquidity_engine import MarketLevels
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,15 @@ class SignalEngine:
         if has_volume_profile and raw_entry and not volume_confirmed:
             reasons.append("كسر بدون تأكيد حجم مقابل متوسط 10 جلسات — احتمال اختراق وهمي")
             raw_entry = False
+        raw_entry, raw_exit, paper_notes = align_tape(
+            raw_entry,
+            raw_exit,
+            symbol=inputs.symbol,
+            change_percent=float(inputs.change_percent or _ZERO),
+            volume_surge=None if surge is None else float(surge),
+            net_positive=net is not None and net > _ZERO,
+        )
+        reasons.extend(paper_notes)
         entry, exit_signal = self._stabilize(
             inputs.symbol,
             raw_entry=raw_entry,

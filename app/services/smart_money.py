@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from app.models.screener import is_tasi_main_symbol
+from app.services.fundamental_alignment import align_smart_kind
 from app.services.shariah import company_name_for, is_prohibited, sector_for
 from app.services.signals import is_valid_long_plan, long_trade_levels
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
@@ -250,6 +251,7 @@ def classify_smart_money(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     kind = _kind(metrics)
     if kind is None:
         return None
+    kind, paper_note = align_smart_kind(kind, symbol, snapshot)
     last_block = _num(snapshot.get("last_block_value"))
     entry = target = stop = None
     plan_ok = False
@@ -266,6 +268,11 @@ def classify_smart_money(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         KIND_WATCH: SIGNAL_WATCH,
     }[kind]
     badge = _badge(kind, metrics["score"], last_block)
+    reason = _reason(kind, metrics)
+    if paper_note and kind == KIND_ACCUMULATION:
+        reason = f"{paper_note} — {reason}"
+    elif paper_note:
+        reason = paper_note
     return {
         "symbol": symbol,
         "name": snapshot.get("name") or company_name_for(symbol) or symbol,
@@ -287,7 +294,7 @@ def classify_smart_money(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         "signal": signal,
         "signal_kind": kind,
         "badge": badge,
-        "reason": _reason(kind, metrics),
+        "reason": reason,
         "entry": entry,
         "target": target,
         "stop": stop,

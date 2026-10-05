@@ -22,6 +22,11 @@ function byScore(left: BoardCard, right: BoardCard): number {
   return right.score - left.score || left.symbol.localeCompare(right.symbol);
 }
 
+function statedReason(reasons: string[], fallback: string): string {
+  const paper = reasons.find((item) => /الورقة|مكرر الربحية|صافي الدخل|دين الفائدة/.test(item));
+  return paper || reasons.find((item) => item.trim()) || fallback;
+}
+
 export function entryBoard(rows: ScreenerRow[], filter: ShariahFilter): BoardCard[] {
   return rows
     .filter((row) => row.entry_signal && !row.exit_signal && allowed(row.symbol, filter))
@@ -30,7 +35,7 @@ export function entryBoard(rows: ScreenerRow[], filter: ShariahFilter): BoardCar
       name: row.name || row.symbol,
       price: row.price > 0 ? row.price : null,
       metric: formatMoney(row.net_flow),
-      reason: row.reasons.find((item) => item.trim()) || "دخول بعد توافق السيولة والكتل ومتوسط 15 دقيقة",
+      reason: statedReason(row.reasons, "دخول بعد توافق السيولة والكتل ومتوسط 15 دقيقة"),
       score: row.score,
     }))
     .sort(byScore)
@@ -45,7 +50,7 @@ export function exitBoard(rows: ScreenerRow[], filter: ShariahFilter): BoardCard
       name: row.name || row.symbol,
       price: row.price > 0 ? row.price : null,
       metric: formatMoney(row.net_flow),
-      reason: row.reasons.find((item) => item.trim()) || "خروج بعد انعكاس السيولة والكتل ومتوسط 15 دقيقة",
+      reason: statedReason(row.reasons, "خروج بعد انعكاس السيولة والكتل ومتوسط 15 دقيقة"),
       score: row.score,
     }))
     .sort(byScore)
