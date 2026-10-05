@@ -10,6 +10,8 @@ import {
   formatRatio,
   type TapeRegime,
 } from "@/lib/liquidity";
+import { useEffect, useState } from "react";
+
 import { useHeldReport } from "@/hooks/useHeldReport";
 import { useSymbolRegime } from "@/hooks/useSymbolRegime";
 import { type LiveRadarReport, type LiveRadarSignal } from "@/lib/liveRadar";
@@ -18,7 +20,8 @@ import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { DataSkeleton } from "@/components/DataSkeleton";
-import { buildStockDossier, type StockDossier } from "@/lib/stockDossier";
+import { companyRankFor } from "@/lib/rankingMatrix";
+import { buildStockDossier, valuationStance, type FieldState, type StockDossier } from "@/lib/stockDossier";
 
 type QuoteMode = "live" | "waiting" | "last_close";
 
@@ -50,7 +53,8 @@ export function LiquidityRadarCard({
         }
       : null,
   );
-  const dossier = buildStockDossier(symbol, report?.last_price ?? null, report);
+  const fundamentals = useDossierFundamentals(symbol);
+  const dossier = buildStockDossier(symbol, report?.last_price ?? null, report, fundamentals);
   const title = displayCompanyTitle(symbol, symbolName);
   const quoteMode: QuoteMode | undefined =
     toQuoteMode(report?.quote_mode) ??
@@ -210,7 +214,7 @@ function ReportBody({
   return (
     <>
       <CompactSummary report={report} regime={regime} />
-      <DossierStrip dossier={dossier} />
+      <DossierStrip dossier={dossier} price={report.last_price} />
 
       <div className="mt-5 hidden space-y-4 sm:block">
         {report.trap ? (
@@ -368,7 +372,7 @@ function ReportBody({
   );
 }
 
-function DossierStrip({ dossier }: { dossier: StockDossier }) {
+function DossierStrip({ dossier, price }: { dossier: StockDossier; price: number | null }) {
   const shariah =
     dossier.shariah === "PURE"
       ? ar.dossierPure
@@ -383,37 +387,104 @@ function DossierStrip({ dossier }: { dossier: StockDossier }) {
       : dossier.shariah === "PROHIBITED"
         ? "text-rose-300"
         : "text-amber-200";
+  const stance = valuationStance(price, dossier.fairValue);
   return (
     <section className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid auto-rows-fr grid-cols-2 gap-2 sm:grid-cols-4">
         <DossierMetric label={ar.dossierShariah} value={shariah} valueClass={tone} />
-        <DossierMetric label={ar.dossierPe} value={fixed(dossier.peRatio, 2)} />
+        <DossierMetric label={ar.dossierPe} value={fixed(dossier.peRatio, 2)} state={dossier.peState} />
         <DossierMetric
           label={ar.dossierYield}
-          value={dossier.dividendYieldPct == null ? "—" : `${fixed(dossier.dividendYieldPct, 2)}%`}
+          value={dossier.dividendYieldPct == null ? "" : `${fixed(dossier.dividendYieldPct, 2)}%`}
+          state={dossier.yieldState}
         />
         <DossierMetric
           label={ar.dossierDebt}
-          value={dossier.debtToMarket == null ? "—" : `${(dossier.debtToMarket * 100).toFixed(1)}%`}
+          value={dossier.debtToMarket == null ? "" : `${(dossier.debtToMarket * 100).toFixed(1)}%`}
+          state={dossier.debtState}
         />
-        <DossierMetric label={ar.dossierFair} value={formatPrice(dossier.fairValue)} />
-        <DossierMetric label={ar.dossierHealth} value={fixed(dossier.healthScore, 1)} />
-        <DossierMetric label={ar.dossierLiquidity} value={fixed(dossier.liquidityScore, 1)} />
+        <DossierMetric label={ar.dossierFair} value={dossier.fairValue == null ? "" : formatPrice(dossier.fairValue)} state={dossier.fairState} />
+        <DossierMetric label={ar.dossierHealth} value={fixed(dossier.healthScore, 1)} state={dossier.healthState} />
+        <DossierMetric label={ar.dossierLiquidity} value={fixed(dossier.liquidityScore, 1)} state={dossier.liquidityState} />
       </div>
+      <ValuationBadge stance={stance} />
       <p className="mt-2 text-center text-[11px] text-zinc-500">{ar.dossierFairHint}</p>
     </section>
   );
 }
 
-function DossierMetric({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+function ValuationBadge({ stance }: { stance: ReturnType<typeof valuationStance> }) {
+  if (stance === "pending") {
+    return <p className="mt-3 text-center text-xs text-zinc-500">{ar.valuationPending}</p>;
+  }
+  const tone =
+    stance === "over"
+      ? "border-orange-400/40 bg-orange-500/10 text-orange-200"
+      : stance === "attractive"
+        ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+        : "border-zinc-700 bg-zinc-900 text-zinc-300";
+  const label = stance === "over" ? ar.valuationOver : stance === "attractive" ? ar.valuationAttractive : ar.valuationNear;
+  return <p className={`mt-3 rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-5 ${tone}`}>{label}</p>;
+}
+
+function DossierMetric({
+  label,
+  value,
+  state = "ready",
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  state?: FieldState;
+  valueClass?: string;
+}) {
+  const missing = state !== "ready" || value === "" || value === "—";
+  const shown = missing ? (state === "updating" ? ar.dossierUpdating : ar.dossierMissing) : value;
   return (
-    <div>
-      <p className="text-[11px] text-zinc-500">{label}</p>
-      <p dir="ltr" className={`mt-1 font-mono text-sm font-semibold text-zinc-100 ${valueClass ?? ""}`}>
-        {value}
+    <div className="flex min-h-[4.5rem] flex-col justify-between rounded-lg border border-zinc-800/80 bg-zinc-950/30 px-2 py-2 text-center">
+      <p className="text-[11px] leading-4 text-zinc-500">{label}</p>
+      <p
+        dir={missing ? "rtl" : "ltr"}
+        className={
+          missing
+            ? "mt-1 text-xs font-medium leading-5 text-zinc-500"
+            : `mt-1 font-mono text-sm font-semibold leading-5 text-zinc-100 ${valueClass ?? ""}`
+        }
+      >
+        {shown}
       </p>
     </div>
   );
+}
+
+function useDossierFundamentals(symbol: string): { peRatio: number | null; dividendYieldPct: number | null; settled: boolean } {
+  const [state, setState] = useState<{ peRatio: number | null; dividendYieldPct: number | null; settled: boolean }>({
+    peRatio: null,
+    dividendYieldPct: null,
+    settled: false,
+  });
+
+  useEffect(() => {
+    let alive = true;
+    setState({ peRatio: null, dividendYieldPct: null, settled: false });
+    companyRankFor(symbol)
+      .then((rank) => {
+        if (!alive) return;
+        setState({
+          peRatio: rank?.pe_ratio ?? null,
+          dividendYieldPct: rank?.dividend_yield ?? null,
+          settled: true,
+        });
+      })
+      .catch(() => {
+        if (alive) setState({ peRatio: null, dividendYieldPct: null, settled: true });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [symbol]);
+
+  return state;
 }
 
 function fixed(value: number | null, digits: number): string {

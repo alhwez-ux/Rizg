@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { overlayTickOnReport, type LiveRadarReport } from "./liveRadar";
-import { buildStockDossier, liquidityScore } from "./stockDossier";
+import { buildStockDossier, liquidityScore, valuationStance } from "./stockDossier";
 import type { LiquidityTick } from "./liquidity";
 
 const rajhi = buildStockDossier("1120", 100, {
@@ -87,5 +87,29 @@ assert.equal(overlaid.sell_ratio, 0.25);
 assert.equal(overlayTickOnReport(report, null).last_price, 9);
 assert.equal(overlayTickOnReport(report, null).quote_mode, "last_close");
 assert.equal(overlayTickOnReport(report, null).net_flow, 10);
+
+assert.equal(valuationStance(106, 100), "over");
+assert.equal(valuationStance(100, 100), "attractive");
+assert.equal(valuationStance(97, 100), "attractive");
+assert.equal(valuationStance(90, 100), "attractive");
+assert.equal(valuationStance(104, 100), "near");
+assert.equal(valuationStance(null, 100), "pending");
+
+const filled = buildStockDossier("9999", 50, null, { peRatio: 10, dividendYieldPct: 1.5, settled: true });
+assert.equal(filled.peRatio, 10);
+assert.equal(filled.dividendYieldPct, 1.5);
+assert.equal(filled.fairValue, 75);
+assert.equal(filled.peState, "ready");
+assert.equal(valuationStance(50, filled.fairValue), "attractive");
+
+const waitingFields = buildStockDossier("9999", 50, { quote_mode: "waiting", buy_ratio: null }, { settled: false });
+assert.equal(waitingFields.peState, "updating");
+assert.equal(waitingFields.fairState, "updating");
+assert.equal(waitingFields.liquidityState, "updating");
+
+const absent = buildStockDossier("9999", 50, { quote_mode: "live", buy_ratio: null }, { settled: true });
+assert.equal(absent.peState, "missing");
+assert.equal(absent.fairState, "missing");
+assert.equal(absent.liquidityState, "missing");
 
 console.log("stock dossier checks passed");

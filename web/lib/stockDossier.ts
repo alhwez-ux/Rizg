@@ -14,6 +14,15 @@ export interface TapeLiquidityInput {
   block_trades?: number;
 }
 
+export type FieldState = "ready" | "updating" | "missing";
+export type ValuationStance = "over" | "attractive" | "near" | "pending";
+
+export interface DossierFundamentals {
+  peRatio?: number | null;
+  dividendYieldPct?: number | null;
+  settled: boolean;
+}
+
 export interface StockDossier {
   symbol: string;
   shariah: ComplianceStatusLabel | null;
@@ -21,26 +30,36 @@ export interface StockDossier {
   dividendYieldPct: number | null;
   /** Interest-bearing debt / market value from the screening book. Not debt-to-equity. */
   debtToMarket: number | null;
-  /** Live-price estimate. Null until a matching tick exists. */
+  /** Price × 15 / P/E. Null until both a price and a P/E exist. */
   fairValue: number | null;
   healthScore: number | null;
   liquidityScore: number | null;
+  peState: FieldState;
+  yieldState: FieldState;
+  fairState: FieldState;
+  liquidityState: FieldState;
+  healthState: FieldState;
+  debtState: FieldState;
 }
 
 export function buildStockDossier(
   symbol: string,
   livePrice: number | null,
   tape: TapeLiquidityInput | null,
+  fundamentals?: DossierFundamentals | null,
 ): StockDossier {
   const ticker = symbol.trim().toUpperCase();
   const book = BY_SYMBOL.get(ticker);
   const market = companyBySymbol(ticker);
   const shariah = book ? classifyShariah(book) : null;
-  const peRatio = positive(market?.pe_ratio);
-  const dividendYieldPct = finite(market?.dividend_yield);
+  const settled = fundamentals?.settled !== false;
+  const peRatio = firstPositive(market?.pe_ratio, fundamentals?.peRatio);
+  const dividendYieldPct = firstFinite(market?.dividend_yield, fundamentals?.dividendYieldPct);
   const debtToMarket = book ? finite(book.debtRatio) : null;
-  const fairValue =
-    livePrice != null && livePrice > 0 && peRatio != null ? roundTo((livePrice * FAIR_PE) / peRatio, 2) : null;
+  const price = livePrice != null && livePrice > 0 ? livePrice : null;
+  const fairValue = price != null && peRatio != null ? roundTo((price * FAIR_PE) / peRatio, 2) : null;
+  const health = healthScore({ debtToMarket, peRatio, dividendYieldPct });
+  const liquidity = liquidityScore(tape);
 
   return {
     symbol: ticker,
@@ -49,9 +68,45 @@ export function buildStockDossier(
     dividendYieldPct,
     debtToMarket,
     fairValue,
-    healthScore: healthScore({ debtToMarket, peRatio, dividendYieldPct }),
-    liquidityScore: liquidityScore(tape),
+    healthScore: health,
+    liquidityScore: liquidity,
+    peState: fieldState(peRatio, settled && market?.pe_ratio == null),
+    yieldState: fieldState(dividendYieldPct, settled && market?.dividend_yield == null),
+    fairState: fairValue != null ? "ready" : peRatio == null && !settled ? "updating" : "missing",
+    liquidityState: liquidity != null ? "ready" : tape?.quote_mode === "live" ? "missing" : "updating",
+    healthState: health != null ? "ready" : peRatio == null && dividendYieldPct == null && !settled ? "updating" : "missing",
+    debtState: debtToMarket != null ? "ready" : "missing",
   };
+}
+
+/** Premium above 5% is stretched. At or below fair value is the attractive zone. */
+export function valuationStance(price: number | null, fairValue: number | null): ValuationStance {
+  if (price == null || price <= 0 || fairValue == null || fairValue <= 0) return "pending";
+  const gap = (price - fairValue) / fairValue;
+  if (gap > 0.05) return "over";
+  if (gap <= 0) return "attractive";
+  return "near";
+}
+
+function fieldState(value: number | null, settledWithoutLocal: boolean): FieldState {
+  if (value != null) return "ready";
+  return settledWithoutLocal ? "missing" : "updating";
+}
+
+function firstPositive(...values: Array<number | null | undefined>): number | null {
+  for (const value of values) {
+    const number = positive(value);
+    if (number != null) return number;
+  }
+  return null;
+}
+
+function firstFinite(...values: Array<number | null | undefined>): number | null {
+  for (const value of values) {
+    const number = finite(value);
+    if (number != null) return number;
+  }
+  return null;
 }
 
 function healthScore(input: {
