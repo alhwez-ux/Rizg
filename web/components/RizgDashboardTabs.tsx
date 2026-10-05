@@ -16,6 +16,7 @@ import { RizgLogo } from "@/components/RizgLogo";
 import { SectorHeatmapCard } from "@/components/SectorHeatmapCard";
 import { TickChartSyncChip } from "@/components/TickChartSyncChip";
 import { DashboardControlPanel } from "@/components/DashboardControlPanel";
+import { TasiIndexBadge } from "@/components/TasiIndexBadge";
 import { InstitutionalMatrix } from "@/components/InstitutionalMatrix";
 import { UnderWatchBanner, UnderWatchSection, WatchPulse } from "@/components/UnderWatchSection";
 import { ShariahFilterBar } from "@/components/ShariahFilterBar";
@@ -265,7 +266,12 @@ function DashboardShell() {
           <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" withWordmark={false} title={ar.brand} tone={tone} />
           <h1 className="text-3xl font-black tracking-wide text-zinc-50">{ar.brand}</h1>
         </div>
-        <DashboardControlPanel map={visible} onToggle={toggleVisible} onReset={resetVisible} />
+          <DashboardControlPanel
+            map={visible}
+            onToggle={toggleVisible}
+            onReset={resetVisible}
+            trailing={<TasiIndexBadge />}
+          />
         <div className="flex w-full flex-col items-center gap-3">
           <div className="flex flex-wrap items-center justify-center gap-3">
             {visible.shariah ? (

@@ -139,9 +139,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     tasi_scheduler.bind_loop(asyncio.get_running_loop())
     tasi_scheduler.start()
+    from app.services.tasi_index import run_tasi_index_publisher
+
+    index_stop = asyncio.Event()
+    index_task = asyncio.create_task(run_tasi_index_publisher(broadcaster, index_stop), name="tasi-index")
 
     yield
 
+    index_stop.set()
+    index_task.cancel()
+    try:
+        await index_task
+    except asyncio.CancelledError:
+        pass
     connection_guard.shutdown()
     guard_task.cancel()
     try:

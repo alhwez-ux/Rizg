@@ -7,6 +7,7 @@ const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.S
 type TasiQuote = {
   index: "TASI";
   value: number | null;
+  change: number | null;
   changePercent: number | null;
 };
 
@@ -40,16 +41,20 @@ export async function GET() {
     const meta = payload.chart?.result?.[0]?.meta ?? {};
     const value = toFinite(meta.regularMarketPrice);
     const previous = toFinite(meta.chartPreviousClose ?? meta.previousClose);
-    const quotedChange = toFinite(meta.regularMarketChangePercent);
-    const changePercent =
+    const quotedChange = toFinite(meta.regularMarketChange);
+    const change =
       quotedChange ??
-      (value != null && previous != null && previous !== 0 ? ((value - previous) / previous) * 100 : null);
+      (value != null && previous != null ? value - previous : null);
+    const quotedPercent = toFinite(meta.regularMarketChangePercent);
+    const changePercent =
+      quotedPercent ??
+      (change != null && previous != null && previous !== 0 ? (change / previous) * 100 : null);
 
-    const quote: TasiQuote = { index: "TASI", value, changePercent };
+    const quote: TasiQuote = { index: "TASI", value, change, changePercent };
     cached = { at: Date.now(), quote };
     return NextResponse.json(quote);
   } catch {
     if (cached) return NextResponse.json(cached.quote);
-    return NextResponse.json({ index: "TASI", value: null, changePercent: null }, { status: 502 });
+    return NextResponse.json({ index: "TASI", value: null, change: null, changePercent: null }, { status: 502 });
   }
 }

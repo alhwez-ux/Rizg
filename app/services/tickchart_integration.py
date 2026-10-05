@@ -2025,6 +2025,9 @@ class TickChartFeed:
                 self._engine.record_block(symbol, volume, result.side)
             message = self._engine.stream_message(result)
             await self._manager.broadcast(symbol, message.as_json())
+            from app.services.tasi_index import publish_cached_index
+
+            await publish_cached_index(self._manager)
             if self._alerts is not None:
                 await self._alerts.handle_trade(result)
             self._last_trade_time[symbol] = timestamp.isoformat()

@@ -243,6 +243,8 @@ export const ar = {
   tabsOpportunities: "الفرص والسيولة الذكية",
   tabsTools: "أدوات",
   liveDashboardHint: "خريطة السيولة ورادار المتابعة في لوحة واحدة. الدخول لا يظهر إلا إذا توافق صافي السيولة وحجم الكتل ومتوسط 15 دقيقة.",
+  tasiIndex: "تاسي",
+  tasiIndexHint: "مؤشر السوق السعودي اللحظي: النقاط، التغير، والنسبة",
   controlPanel: "لوحة التحكم",
   controlPanelHint: "أظهر أو أخفِ أي قسم أو زر في الشاشة",
   controlPanelClose: "طي اللوحة",

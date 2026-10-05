@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ar } from "@/lib/ar";
 import { VISIBILITY_GROUPS, type VisibilityKey, type VisibilityMap } from "@/lib/dashboardVisibility";
@@ -9,15 +9,18 @@ export function DashboardControlPanel({
   map,
   onToggle,
   onReset,
+  trailing,
 }: {
   map: VisibilityMap;
   onToggle: (key: VisibilityKey) => void;
   onReset: () => void;
+  trailing?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="w-full text-start">
+      <div className="flex flex-wrap items-center justify-between gap-3">
       <button
         type="button"
         aria-expanded={open}
@@ -27,6 +30,8 @@ export function DashboardControlPanel({
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
         {open ? ar.controlPanelClose : ar.controlPanel}
       </button>
+      {trailing}
+      </div>
       {open ? (
         <div className="mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 shadow-glow">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
