@@ -60,12 +60,16 @@ export function LiquidityRadarCard({
   const quoteMode: QuoteMode | undefined =
     toQuoteMode(report?.quote_mode) ??
     (report?.live_quote ? "live" : report?.last_price ? "last_close" : "waiting");
+  const inSession =
+    report?.session_phase === "preopen" || report?.session_phase === "open" || report?.session_phase === "auction";
   const live = quoteMode === "live" && status === "live";
   const statusLabel = live
     ? ar.liveRadarLive
-    : quoteMode === "last_close"
-      ? ar.liveRadarLastClose
-      : ar.liveRadarWaiting;
+    : inSession && report?.last_price
+      ? ar.lastPrice
+      : quoteMode === "last_close"
+        ? ar.liveRadarLastClose
+        : ar.liveRadarWaiting;
 
   const retry = () => {
     void refresh();
@@ -190,7 +194,7 @@ function SessionPathStrip({
     <section className={`mt-4 w-full rounded-xl border p-4 ${tone}`}>
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">
-          {ar.liveRadarLastClosePrice}:{" "}
+          {phase === "preopen" || phase === "open" || phase === "auction" ? ar.lastPrice : ar.liveRadarLastClosePrice}:{" "}
           <strong dir="ltr" className="font-mono text-sm">
             {priceText(tape.price)}
           </strong>
@@ -251,9 +255,16 @@ function regimeCopy(regime: TapeRegime): { label: string; hint: string; tone: "u
   return { label: ar.neutral, hint: ar.neutralDesc, tone: "flat" };
 }
 
+function sessionPriceLabel(report: { quote_mode?: string | null; session_phase?: string | null }): string {
+  if (report.session_phase === "preopen" || report.session_phase === "open" || report.session_phase === "auction") {
+    return ar.lastPrice;
+  }
+  return report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice;
+}
+
 function CompactSummary({ report, regime }: { report: LiveRadarReport; regime: TapeRegime }) {
   const copy = regimeCopy(regime);
-  const priceLabel = report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice;
+  const priceLabel = sessionPriceLabel(report);
   const signal = report.entry ? "دخول" : report.exit ? "خروج" : null;
   const regimeColor =
     copy.tone === "up" ? "text-emerald-300" : copy.tone === "down" ? "text-rose-300" : "text-zinc-200";
@@ -338,7 +349,7 @@ function ReportBody({
             tone={positive ? "up" : negative ? "down" : "flat"}
           />
           <Metric
-            label={report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice}
+            label={sessionPriceLabel(report)}
             value={priceText(report.last_price)}
           />
           <Metric
@@ -447,7 +458,9 @@ function ReportBody({
 
         <p className="text-[11px] text-zinc-600">
           {report.session_label ? `${report.session_label} · ` : ""}
-          {report.quote_mode === "last_close"
+          {report.session_phase === "preopen" || report.session_phase === "open" || report.session_phase === "auction"
+            ? ar.lastPrice
+            : report.quote_mode === "last_close"
             ? ar.liveRadarLastCloseHint
             : report.quote_mode === "waiting"
               ? ar.liveRadarWaiting

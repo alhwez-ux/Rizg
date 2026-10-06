@@ -106,6 +106,41 @@ def test_dated_session_close_survives_a_later_print(tmp_path: Path, monkeypatch)
     assert feed.radar_report("4263")["last_price"] == 173.0
 
 
+def test_open_session_uses_todays_price_not_the_prior_close(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    tuesday = datetime(2026, 10, 6, 12, 48, tzinfo=ZoneInfo("Asia/Riyadh"))
+    monkeypatch.setattr("app.services.last_quotes.now_riyadh", lambda moment=None: tuesday)
+    monkeypatch.setattr("app.services.tasi_clock.now_riyadh", lambda moment=None: tuesday)
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _feed(tmp_path)
+    feed._quotes.apply_closes(
+        [{"symbol": "1140", "last_price": 23.42, "session_date": date(2026, 10, 5), "volume": 1_000}]
+    )
+    feed._quotes.apply_closes(
+        [{"symbol": "1140", "last_price": 23.60, "session_date": date(2026, 10, 6), "volume": 2_000}]
+    )
+    feed._quotes.apply_closes(
+        [{"symbol": "1831", "last_price": 4.03, "session_date": date(2026, 10, 5), "volume": 1_000}]
+    )
+    feed._quotes.apply_closes(
+        [{"symbol": "1831", "last_price": 4.07, "session_date": date(2026, 10, 6), "volume": 2_000}]
+    )
+    bilad = feed.radar_report("1140")
+    maharah = feed.radar_report("1831")
+    assert bilad["last_price"] == 23.60
+    assert maharah["last_price"] == 4.07
+    tape = {row["symbol"]: row["last_price"] for row in feed.quote_tape()}
+    assert tape["1140"] == 23.60
+    assert tape["1831"] == 4.07
+    assert feed._stored_market_row("1140")["last_price"] == 23.60
+    assert feed._quotes.official_close("1140") == 23.42
+    assert feed._quotes.official_close("1831") == 4.03
+    monkeypatch.setattr("app.services.last_quotes.session_phase", lambda moment=None: "closed")
+    assert feed._quotes.display_price("1140") == 23.42
+
+
 def test_public_quote_refresh_reaches_later_symbols(tmp_path: Path) -> None:
     feed = _feed(tmp_path)
     seen: list[list[str]] = []

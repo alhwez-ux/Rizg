@@ -154,6 +154,7 @@ class TickChartFeed:
         self._peer_nets_cache: tuple[float, list[float]] | None = None
         self._delayed_pull_at: float = 0.0
         self._public_quotes_at: float = 0.0
+        self._symbol_quote_at: dict[str, float] = {}
         self._quote_cursor = 0
         self._quote_cycle_done = False
         from app.services.entry_snapshot_store import EntrySnapshotStore
@@ -605,6 +606,7 @@ class TickChartFeed:
         if session.last_price is None:
             await self.hydrate_symbol(ticker)
         await self._subscribe_symbol(ticker)
+        await asyncio.to_thread(self._ensure_session_price, ticker)
         return self.radar_report(ticker)
 
     def radar_report(self, symbol: str) -> dict[str, Any]:
@@ -616,13 +618,17 @@ class TickChartFeed:
         stored = self._quotes.get(ticker) or {}
         ranking = self._ranking_row(ticker) or {}
         phase = session_phase(now_riyadh())
-        official = self._quotes.official_close(ticker)
+        today_price = self._quotes.session_last(ticker)
         tape_price = live.get("last_price") or _json_number(session.last_price) or _json_number(levels.last_price)
-        if phase == "open" and tape_price:
+        in_session = phase in {"preopen", "open", "auction"}
+        if in_session and tape_price:
             last_price = tape_price
-            live_tick = True
+            live_tick = phase == "open"
+        elif in_session and today_price:
+            last_price = today_price
+            live_tick = False
         else:
-            last_price = official or tape_price or stored.get("last_price") or ranking.get("last_price") or self._ranking_price(ticker)
+            last_price = self._quotes.display_price(ticker) or tape_price or ranking.get("last_price") or self._ranking_price(ticker)
             live_tick = False
         change = stored.get("change_percent")
         if change is None:
@@ -688,7 +694,7 @@ class TickChartFeed:
         else:
             quote_mode = "waiting"
         reasons = list(report.get("reasons") or [])
-        if quote_mode == "last_close":
+        if quote_mode == "last_close" and phase not in {"preopen", "open", "auction"}:
             note = "آخر إغلاق مسجّل — يُحدَّث مع أول تكات للجلسة"
             reasons = [item for item in reasons if "انتظار بيانات الجلسة" not in str(item)]
             if note not in reasons:
@@ -775,7 +781,7 @@ class TickChartFeed:
             return None
         stored = self._quotes.get(ticker) or {}
         try:
-            price = float(self._quotes.official_close(ticker) or stored.get("last_price") or 0)
+            price = float(self._quotes.display_price(ticker) or 0)
         except (TypeError, ValueError):
             return None
         if price <= 0:
@@ -882,7 +888,7 @@ class TickChartFeed:
             ask = live.get("ask") if live.get("ask") is not None else _json_number(levels.ask)
             last = (
                 live.get("last_price")
-                or stored.get("last_price")
+                or self._quotes.display_price(ticker)
                 or _json_number(session.last_price)
                 or _json_number(levels.last_price)
             )
@@ -938,7 +944,7 @@ class TickChartFeed:
             levels = self._engine.levels_snapshot(ticker)
             last = (
                 live.get("last_price")
-                or stored.get("last_price")
+                or self._quotes.display_price(ticker)
                 or _json_number(session.last_price)
                 or _json_number(levels.last_price)
             )
@@ -1018,7 +1024,7 @@ class TickChartFeed:
         levels = self._engine.levels_snapshot(ticker)
         history = self._quotes.close_history(ticker)
         prior = history[:-1] if history else []
-        last = live.get("last_price") or stored.get("last_price") or _json_number(session.last_price) or ranking.get("last_price")
+        last = live.get("last_price") or self._quotes.display_price(ticker) or _json_number(session.last_price) or ranking.get("last_price")
         return {
             "symbol": ticker,
             "name": company_name_for(ticker) or stored.get("name") or ranking.get("name") or ticker,
@@ -1058,7 +1064,7 @@ class TickChartFeed:
             if not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
                 continue
             try:
-                price = float(self._quotes.official_close(symbol) or item.get("last_price") or 0)
+                price = float(self._quotes.display_price(symbol) or 0)
             except (TypeError, ValueError):
                 continue
             if price <= 0:
@@ -1303,6 +1309,34 @@ class TickChartFeed:
             self.ensure_close_book()
         return applied
 
+    def _ensure_session_price(self, symbol: str) -> None:
+        """Refresh one open-session quote so a watched card is not stuck on yesterday's close."""
+
+        ticker = str(symbol or "").strip().upper()
+        if not ticker or os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
+            return
+        phase = session_phase(now_riyadh())
+        if phase not in {"preopen", "open", "auction"}:
+            return
+        tape = self._tape(ticker).snapshot()
+        if tape.get("last_price") or self._engine.session_snapshot(ticker).last_price is not None:
+            return
+        now = time.monotonic()
+        if now - self._symbol_quote_at.get(ticker, 0.0) < 45:
+            return
+        self._symbol_quote_at[ticker] = now
+        try:
+            from app.services.session_history import fetch_main_market_closes
+
+            bars, quotes = fetch_main_market_closes([ticker], sessions=5, budget_seconds=8)
+        except Exception:
+            logger.warning("session quote refresh failed for %s", ticker, exc_info=True)
+            return
+        if bars:
+            self.import_close_history(list(bars))
+        if quotes:
+            self._quotes.apply_closes(list(quotes))
+
     def _next_quote_window(self, symbols: list[str], size: int) -> list[str]:
         """Walk the main market in slices so later names are not stuck on an old close."""
 
@@ -1512,7 +1546,7 @@ class TickChartFeed:
             ranked = ranking.get(symbol) or {}
             tape = self._tapes.get(symbol)
             live = tape.snapshot() if tape is not None else {}
-            last = live.get("last_price") or stored.get("last_price") or ranked.get("last_price")
+            last = live.get("last_price") or self._quotes.display_price(symbol) or ranked.get("last_price")
             if not last:
                 continue
             bars = history.get(symbol) or []

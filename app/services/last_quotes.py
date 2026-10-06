@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.screener import is_tasi_main_symbol
-from app.services.tasi_clock import latest_completed_session, now_riyadh
+from app.services.tasi_clock import latest_completed_session, now_riyadh, session_phase
 
 _DEFAULT_PATH = Path("data/tickchart_last_quotes.json")
 _BUNDLED_TAPE = Path(__file__).resolve().parents[1] / "data" / "tasi_close_tape.json"
@@ -146,6 +146,27 @@ class LastQuoteBook:
         except (TypeError, ValueError):
             return None
         return number if number > 0 else None
+
+    def session_last(self, symbol: str, *, day: date | None = None) -> float | None:
+        """Last traded price stored for today's session, not an older completed close."""
+
+        row = self.get(symbol)
+        if not row:
+            return None
+        session_day = str(row.get("session_date") or "")[:10]
+        today = (day or now_riyadh().date()).isoformat()
+        if session_day != today:
+            return None
+        return _positive(row.get("last_price"))
+
+    def display_price(self, symbol: str) -> float | None:
+        """Price shown across the platform: today's print while the session is on, otherwise the completed close."""
+
+        if session_phase() in {"preopen", "open", "auction"}:
+            current = self.session_last(symbol)
+            if current:
+                return current
+        return self.official_close(symbol) or self.price(symbol)
 
     def official_close(self, symbol: str) -> float | None:
         """Newest daily close on or before the last completed TASI session."""

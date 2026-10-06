@@ -194,7 +194,8 @@ def test_live_radar_route_sends_telegram_radar_event(tmp_path: Path, monkeypatch
     assert telegram.reports[0]["last_price"]
 
 
-def test_live_radar_route_waiting_when_tickchart_has_no_ticks(tmp_path: Path) -> None:
+def test_live_radar_route_waiting_when_tickchart_has_no_ticks(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
     feed = _tickchart_feed(tmp_path)
     app = FastAPI()
     register_exception_handlers(app)
@@ -211,7 +212,8 @@ def test_live_radar_route_waiting_when_tickchart_has_no_ticks(tmp_path: Path) ->
     assert any("انتظار" in reason for reason in payload["analysis"]["reasons"])
 
 
-def test_live_radar_route_last_close_from_ranking_store(tmp_path: Path) -> None:
+def test_live_radar_route_last_close_from_ranking_store(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
     class _Store:
         def snapshot(self):
             return [{"symbol": "4030", "last_price": 24.5, "name": "البحري"}]
