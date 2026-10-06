@@ -6,8 +6,9 @@ import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
+import { rankingFromMarket } from "@/lib/marketEngine";
 import { GradeBadge } from "@/components/GradeBadge";
-import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, type FinancialGrade } from "@/lib/rankingGrade";
+import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, preferFinancialSnapshot, type FinancialGrade } from "@/lib/rankingGrade";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
@@ -27,13 +28,19 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [cached, setCached] = useState(false);
   const [gradeFilter, setGradeFilter] = useState<FinancialGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
+  const storedBySymbol = useMemo(() => {
+    const map = new Map<string, RankingRow>();
+    for (const row of rankingFromMarket().data) map.set(row.symbol.trim().toUpperCase(), row);
+    return map;
+  }, []);
   const visible = useMemo(
     () =>
       companies
+        .map((comp) => preferFinancialSnapshot(comp, storedBySymbol.get(comp.symbol.trim().toUpperCase())))
         .filter((comp) => passesShariahFilter(comp.symbol, shariahFilter))
         .slice()
         .sort(compareByFinancialGrade),
-    [companies, shariahFilter],
+    [companies, shariahFilter, storedBySymbol],
   );
   const graded = useMemo(() => {
     const buckets: Record<FinancialGrade, RankingRow[]> = { A: [], B: [], C: [], D: [], E: [] };
@@ -48,7 +55,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
     return buckets;
   }, [visible]);
   const ungraded = visible.filter((row) => !financialGrade(row));
-  const sections = gradeFilter === "all" ? FINANCIAL_GRADES : [gradeFilter];
+  const sections = (gradeFilter === "all" ? FINANCIAL_GRADES : [gradeFilter]).filter((grade) => graded[grade].length > 0);
 
   const fetchRankedCompanies = async () => {
     if (!isConnected) return;
@@ -111,7 +118,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
       </div>
 
       {isRevealed ? (
-        <div className="animate-fadeIn overflow-x-auto transition-all">
+        <div className="animate-fadeIn transition-all">
           {error ? (
             <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
               {error}
@@ -154,13 +161,12 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
                       {graded[grade].length}
                     </span>
                   </h3>
-                  {graded[grade].length ? (
-                    <RankingTable rows={graded[grade]} />
-                  ) : (
-                    <p className="text-xs text-zinc-500">لا توجد شركات في هذه الفئة</p>
-                  )}
+                  <RankingTable rows={graded[grade]} />
                 </section>
               ))}
+              {gradeFilter !== "all" && sections.length === 0 ? (
+                <p className="text-xs text-zinc-500">لا توجد شركات في هذه الفئة</p>
+              ) : null}
               {gradeFilter === "all" && ungraded.length ? <RankingTable rows={ungraded} /> : null}
             </div>
           )}
@@ -178,7 +184,8 @@ export default RankingRevealCard;
 
 function RankingTable({ rows }: { rows: RankingRow[] }) {
   return (
-    <table className="w-full border-collapse text-start">
+    <div className="overflow-x-auto">
+    <table className="w-full min-w-[720px] border-collapse text-start">
       <thead>
         <tr className="border-b border-zinc-800 text-xs text-zinc-500">
           <th className="p-3 font-medium">{ar.tableColCompany}</th>
@@ -236,6 +243,7 @@ function RankingTable({ rows }: { rows: RankingRow[] }) {
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 

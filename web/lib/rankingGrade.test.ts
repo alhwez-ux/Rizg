@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { financialGrade } from "./rankingGrade";
+import { financialGrade, preferFinancialSnapshot } from "./rankingGrade";
 
 assert.equal(financialGrade({ matrix_score: 85, net_income: 1000, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
 assert.equal(financialGrade({ matrix_score: 70, net_income: 1000, category: "قلاع النمو والعوائد المتينة 🏰" }), "B");
@@ -17,5 +17,9 @@ assert.equal(financialGrade({ symbol: "1120", matrix_score: 86, net_income: 1000
 assert.equal(financialGrade({ matrix_score: 0, net_income: 100, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
 assert.equal(financialGrade({ matrix_score: 0, net_income: 100, category: "شركات ذات أداء متوسط أو متحفظ ⚖️" }), "C");
 assert.equal(financialGrade({ matrix_score: 0, net_income: 10, category: "شركات ضعيفة النمو ⚠️لتجنبها" }), "D");
+const tapeOnly = { symbol: "1120", matrix_score: 0, net_income: null, category: "تكرتشارت لحظي" };
+const stored = { matrix_score: 86, net_income: 1000, profit_growth: 12, category: "قلاع النمو والعوائد المتينة 🏰" };
+assert.equal(financialGrade(preferFinancialSnapshot(tapeOnly, stored)), "A");
+assert.equal(financialGrade(preferFinancialSnapshot(tapeOnly, null)), null);
 
 console.log("ranking grade checks passed");

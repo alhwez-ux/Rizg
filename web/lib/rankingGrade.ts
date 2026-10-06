@@ -58,6 +58,19 @@ function healthFromCategory(category: string): number | null {
   return null;
 }
 
+/** Keep a live financial snapshot. Fill a tape-only row from stored financials when those exist. */
+export function preferFinancialSnapshot<T extends GradeInput>(live: T, stored: GradeInput | null | undefined): T {
+  if (stored == null || hasFinancialRank(live)) return live;
+  return {
+    ...live,
+    matrix_score: stored.matrix_score ?? live.matrix_score,
+    net_income: stored.net_income ?? live.net_income,
+    category: stored.category ?? live.category,
+    profit_growth: stored.profit_growth ?? live.profit_growth,
+    debt_ratio: stored.debt_ratio ?? live.debt_ratio,
+  };
+}
+
 function hasFinancialRank(row: GradeInput): boolean {
   const category = String(row.category || "");
   if (/خاسر|قلاع|واعدة|متوسط|ضعيف/.test(category)) return true;
