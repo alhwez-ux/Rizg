@@ -12,9 +12,14 @@ export interface GradeInput {
   matrix_score?: number | null;
   net_income?: number | null;
   category?: string | null;
+  rating?: string | null;
+  grade?: string | null;
+  financial_grade?: string | null;
   profit_growth?: number | null;
   debt_ratio?: number | null;
   accumulated_loss_ratio?: number | null;
+  last_price?: number | null;
+  volume?: number | null;
 }
 
 /** A profitable company is never E. E is only an announced net loss or accumulated losses at or above 50% of capital. */
@@ -71,4 +76,59 @@ function isLosingCompany(row: GradeInput): boolean {
   if (income != null && Number.isFinite(income)) return income < 0;
   const accumulated = row.accumulated_loss_ratio;
   return accumulated != null && Number.isFinite(accumulated) && accumulated >= 0.5;
+}
+
+/** Use a ready A–E field when the feed has one. Otherwise keep the financial rules. */
+export function readyGrade(row: GradeInput): FinancialGrade | null {
+  if (isLosingCompany(row)) return "E";
+  return (
+    letterGrade(row.financial_grade) ||
+    letterGrade(row.rating) ||
+    letterGrade(row.grade) ||
+    letterGrade(row.category) ||
+    financialGrade(row)
+  );
+}
+
+/**
+ * Every row gets one grade. A declared loss stays E.
+ * Names with no financial list are banded by measured session value: leaders A/B, middle C, smaller names D.
+ */
+export function classifyRankingRows<T extends GradeInput>(rows: T[]): Array<T & { financial_grade: FinancialGrade }> {
+  const grades: Array<FinancialGrade | null> = rows.map((row) => readyGrade(row));
+  const pending = grades
+    .map((grade, index) => (grade == null ? index : -1))
+    .filter((index) => index >= 0)
+    .sort((left, right) => sessionValue(rows[right]) - sessionValue(rows[left]) || symbolOf(rows[left]).localeCompare(symbolOf(rows[right])));
+  pending.forEach((index, order) => {
+    grades[index] = sizeBand(order, pending.length);
+  });
+  return rows.map((row, index) => ({ ...row, financial_grade: grades[index] ?? "D" }));
+}
+
+export function sessionValue(row: GradeInput): number {
+  const price = Number(row.last_price);
+  const volume = Number(row.volume);
+  if (!Number.isFinite(price) || !Number.isFinite(volume) || price <= 0 || volume <= 0) return 0;
+  return price * volume;
+}
+
+function sizeBand(order: number, count: number): FinancialGrade {
+  if (count <= 1) return "A";
+  const pct = order / count;
+  if (pct < 0.12) return "A";
+  if (pct < 0.32) return "B";
+  if (pct < 0.62) return "C";
+  return "D";
+}
+
+function letterGrade(value: string | null | undefined): FinancialGrade | null {
+  const text = String(value || "").trim().toUpperCase();
+  if (text === "A" || text === "B" || text === "C" || text === "D" || text === "E") return text;
+  const embedded = text.match(/(?:فئة|GRADE|RATING)\s*([A-E])/);
+  return embedded ? (embedded[1] as FinancialGrade) : null;
+}
+
+function symbolOf(row: GradeInput): string {
+  return String(row.symbol || "");
 }

@@ -7,7 +7,7 @@ import { ar } from "@/lib/ar";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
 import { GradeBadge } from "@/components/GradeBadge";
-import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, type FinancialGrade } from "@/lib/rankingGrade";
+import { classifyRankingRows, FINANCIAL_GRADES, sessionValue, type FinancialGrade } from "@/lib/rankingGrade";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
@@ -28,27 +28,18 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [gradeFilter, setGradeFilter] = useState<FinancialGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
   const visible = useMemo(
-    () =>
-      companies
-        .filter((comp) => passesShariahFilter(comp.symbol, shariahFilter))
-        .slice()
-        .sort(compareByFinancialGrade),
+    () => classifyRankingRows(companies.filter((comp) => passesShariahFilter(comp.symbol, shariahFilter))),
     [companies, shariahFilter],
   );
   const graded = useMemo(() => {
-    const buckets: Record<FinancialGrade, RankingRow[]> = { A: [], B: [], C: [], D: [], E: [] };
-    for (const row of visible) {
-      const grade = financialGrade(row);
-      if (!grade) continue;
-      buckets[grade].push(row);
-    }
+    const buckets: Record<FinancialGrade, typeof visible> = { A: [], B: [], C: [], D: [], E: [] };
+    for (const row of visible) buckets[row.financial_grade].push(row);
     for (const grade of FINANCIAL_GRADES) {
-      buckets[grade].sort((left, right) => right.matrix_score - left.matrix_score || left.symbol.localeCompare(right.symbol));
+      buckets[grade].sort((left, right) => sessionValue(right) - sessionValue(left) || left.symbol.localeCompare(right.symbol));
     }
     return buckets;
   }, [visible]);
-  const ungraded = visible.filter((row) => !financialGrade(row));
-  const sections = (gradeFilter === "all" ? FINANCIAL_GRADES : [gradeFilter]).filter((grade) => graded[grade].length > 0);
+  const sections = gradeFilter === "all" ? FINANCIAL_GRADES.filter((grade) => graded[grade].length > 0) : [gradeFilter];
 
   const fetchRankedCompanies = async () => {
     if (!isConnected) return;
@@ -157,10 +148,6 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
                   <RankingTable rows={graded[grade]} />
                 </section>
               ))}
-              {gradeFilter !== "all" && sections.length === 0 ? (
-                <p className="text-xs text-zinc-500">لا توجد شركات في هذه الفئة</p>
-              ) : null}
-              {gradeFilter === "all" && ungraded.length ? <RankingTable rows={ungraded} /> : null}
             </div>
           )}
         </div>
@@ -175,7 +162,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
 
 export default RankingRevealCard;
 
-function RankingTable({ rows }: { rows: RankingRow[] }) {
+function RankingTable({ rows }: { rows: Array<RankingRow & { financial_grade: FinancialGrade }> }) {
   return (
     <div className="overflow-x-auto">
     <table className="w-full min-w-[720px] border-collapse text-start">
@@ -194,7 +181,7 @@ function RankingTable({ rows }: { rows: RankingRow[] }) {
       <tbody className="divide-y divide-zinc-800/60 text-sm">
         {rows.map((comp, index) => {
           const name = displayCompanyTitle(comp.symbol, comp.name);
-          const letter = financialGrade(comp);
+          const letter = comp.financial_grade;
           return (
             <tr key={comp.symbol} className="transition-colors hover:bg-zinc-950/40">
               <td className="p-3">
