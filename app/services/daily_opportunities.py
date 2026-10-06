@@ -1,4 +1,4 @@
-"""Intraday Rizg setups: locked entry, long geometry, and at least 1:2 reward."""
+"""Intraday Rizg setups: locked entry, long geometry, and at least 1:1.5 reward."""
 
 from __future__ import annotations
 
@@ -16,14 +16,15 @@ from app.services.smart_money import KIND_ACCUMULATION, scan_smart_money
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 
 SCAN_MODE = "intraday"
-MIN_REWARD = Decimal("2")
+MIN_REWARD = Decimal("1.5")
 TIMEFRAME = "جلسة اليوم"
 _DEFAULT_STORE = EntrySnapshotStore(Path("data/intraday_entry_snapshots.json"))
 
 HINT = (
-    "فرص يومية بشرط الهدف فوق الدخول فوق الوقف، ومكافأة لا تقل عن 1:2. "
+    "فرص يومية بشرط الهدف فوق الدخول فوق الوقف، ومكافأة لا تقل عن 1:1.5. "
     "يُقفل الدخول على آخر سعر لحظة الإشارة، ثم يُحسب الهدف والوقف من ذلك الدخول."
 )
+CLOSE_HINT = "أبرز فرص إغلاق الجلسة حسب أعلى سيولة وتجميع خلال اليوم."
 
 
 def scan_daily_opportunities(
@@ -52,16 +53,19 @@ def scan_daily_opportunities(
         published = _publish(raw, pure_only=pure_only)
         if published is not None:
             rows.append(published)
+    closed = phase != "open"
+    if not rows:
+        rows = _watch_rows(feed, closed=closed, pure_only=pure_only)
     rows.sort(key=lambda row: (-float(row["reward_ratio"]), -float(row["score"]), row["symbol"]))
     scanned = current if isinstance(current, datetime) else now_riyadh()
     return {
         "success": True,
         "session_phase": phase,
-        "session_label": phase_label(phase),
+        "session_label": CLOSE_HINT if closed and rows and all(row.get("setup") == "أبرز فرص إغلاق الجلسة" for row in rows) else phase_label(phase),
         "source": source,
         "count": len(rows),
         "min_reward_ratio": float(MIN_REWARD),
-        "hint": HINT,
+        "hint": CLOSE_HINT if closed and rows else HINT,
         "scanned_at": scanned.isoformat(),
         "data": rows,
     }
@@ -190,8 +194,19 @@ def _bind_live_levels(last: Any, template_entry: Any, template_target: Any, temp
     return float(live), float(target), float(stop)
 
 
+def _watch_rows(feed: Any, *, closed: bool, pure_only: bool) -> list[dict[str, Any]]:
+    from app.services.opportunity_board import liquidity_leaders, watch_daily_row
+
+    rows: list[dict[str, Any]] = []
+    for item in liquidity_leaders(feed):
+        published = watch_daily_row(item, closed=closed, pure_only=pure_only)
+        if published is not None:
+            rows.append(published)
+    return rows
+
+
 def _ensure_two_r(entry: Any, target: Any, stop: Any) -> tuple[float, float, float, float] | None:
-    """Keep the locked entry and stop. Extend the target until reward is at least 1:2.
+    """Keep the locked entry and stop. Extend the target until reward is at least 1:1.5.
 
     Prices are rounded in Decimal space so a float like 1.999999 does not fail the 2R gate.
     """

@@ -78,7 +78,11 @@ export function DailyOpportunitiesCard({
   return (
     <section className="rounded-2xl border border-sky-500/20 bg-tape-panel/90 p-5 text-center text-zinc-100 shadow-glow sm:p-6">
       <div className="mb-5 border-b border-zinc-800 pb-4">
-        <h2 className="text-xl font-bold text-zinc-50">{ar.dailyTitle}</h2>
+        <h2 className="text-xl font-bold text-zinc-50">
+          {payload?.session_phase === "closed" || payload?.session_phase === "weekend" || payload?.session_phase === "auction"
+            ? ar.dailyCloseTitle
+            : ar.dailyTitle}
+        </h2>
         <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-zinc-400">{ar.dailyHint}</p>
         <p className="mt-2 min-h-4 text-[11px] text-zinc-500">{payload?.session_label || "\u00a0"}</p>
       </div>

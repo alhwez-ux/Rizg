@@ -13,35 +13,55 @@ const HINT =
 
 export async function GET(request: NextRequest) {
   const pureOnly = request.nextUrl.searchParams.get("pure_only") === "true";
-  const upstream = await loadUpstream(pureOnly);
+  const upstreamPhase = await loadUpstreamPayload(pureOnly);
+  const upstream = upstreamPhase.rows;
   const symbols = upstream.map((row) => String(row.symbol || "")).filter((symbol) => /^\d{4}$/.test(symbol));
   const lastPrices = symbols.length ? await fetchYahooLasts(symbols) : {};
   const today = riyadhToday();
   const data = upstream.map((row) => bindRow(row, lastPrices, today)).filter((row) => row != null);
+  const phase = String(upstreamPhase.session_phase || "live");
   return NextResponse.json({
     success: true,
-    session_phase: "live",
-    session_label: "",
+    session_phase: phase,
+    session_label: String(upstreamPhase.session_label || ""),
     source: "live",
     count: data.length,
-    min_reward_ratio: 2,
-    hint: HINT,
+    min_reward_ratio: 1.5,
+    hint: String(upstreamPhase.hint || HINT),
     scanned_at: new Date().toISOString(),
     data,
   });
 }
 
-async function loadUpstream(pureOnly: boolean): Promise<Record<string, unknown>[]> {
+async function loadUpstreamPayload(pureOnly: boolean): Promise<{
+  rows: Record<string, unknown>[];
+  session_phase: string;
+  session_label: string;
+  hint: string;
+}> {
   try {
     const response = await fetch(`${API_BASE}/api/v1/opportunities/daily?pure_only=${pureOnly ? "true" : "false"}`, {
       cache: "no-store",
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) return [];
-    const body = (await response.json()) as { data?: unknown };
-    return Array.isArray(body.data) ? body.data.filter((row): row is Record<string, unknown> => !!row && typeof row === "object") : [];
+    if (!response.ok) return { rows: [], session_phase: "", session_label: "", hint: "" };
+    const body = (await response.json()) as {
+      data?: unknown;
+      session_phase?: unknown;
+      session_label?: unknown;
+      hint?: unknown;
+    };
+    const rows = Array.isArray(body.data)
+      ? body.data.filter((row): row is Record<string, unknown> => !!row && typeof row === "object")
+      : [];
+    return {
+      rows,
+      session_phase: String(body.session_phase || ""),
+      session_label: String(body.session_label || ""),
+      hint: String(body.hint || ""),
+    };
   } catch {
-    return [];
+    return { rows: [], session_phase: "", session_label: "", hint: "" };
   }
 }
 
@@ -63,9 +83,9 @@ function bindRow(row: Record<string, unknown>, lastPrices: Record<string, number
     String(templateTarget),
     String(templateStop),
     live,
-    2,
+    1.5,
   );
-  if (!locked || locked.reward_ratio < 2) return null;
+  if (!locked || locked.reward_ratio < 1.5) return null;
   return {
     ...row,
     symbol,

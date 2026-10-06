@@ -41,12 +41,35 @@ def _accum(**overrides):
     return row
 
 
+def test_empty_strict_board_shows_liquid_names(tmp_path: Path) -> None:
+    class _Feed:
+        def market_rows(self):
+            return [
+                {"symbol": "1120", "name": "1120", "last_price": 90, "value_traded": 8_000_000, "net_flow": 1_200_000, "volume": 20_000},
+                {"symbol": "2222", "name": "2222", "last_price": 27, "value_traded": 6_000_000, "net_flow": 400_000, "volume": 10_000, "vwap": 26.5},
+                {"symbol": "1180", "name": "1180", "last_price": 40, "value_traded": 3_000_000, "net_flow": -50_000, "volume": 4_000, "vwap": 41},
+                {"symbol": "7010", "name": "7010", "last_price": 42, "value_traded": 2_000_000, "net_flow": 100_000, "volume": 3_000},
+                {"symbol": "2010", "name": "2010", "last_price": 60, "value_traded": 500_000, "net_flow": 10_000, "volume": 1_000},
+                {"symbol": "2280", "name": "2280", "last_price": 55, "value_traded": 100_000, "net_flow": 1_000, "volume": 500},
+            ]
+
+    payload = scan_daily_opportunities(_Feed(), snapshots=[], recommendations=[], store=EntrySnapshotStore(tmp_path / "empty.json"))
+    symbols = {row["symbol"] for row in payload["data"]}
+    assert 3 <= payload["count"] <= 5
+    assert "1120" in symbols
+    assert "1180" not in symbols
+    named = next(row for row in payload["data"] if row["symbol"] == "1120")
+    assert named["name"] == "الراجحي"
+    assert named["reason"] == "فرص قيد المراقبة - السيولة تتجمع فيها"
+    assert named["reward_ratio"] >= 1.5
+
+
 def test_daily_opportunity_enforces_two_r_and_locks_entry(tmp_path: Path) -> None:
     store = EntrySnapshotStore(tmp_path / "locks.json")
     first = scan_daily_opportunities(snapshots=[_accum()], store=store, recommendations=[])
     assert first["count"] == 1
     row = first["data"][0]
-    assert row["reward_ratio"] >= 2
+    assert row["reward_ratio"] >= 1.5
     assert is_valid_long_plan(row["entry_price"], row["target_price"], row["stop_loss"])
     assert float(row["target_price"]) > float(row["entry_price"]) > float(row["stop_loss"])
 
@@ -167,7 +190,7 @@ def test_daily_and_analyst_endpoints(tmp_path: Path, monkeypatch) -> None:
     assert daily.status_code == 200
     body = DailyOpportunitiesResponse.model_validate(daily.json())
     assert body.count == 1
-    assert body.data[0].reward_ratio >= 2
+    assert body.data[0].reward_ratio >= 1.5
     assert float(body.data[0].target_price) > float(body.data[0].entry_price) > float(body.data[0].stop_loss)
 
     analysts = client.get("/api/v1/analysts/consensus")

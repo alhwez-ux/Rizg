@@ -40,7 +40,7 @@ function parseRow(raw: unknown): DailyOpportunityRow | null {
   const stop = String(row.stop_loss ?? "");
   if (!/^\d{4}$/.test(symbol) || !isValidLongPlan(entry, target, stop)) return null;
   const reward = toFiniteNumber(row.reward_ratio) ?? 0;
-  if (reward < 2) return null;
+  if (reward < 1.5) return null;
   return {
     symbol,
     name: String(row.name ?? symbol),
@@ -69,7 +69,7 @@ export function parseDailyOpportunities(payload: unknown): DailyOpportunitiesRes
     session_label: String(body.session_label ?? ""),
     source: String(body.source ?? ""),
     count: data.length,
-    min_reward_ratio: toFiniteNumber(body.min_reward_ratio) ?? 2,
+    min_reward_ratio: toFiniteNumber(body.min_reward_ratio) ?? 1.5,
     hint: String(body.hint ?? ""),
     scanned_at: String(body.scanned_at ?? ""),
     data,

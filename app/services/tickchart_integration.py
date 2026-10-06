@@ -1118,6 +1118,8 @@ class TickChartFeed:
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
+        if not rows:
+            rows = self._liquidity_watch(closed=False)
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,
@@ -1138,13 +1140,15 @@ class TickChartFeed:
         key = self._eod_cache_key()
         with self._reco_lock:
             cached = self._eod_reco_cache
-            if cached and cached[0] == key:
+            if cached and cached[0] == key and cached[1]:
                 return list(cached[1])
         rows = scan_end_of_day(self._close_snapshots())
         from app.services.entry_snapshot_store import apply_locked_entries, live_last_index
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
+        if not rows:
+            rows = self._liquidity_watch(closed=True)
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,
@@ -1482,6 +1486,17 @@ class TickChartFeed:
             min(len(rows), 12),
         )
         return rows[:12]
+
+    def _liquidity_watch(self, *, closed: bool) -> list[dict[str, Any]]:
+        from app.services.opportunity_board import liquidity_leaders, watch_recommendation
+        from app.services.signals import keep_long_recommendations
+
+        rows = [
+            item
+            for item in (watch_recommendation(row, closed=closed) for row in liquidity_leaders(self))
+            if item is not None
+        ]
+        return keep_long_recommendations(rows)
 
     def _close_snapshots(self) -> list[dict[str, Any]]:
         snapshots: list[dict[str, Any]] = []
