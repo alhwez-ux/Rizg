@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { SmartMoneyIcon } from "@/components/SmartMoneyIcon";
 import { ar } from "@/lib/ar";
@@ -78,10 +79,7 @@ function SmartMoneyRowCard({
       className="w-full rounded-2xl border border-indigo-500/20 bg-zinc-950/50 p-4 text-center transition hover:border-indigo-400/40 hover:bg-zinc-950/80"
     >
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <span className="font-bold text-zinc-50">{row.name}</span>
-        <span className="font-mono text-xs text-zinc-400" dir="ltr">
-          {row.symbol}
-        </span>
+        <CompanyName symbol={row.symbol} name={row.name} />
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         <FundBadge row={row} />
@@ -211,10 +209,7 @@ export function SmartMoneyCard({
                         onClick={() => onOpenSymbol?.({ symbol: row.symbol, name: row.name })}
                       >
                         <td className="p-3 text-center">
-                          <span className="font-bold text-zinc-50">{row.name}</span>
-                          <p className="mt-0.5 font-mono text-[11px] text-zinc-400" dir="ltr">
-                            {row.symbol}
-                          </p>
+                          <CompanyName symbol={row.symbol} name={row.name} />
                           {row.sector ? <p className="text-[11px] text-zinc-500">{row.sector}</p> : null}
                         </td>
                         <td className="p-3 text-center">

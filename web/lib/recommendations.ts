@@ -28,6 +28,9 @@ export interface MarketRecommendation {
   entry_locked_at?: string | null;
   target_hit?: boolean;
   stop_hit?: boolean;
+  change_percent?: number | null;
+  session_vwap?: number | null;
+  net_flow?: number | null;
 }
 
 export interface RecommendationsResponse {

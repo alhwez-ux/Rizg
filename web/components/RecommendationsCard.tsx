@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
+import { PathBadge } from "@/components/PathBadge";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
-import { formatPrice } from "@/lib/liquidity";
+import { formatPercent, formatPrice } from "@/lib/liquidity";
 import {
   fetchMarketRecommendations,
   freezeRecommendationEntry,
@@ -307,6 +309,8 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : visible.length === 0 ? (
         <p className="py-8 text-center text-sm text-zinc-500">{emptyLabel}</p>
+      ) : !live ? (
+        <CloseBoards rows={visible} selected={selected?.symbol ?? null} onSelect={setSelected} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-start">
@@ -345,8 +349,11 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
                     <td className="p-3 font-mono text-sky-400" dir="ltr">
                       {row.symbol}
                     </td>
-                    <td className="p-3 font-semibold text-zinc-100">{row.name}</td>
+                    <td className="p-3 font-semibold text-zinc-100">
+                      <CompanyName symbol={row.symbol} name={row.name} align="start" />
+                    </td>
                     <td className="p-3">
+                      <PathBadge price={row.last_price ?? row.close_price} vwap={row.session_vwap} change={row.change_percent} />
                       <span
                         className={`rounded-xl border px-2 py-1 text-[11px] font-semibold ${
                           row.signal_kind === "bounce"
@@ -396,6 +403,78 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         </div>
       ) : null}
     </section>
+  );
+}
+
+function CloseBoards({
+  rows,
+  selected,
+  onSelect,
+}: {
+  rows: MarketRecommendation[];
+  selected: string | null;
+  onSelect: (row: MarketRecommendation) => void;
+}) {
+  const accumulation = rows.filter((row) => row.signal_type === "الأكثر تجميعاً" || row.signal_kind === "bounce");
+  const liquidity = rows.filter((row) => !accumulation.includes(row));
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <CloseBoard title="الأكثر تجميعاً" rows={accumulation} tone="border-emerald-500/25 bg-emerald-500/5" selected={selected} onSelect={onSelect} />
+      <CloseBoard title="الأكثر سيولة عند الإغلاق" rows={liquidity} tone="border-amber-500/25 bg-amber-500/5" selected={selected} onSelect={onSelect} />
+    </div>
+  );
+}
+
+function CloseBoard({
+  title,
+  rows,
+  tone,
+  selected,
+  onSelect,
+}: {
+  title: string;
+  rows: MarketRecommendation[];
+  tone: string;
+  selected: string | null;
+  onSelect: (row: MarketRecommendation) => void;
+}) {
+  return (
+    <div className={`rounded-2xl border p-3 text-start ${tone}`}>
+      <div className="mb-3 flex min-h-8 items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-zinc-50">{title}</h3>
+        <span className="rounded-full bg-zinc-950/70 px-2 py-0.5 font-mono text-xs tabular-nums text-zinc-300">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-zinc-800 px-3 py-8 text-center text-xs text-zinc-500">لا توجد أسماء في هذا الجانب</p>
+      ) : (
+        <div className="grid gap-3">
+          {rows.map((row) => (
+            <button
+              key={row.symbol}
+              type="button"
+              onClick={() => onSelect(row)}
+              className={`w-full rounded-2xl border bg-zinc-950/50 p-4 text-center transition hover:border-emerald-400/40 ${
+                selected === row.symbol ? "border-emerald-400/50" : "border-zinc-800"
+              }`}
+            >
+              <CompanyName symbol={row.symbol} name={row.name} />
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <span className="rounded-xl border border-zinc-700 px-2.5 py-1 text-[11px] font-semibold text-zinc-200">{row.signal_type}</span>
+                <PathBadge price={row.last_price ?? row.close_price} vwap={row.session_vwap} change={row.change_percent} />
+              </div>
+              <p className="mt-3 font-mono text-lg font-semibold text-zinc-50" dir="ltr">
+                {formatPrice(row.close_price)}
+                {row.change_percent ? (
+                  <span className={`ms-2 text-sm ${row.change_percent > 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                    {formatPercent(row.change_percent)}
+                  </span>
+                ) : null}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

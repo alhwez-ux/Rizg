@@ -18,6 +18,7 @@ import { useSymbolRegime } from "@/hooks/useSymbolRegime";
 import { type LiveRadarReport, type LiveRadarSignal } from "@/lib/liveRadar";
 import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
+import { PathBadge } from "@/components/PathBadge";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { DataSkeleton } from "@/components/DataSkeleton";
@@ -105,6 +106,11 @@ export function LiquidityRadarCard({
               {symbol}
             </span>
           </h3>
+          {report ? (
+            <div className="mt-2 flex justify-center sm:justify-start">
+              <PathBadge price={report.last_price} vwap={report.session_vwap} change={report.change_percent} />
+            </div>
+          ) : null}
           <CompanyStrengthLine symbol={symbol} />
           <p className="mt-1 hidden text-xs text-zinc-500 sm:block">{ar.liveRadarHint}</p>
         </div>

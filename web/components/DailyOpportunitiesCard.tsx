@@ -1,5 +1,6 @@
 "use client";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import type { DailyOpportunitiesResponse, DailyOpportunityRow } from "@/lib/dailyOpportunities";
@@ -28,11 +29,8 @@ function OpportunityCard({
     <article className="flex min-h-[220px] flex-col rounded-2xl border border-sky-500/25 bg-zinc-950/50 p-4 text-start">
       <div className="flex items-start justify-between gap-3">
         <button type="button" onClick={() => onOpen?.({ symbol: row.symbol, name: row.name })} className="min-w-0 text-start">
-          <p className="truncate font-bold text-zinc-50">{row.name}</p>
-          <p className="mt-0.5 font-mono text-xs text-zinc-400" dir="ltr">
-            {row.symbol}
-            {row.sector ? <span className="ms-2 font-sans text-zinc-500">{row.sector}</span> : null}
-          </p>
+          <CompanyName symbol={row.symbol} name={row.name} align="start" />
+          {row.sector ? <p className="mt-0.5 text-xs text-zinc-500">{row.sector}</p> : null}
         </button>
         <span className="shrink-0 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 font-mono text-xs font-bold text-emerald-100 tabular-nums" dir="ltr">
           1:{row.reward_ratio.toFixed(1)}

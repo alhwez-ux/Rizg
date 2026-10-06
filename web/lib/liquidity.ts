@@ -106,6 +106,7 @@ export function formatCompact(value: number, digits = 2): string {
 }
 
 export function formatMoney(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "—";
   const abs = Math.abs(value);
   const sign = value < 0 ? "−" : value > 0 ? "+" : "";
   if (abs >= 1_000_000_000) return `${sign}${formatCompact(abs / 1_000_000_000)} مليار`;
@@ -124,7 +125,7 @@ export function formatVolume(value: number): string {
 }
 
 export function formatPrice(value: number | null): string {
-  if (value == null) return "—";
+  if (value == null || !Number.isFinite(value) || value <= 0) return "—";
   return formatCompact(value);
 }
 
@@ -202,7 +203,7 @@ export function parseAlert(payload: AlertStreamPayload): LiquidityAlertEvent | n
 }
 
 export function formatPercent(value: number | null, digits = 1): string {
-  if (value == null || Number.isNaN(value)) return "—";
+  if (value == null || Number.isNaN(value) || value === 0) return "—";
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${formatCompact(Math.abs(value), digits)}%`;
 }

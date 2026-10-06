@@ -273,7 +273,7 @@ function formatPe(value: number | null): string {
 }
 
 function formatPrice(value: number | null): string {
-  if (value == null) return ar.missingMetric;
+  if (value == null || !Number.isFinite(value) || value <= 0) return ar.missingMetric;
   return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 

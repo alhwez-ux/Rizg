@@ -1158,6 +1158,10 @@ class TickChartFeed:
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
+        if not rows:
+            from app.services.close_board import close_session_board
+
+            rows = close_session_board(self._quotes.snapshot())
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,

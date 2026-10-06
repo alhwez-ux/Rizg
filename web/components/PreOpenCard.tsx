@@ -2,7 +2,9 @@
 
 import { useMemo } from "react";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
+import { PathBadge } from "@/components/PathBadge";
 import { ar } from "@/lib/ar";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { buySharePercent, type PreOpenRow, type PreOpenScanResponse, type PreOpenSignalKind } from "@/lib/preopen";
@@ -81,10 +83,8 @@ function PreOpenRowCard({
       className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 text-center transition hover:border-amber-500/30 hover:bg-zinc-950/80"
     >
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <span className="font-bold text-zinc-50">{row.name}</span>
-        <span className="font-mono text-xs text-zinc-400" dir="ltr">
-          {row.symbol}
-        </span>
+        <CompanyName symbol={row.symbol} name={row.name} />
+        <PathBadge price={row.expected_open} change={row.open_variation_pct} />
       </div>
       <div className="mt-3">
         <LiquidityBadge row={row} />

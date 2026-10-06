@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
+import { PathBadge } from "@/components/PathBadge";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { ar } from "@/lib/ar";
-import { formatMoney } from "@/lib/liquidity";
+import { formatMoney, formatPercent, formatPrice } from "@/lib/liquidity";
 import {
   fetchSectorCompanies,
   fetchSectorRotation,
@@ -422,18 +424,19 @@ function CompanyTable({
                     {comp.symbol}
                   </td>
                   <td className="p-3 font-bold text-zinc-100 transition-colors group-hover:text-sky-400">
-                    {comp.name}
+                    <CompanyName symbol={comp.symbol} name={comp.name} align="start" />
                   </td>
                   <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
-                    {comp.last_price != null ? comp.last_price.toFixed(2) : ar.missingMetric}
+                    {formatPrice(comp.last_price)}
                   </td>
                   <td
                     className={`p-3 font-bold ${comp.last_price != null ? (comp.price_change_pct >= 0 ? "text-emerald-400" : "text-rose-400") : "text-zinc-500"}`}
                     dir="ltr"
                   >
-                    {comp.last_price != null
-                      ? `${comp.price_change_pct >= 0 ? "+" : ""}${comp.price_change_pct.toFixed(2)}%`
-                      : ar.missingMetric}
+                    <span className="inline-flex flex-col items-start gap-1">
+                      {formatPercent(comp.price_change_pct)}
+                      <PathBadge price={comp.last_price} change={comp.price_change_pct} />
+                    </span>
                   </td>
                   <td className="p-3 font-mono text-zinc-200" dir="ltr">
                     {comp.volume ? Math.round(comp.volume).toLocaleString("en-US") : ar.missingMetric}

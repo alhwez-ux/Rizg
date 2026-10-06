@@ -245,6 +245,9 @@ class MarketRecommendation(BaseModel):
     entry_locked_at: str | None = None
     target_hit: bool = False
     stop_hit: bool = False
+    change_percent: float | None = None
+    session_vwap: float | None = None
+    net_flow: float | None = None
 
 
 class MarketRecommendationsResponse(BaseModel):

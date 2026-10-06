@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
+import { PathBadge } from "@/components/PathBadge";
 import { ar } from "@/lib/ar";
 import { fetchDailyLiquidity, type DailyLiquidityRow, type LiquidityGrade } from "@/lib/dailyLiquidity";
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
@@ -155,12 +157,7 @@ export function DailyLiquidityCard({
                           {row.rank}
                         </td>
                         <td className="p-3 text-center">
-                          <span className="inline-flex flex-wrap items-center justify-center gap-2 font-bold">
-                            <span>{row.name}</span>
-                            <span className="font-mono text-xs font-normal text-zinc-400" dir="ltr">
-                              ({row.symbol})
-                            </span>
-                          </span>
+                          <CompanyName symbol={row.symbol} name={row.name} />
                         </td>
                         <td className="p-3 text-center">
                           <span
@@ -196,7 +193,10 @@ export function DailyLiquidityCard({
                           }`}
                           dir="ltr"
                         >
-                          {formatPercent(row.price_change_pct)}
+                          <span className="inline-flex flex-col items-center gap-1">
+                            {formatPercent(row.price_change_pct)}
+                            <PathBadge price={row.last_price} change={row.price_change_pct} />
+                          </span>
                         </td>
                         <td className="p-3 text-center font-mono text-zinc-200" dir="ltr">
                           {row.volume ? formatVolume(row.volume) : "—"}
