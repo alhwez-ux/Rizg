@@ -7,6 +7,7 @@ import { DataSkeleton } from "@/components/DataSkeleton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
 import { PathBadge } from "@/components/PathBadge";
+import { graduatedTargets } from "@/lib/tradeTargets";
 import { useTasiSession } from "@/hooks/useTasiSession";
 import { ar } from "@/lib/ar";
 import { formatPercent, formatPrice } from "@/lib/liquidity";
@@ -321,7 +322,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
                 <th className="p-3 font-medium">{ar.recoColSignal}</th>
                 <SortHeader label={priceLabel} active={sortKey === "close"} onClick={() => toggleSort("close")} />
                 <th className="p-3 font-medium">{ar.recoColEntry}</th>
-                <th className="p-3 font-medium">{ar.target}</th>
+                <th className="p-3 font-medium">{ar.targets}</th>
                 <th className="p-3 font-medium">{ar.stopLoss}</th>
                 <SortHeader
                   label={ar.recoColConfidence}
@@ -378,8 +379,8 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
                     <td className="p-3 text-zinc-200" dir="ltr">
                       {row.entry_price}
                     </td>
-                    <td className="p-3 font-semibold text-emerald-400" dir="ltr">
-                      {row.target_price}
+                    <td className="p-3 font-semibold text-emerald-300" dir="ltr">
+                      <TargetLadder entry={row.entry_price} stop={row.stop_loss} />
                     </td>
                     <td className="p-3 font-semibold text-rose-400" dir="ltr">
                       {row.stop_loss}
@@ -403,6 +404,24 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         </div>
       ) : null}
     </section>
+  );
+}
+
+function TargetLadder({ entry, stop }: { entry: string; stop: string }) {
+  const plan = graduatedTargets(entry, stop);
+  if (!plan) return <span>—</span>;
+  return (
+    <span className="inline-flex flex-col gap-0.5 text-xs">
+      <span className="whitespace-nowrap">
+        <span className="font-normal text-zinc-500">{ar.target1}</span> {plan.t1.toFixed(2)}
+      </span>
+      <span className="whitespace-nowrap">
+        <span className="font-normal text-zinc-500">{ar.target2}</span> {plan.t2.toFixed(2)}
+      </span>
+      <span className="whitespace-nowrap">
+        <span className="font-normal text-zinc-500">{ar.target3}</span> {plan.t3.toFixed(2)}
+      </span>
+    </span>
   );
 }
 

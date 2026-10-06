@@ -90,19 +90,54 @@ export interface TapePathInput {
   low?: number | null;
 }
 
+export type FairAnchorSource = "vwap" | "range" | "close";
+
 export interface TapePath {
   mode: "live" | "post";
   path: SessionPath;
   price: number | null;
   anchor: number | null;
+  /** vwap is volume-weighted. range and close are labeled substitutes outside the session. */
+  anchorSource: FairAnchorSource | null;
 }
 
-/** Path exists only when both the price and a volume-weighted VWAP are real. */
+/** A real VWAP always wins. Outside the continuous session, a missing VWAP uses the range midpoint, then the close. */
 export function resolveTapePath(input: TapePathInput): TapePath {
   const price = positive(input.price);
   const vwap = positive(input.vwap);
   const live = input.quoteMode === "live" && (input.phase == null || input.phase === "open");
-  return { mode: live ? "live" : "post", path: sessionPath(price, vwap), price, anchor: vwap };
+  const fair = fairLiquidityAnchor({
+    live,
+    price,
+    vwap,
+    high: input.high,
+    low: input.low,
+  });
+  const path = fair.source === "close" ? "unknown" : sessionPath(price, fair.anchor);
+  return { mode: live ? "live" : "post", path, price, anchor: fair.anchor, anchorSource: fair.source };
+}
+
+function fairLiquidityAnchor(input: {
+  live: boolean;
+  price: number | null;
+  vwap: number | null;
+  high?: number | null;
+  low?: number | null;
+}): { anchor: number | null; source: FairAnchorSource | null } {
+  if (input.vwap != null) return { anchor: input.vwap, source: "vwap" };
+  if (input.live) return { anchor: null, source: null };
+  const range = rangeMidpoint(input.high, input.low);
+  if (range != null) return { anchor: range, source: "range" };
+  if (input.price != null) return { anchor: input.price, source: "close" };
+  return { anchor: null, source: null };
+}
+
+/** (High + Low) / 2. Not a volume-weighted price, and never mixed with the close. */
+function rangeMidpoint(high: number | null | undefined, low: number | null | undefined): number | null {
+  const top = positive(high);
+  const bottom = positive(low);
+  if (top == null || bottom == null || top < bottom) return null;
+  return roundTo((top + bottom) / 2, 2);
 }
 
 /** Session VWAP is the volume-weighted price. Equal or above is the upward path. */

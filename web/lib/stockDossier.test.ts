@@ -104,13 +104,24 @@ assert.equal(resolveTapePath({ quoteMode: "live", phase: "open", price: 105, vwa
 const closed = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 173, vwap: null, high: 174.7, low: 168.1 });
 assert.equal(closed.mode, "post");
 assert.equal(closed.price, 173);
-assert.equal(closed.anchor, null);
-assert.equal(closed.path, "unknown");
-const aboveVwap = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 173, vwap: 170.5 });
+assert.equal(closed.anchor, 171.4);
+assert.equal(closed.anchorSource, "range");
+assert.equal(closed.path, "up");
+const closeOnly = resolveTapePath({ quoteMode: "last_close", phase: "preopen", price: 173, vwap: null });
+assert.equal(closeOnly.anchor, 173);
+assert.equal(closeOnly.anchorSource, "close");
+assert.equal(closeOnly.path, "unknown");
+const liveMissing = resolveTapePath({ quoteMode: "live", phase: "open", price: 105, vwap: null, high: 110, low: 100 });
+assert.equal(liveMissing.anchor, null);
+assert.equal(liveMissing.anchorSource, null);
+assert.equal(liveMissing.path, "unknown");
+const aboveVwap = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 173, vwap: 170.5, high: 174.7, low: 168.1 });
 assert.equal(aboveVwap.path, "up");
 assert.equal(aboveVwap.anchor, 170.5);
+assert.equal(aboveVwap.anchorSource, "vwap");
 const belowVwap = resolveTapePath({ quoteMode: "last_close", phase: "closed", price: 169, vwap: 170.5 });
 assert.equal(belowVwap.path, "down");
+assert.equal(belowVwap.anchorSource, "vwap");
 
 const filled = buildStockDossier("9999", 50, null, { peRatio: 10, dividendYieldPct: 1.5, settled: true });
 assert.equal(filled.peRatio, 10);

@@ -19,6 +19,7 @@ import { type LiveRadarReport, type LiveRadarSignal } from "@/lib/liveRadar";
 import { useLiveRadar } from "@/hooks/useLiveRadar";
 import { useLiquiditySocket } from "@/hooks/useLiquiditySocket";
 import { PathBadge } from "@/components/PathBadge";
+import { TradePlanLadder } from "@/components/TradePlanLadder";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { CompanyStrengthLine } from "@/components/CompanyStrengthLine";
 import { DataSkeleton } from "@/components/DataSkeleton";
@@ -143,6 +144,8 @@ export function LiquidityRadarCard({
           phase={report.session_phase}
           price={report.last_price}
           vwap={report.session_vwap ?? report.vwap}
+          high={report.session_high}
+          low={report.session_low}
           stance={valuationStance(report.last_price, dossier.fairValue)}
         />
       ) : null}
@@ -167,15 +170,19 @@ function SessionPathStrip({
   phase,
   price,
   vwap,
+  high,
+  low,
   stance,
 }: {
   quoteMode?: string | null;
   phase?: string | null;
   price: number | null;
   vwap: number | null;
+  high?: number | null;
+  low?: number | null;
   stance: ReturnType<typeof valuationStance>;
 }) {
-  const tape = resolveTapePath({ quoteMode, phase, price, vwap });
+  const tape = resolveTapePath({ quoteMode, phase, price, vwap, high, low });
   const tone = tape.path === "up" ? "path-up" : tape.path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-300";
   const valuation =
     stance === "over"
@@ -206,14 +213,14 @@ function SessionPathStrip({
           </strong>
         </span>
         <span className="text-xs font-medium">
-          {ar.sessionVwap}:{" "}
+          {anchorLabel(tape.anchorSource)}:{" "}
           <strong dir="ltr" className="font-mono text-sm">
             {priceText(tape.anchor)}
           </strong>
         </span>
-        {gap != null ? (
+        {gap != null && gap !== 0 && tape.anchorSource !== "close" ? (
           <span className="text-xs font-medium">
-            {ar.sessionVwapGap}:{" "}
+            {tape.anchorSource === "range" ? ar.sessionRangeGap : ar.sessionVwapGap}:{" "}
             <strong dir="ltr" className="font-mono text-sm">
               {formatCompact(gap)}%
             </strong>
@@ -221,13 +228,23 @@ function SessionPathStrip({
         ) : null}
       </div>
       {tape.path === "up" ? (
-        <p className="mt-3 inline-flex rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">{ar.sessionPathUp}</p>
+        <p className="mt-3 inline-flex rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">
+          {tape.anchorSource === "range" ? ar.sessionPathUpRange : ar.sessionPathUp}
+        </p>
       ) : tape.path === "down" ? (
-        <p className="mt-3 inline-flex rounded-full bg-rose-600 px-3 py-1.5 text-sm font-bold text-white">{ar.sessionPathDown}</p>
+        <p className="mt-3 inline-flex rounded-full bg-rose-600 px-3 py-1.5 text-sm font-bold text-white">
+          {tape.anchorSource === "range" ? ar.sessionPathDownRange : ar.sessionPathDown}
+        </p>
       ) : null}
       <p className={`mt-2 text-xs font-semibold leading-5 ${valuationTone}`}>{valuation}</p>
     </section>
   );
+}
+
+function anchorLabel(source: "vwap" | "range" | "close" | null): string {
+  if (source === "range") return ar.sessionRangeAnchor;
+  if (source === "close") return ar.sessionCloseAnchor;
+  return ar.sessionVwap;
 }
 
 function priceText(value: number | null | undefined): string {
@@ -315,11 +332,25 @@ function ReportBody({
   const positive = report.net_flow > 0;
   const negative = report.net_flow < 0;
   const copy = regimeCopy(regime);
+  const fair = resolveTapePath({
+    quoteMode: report.quote_mode,
+    phase: report.session_phase,
+    price: report.last_price,
+    vwap: report.session_vwap ?? report.vwap,
+    high: report.session_high,
+    low: report.session_low,
+  });
 
   return (
     <>
       <CompactSummary report={report} regime={regime} />
       <DossierStrip dossier={dossier} price={report.last_price} />
+      <TradePlanLadder
+        className="mt-4"
+        entry={report.suggested_entry}
+        stop={report.stop_loss}
+        resistances={[report.session_high]}
+      />
 
       <div className="mt-5 hidden space-y-4 sm:block">
         {report.trap ? (
@@ -379,14 +410,6 @@ function ReportBody({
           </p>
         ) : null}
 
-        {report.entry && report.suggested_entry != null ? (
-          <p className="text-sm font-semibold text-emerald-300">
-            {ar.entryPriceLabel}:{" "}
-            <span dir="ltr" className="font-mono">
-              {formatPrice(report.suggested_entry)}
-            </span>
-          </p>
-        ) : null}
         {report.exit && report.suggested_exit != null ? (
           <p className="text-sm font-semibold text-amber-200">
             {ar.exitPriceLabel}:{" "}
@@ -398,7 +421,7 @@ function ReportBody({
 
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
           <span>
-            {ar.sessionVwap} <span dir="ltr">{priceText(report.session_vwap ?? report.vwap)}</span>
+            {anchorLabel(fair.anchorSource)} <span dir="ltr">{priceText(fair.anchor)}</span>
           </span>
           <span>
             {ar.atr} <span dir="ltr">{priceText(report.atr)}</span>

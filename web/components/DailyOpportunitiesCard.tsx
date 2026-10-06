@@ -2,20 +2,10 @@
 
 import { CompanyName } from "@/components/CompanyName";
 import { DataSkeleton } from "@/components/DataSkeleton";
+import { TradePlanLadder } from "@/components/TradePlanLadder";
 import { ar } from "@/lib/ar";
 import type { DailyOpportunitiesResponse, DailyOpportunityRow } from "@/lib/dailyOpportunities";
 import { isValidLongPlan } from "@/lib/tradeGeometry";
-
-function Level({ label, value, tone }: { label: string; value: string; tone: string }) {
-  return (
-    <div className="min-h-[52px] rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-      <p className="text-[11px] text-zinc-500">{label}</p>
-      <p dir="ltr" className={`mt-0.5 font-mono text-base font-semibold tabular-nums ${tone}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function OpportunityCard({
   row,
@@ -37,10 +27,8 @@ function OpportunityCard({
         </span>
       </div>
       <p className="mt-2 min-h-[18px] text-[11px] text-sky-200/90">{row.setup}</p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Level label={ar.dailyEntry} value={row.entry_price} tone="text-zinc-100" />
-        <Level label={ar.dailyTarget} value={row.target_price} tone="text-emerald-300" />
-        <Level label={ar.dailyStop} value={row.stop_loss} tone="text-rose-300" />
+      <div className="mt-3">
+        <TradePlanLadder entry={row.entry_price} stop={row.stop_loss} />
       </div>
       <p className="mt-3 min-h-[32px] text-[11px] leading-relaxed text-zinc-400">
         {ar.dailyLast}{" "}
