@@ -32,8 +32,8 @@ PORTFOLIO_SCORE = 82.0
 PORTFOLIO_BLOCK_VALUE = 1_000_000.0
 
 HINT = (
-    "صفقات الكتل والتجميع قرب جدار الطلب — درجة التدفق المؤسسي تقيس سيطرة الصناديق مقابل التجزئة. "
-    "الأسهم ذات الشارة تُعرض مع هدف ووقف موثّقين لاتباع المحافظ الكبرى دون مطاردة السيولة الصغيرة."
+    "أين تذهب الأموال الكبيرة: أعلى صافي تدفق نقدي مع صفقات كتل خلال الجلسة. "
+    "الظهور هنا لا يعني فرصة دخول سريعة."
 )
 
 
@@ -257,8 +257,6 @@ def classify_smart_money(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     plan_ok = False
     if kind == KIND_ACCUMULATION:
         entry, target, stop, plan_ok = _long_plan(snapshot)
-        if not plan_ok:
-            return None
     else:
         last = _num(snapshot.get("last_price") or snapshot.get("close"))
         entry = round(last, 4) if last is not None and last > 0 else None
@@ -277,7 +275,8 @@ def classify_smart_money(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         "symbol": symbol,
         "name": snapshot.get("name") or company_name_for(symbol) or symbol,
         "sector": snapshot.get("sector") or sector_for(symbol) or "",
-        "last_price": entry if kind == KIND_ACCUMULATION else (_num(snapshot.get("last_price"))),
+        "last_price": _num(snapshot.get("last_price")) or entry,
+        "net_flow": metrics["net_inst"],
         "institutional_flow_score": metrics["score"],
         "inst_share_pct": metrics["inst_share"],
         "retail_share_pct": metrics["retail_share"],
@@ -348,16 +347,20 @@ def scan_smart_money(
         classified = classify_smart_money(item if isinstance(item, dict) else {})
         if classified is None:
             continue
+        if int(classified.get("block_trades") or 0) < 1:
+            continue
+        if abs(float(classified.get("net_flow") or 0)) <= 0:
+            continue
         if classified["symbol"] in seen:
             continue
         seen.add(classified["symbol"])
         rows.append(classified)
-    kind_rank = {KIND_ACCUMULATION: 0, KIND_WATCH: 1, KIND_DISTRIBUTION: 2}
     rows.sort(
         key=lambda row: (
-            kind_rank.get(str(row.get("signal_kind")), 9),
-            -float(row.get("institutional_flow_score") or 0),
-        )
+            abs(float(row.get("net_flow") or 0)),
+            int(row.get("block_trades") or 0),
+        ),
+        reverse=True,
     )
     accumulation = sum(1 for row in rows if row["signal_kind"] == KIND_ACCUMULATION)
     distribution = sum(1 for row in rows if row["signal_kind"] == KIND_DISTRIBUTION)

@@ -41,26 +41,27 @@ def _accum(**overrides):
     return row
 
 
-def test_empty_strict_board_shows_liquid_names(tmp_path: Path) -> None:
+def test_daily_board_shows_rebound_setups_not_the_liquid_list(tmp_path: Path) -> None:
     class _Feed:
         def market_rows(self):
             return [
-                {"symbol": "1120", "name": "1120", "last_price": 90, "value_traded": 8_000_000, "net_flow": 1_200_000, "volume": 20_000},
-                {"symbol": "2222", "name": "2222", "last_price": 27, "value_traded": 6_000_000, "net_flow": 400_000, "volume": 10_000, "vwap": 26.5},
-                {"symbol": "1180", "name": "1180", "last_price": 40, "value_traded": 3_000_000, "net_flow": -50_000, "volume": 4_000, "vwap": 41},
-                {"symbol": "7010", "name": "7010", "last_price": 42, "value_traded": 2_000_000, "net_flow": 100_000, "volume": 3_000},
-                {"symbol": "2010", "name": "2010", "last_price": 60, "value_traded": 500_000, "net_flow": 10_000, "volume": 1_000},
-                {"symbol": "2280", "name": "2280", "last_price": 55, "value_traded": 100_000, "net_flow": 1_000, "volume": 500},
+                {"symbol": "1120", "name": "1120", "last_price": 90, "value_traded": 8_000_000, "net_flow": 1_200_000, "session_low": 89.2},
+                {"symbol": "2222", "name": "2222", "last_price": 27, "value_traded": 6_000_000, "net_flow": 400_000, "session_low": 26.2, "vwap": 26.6},
+                {"symbol": "1180", "name": "1180", "last_price": 40, "value_traded": 9_000_000, "net_flow": 2_000_000},
+                {"symbol": "7010", "name": "7010", "last_price": 42, "prior_high": 41.2, "value_traded": 500_000},
             ]
 
     payload = scan_daily_opportunities(_Feed(), snapshots=[], recommendations=[], store=EntrySnapshotStore(tmp_path / "empty.json"))
     symbols = {row["symbol"] for row in payload["data"]}
-    assert 3 <= payload["count"] <= 5
-    assert "1120" in symbols
+    assert symbols == {"1120", "2222", "7010"}
     assert "1180" not in symbols
     named = next(row for row in payload["data"] if row["symbol"] == "1120")
     assert named["name"] == "الراجحي"
-    assert named["reason"] == "فرص قيد المراقبة - السيولة تتجمع فيها"
+    assert named["setup"] == "ارتداد من دعم رئيسي"
+    vwap = next(row for row in payload["data"] if row["symbol"] == "2222")
+    assert vwap["setup"] == "ارتداد من متوسط السيولة"
+    broken = next(row for row in payload["data"] if row["symbol"] == "7010")
+    assert broken["setup"] == "اختراق مقاومة يومية"
     assert named["reward_ratio"] >= 1.5
 
 
@@ -74,7 +75,7 @@ def test_daily_opportunity_enforces_two_r_and_locks_entry(tmp_path: Path) -> Non
     assert float(row["target_price"]) > float(row["entry_price"]) > float(row["stop_loss"])
 
     moved = scan_daily_opportunities(
-        snapshots=[_accum(last_price=91.2)],
+        snapshots=[_accum(last_price=90.4)],
         store=store,
         recommendations=[
             {

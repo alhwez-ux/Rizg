@@ -329,7 +329,16 @@ def test_radar_entry_from_ranked_stored_net_flow(tmp_path: Path, monkeypatch) ->
     assert report["entry"] is True
     assert report["signal"] == "entry"
     assert quiet["entry"] is False
+    for qty in (100, 100, 100, 8000, 8000, 8000, 8000, 8000):
+        feed._tape("1120").observe_print(
+            Decimal("96.5"),
+            Decimal(qty),
+            side=TradeSide.BUY,
+            block_floor=feed._block_floor,
+        )
     rows = feed.live_recommendations()
     symbols = {row["symbol"] for row in rows}
     assert "1120" in symbols
+    assert "2222" not in symbols
     assert all(row.get("entry") is True for row in rows)
+    assert all(float(row["volume_ratio"]) >= 1.5 for row in rows)

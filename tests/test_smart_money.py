@@ -114,6 +114,28 @@ def test_distribution_row_does_not_offer_a_long_plan() -> None:
     assert row["stop"] is None
 
 
+def test_smart_money_keeps_block_flow_and_skips_plain_liquidity() -> None:
+    payload = scan_smart_money(
+        snapshots=[
+            _dist_snapshot(symbol="2222", name="أرامكو", institutional_outflow=20_000_000, block_trades=6),
+            _accum_snapshot(),
+            {
+                "symbol": "1180",
+                "last_price": 40.0,
+                "block_trades": 0,
+                "institutional_inflow": 9_000_000,
+                "institutional_outflow": 100_000,
+                "institutional_mfi": 90,
+            },
+        ]
+    )
+    symbols = [row["symbol"] for row in payload["data"]]
+    assert "1180" not in symbols
+    assert symbols[0] == "2222"
+    assert "1120" in symbols
+    assert all(int(row["block_trades"]) >= 1 for row in payload["data"])
+
+
 def test_scan_ranks_fund_accumulation_ahead_of_distribution() -> None:
     payload = scan_smart_money(
         snapshots=[_dist_snapshot(), _accum_snapshot(), {"symbol": "9999"}],

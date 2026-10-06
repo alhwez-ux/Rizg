@@ -814,6 +814,10 @@ class TickChartFeed:
             "volume": volume,
             "value_traded": value,
             "net_flow": net_flow,
+            "low": stored.get("low"),
+            "high": stored.get("high"),
+            "session_low": stored.get("low"),
+            "session_high": stored.get("high"),
             "inflow": max(net_flow, 0.0),
             "outflow": max(-net_flow, 0.0),
             "live": False,
@@ -854,6 +858,9 @@ class TickChartFeed:
                     "volume": volume,
                     "value_traded": value,
                     "net_flow": net_flow,
+                    "session_vwap": report.get("session_vwap") or report.get("vwap"),
+                    "session_low": report.get("session_low"),
+                    "session_high": report.get("session_high"),
                     "inflow": report.get("inflow") or max(float(net_flow), 0.0),
                     "outflow": report.get("outflow") or max(-float(net_flow), 0.0),
                     "mfi": report.get("mfi"),
@@ -1119,13 +1126,11 @@ class TickChartFeed:
             cached = self._live_reco_cache
             if cached and now - cached[0] < 5:
                 return list(cached[1])
-        rows = self._live_opportunities()
+        rows = [row for row in self._live_opportunities() if _is_live_scalp(row)]
         from app.services.entry_snapshot_store import apply_locked_entries, live_last_index
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
-        if not rows:
-            rows = self._liquidity_watch(closed=False)
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,
@@ -1153,8 +1158,6 @@ class TickChartFeed:
         from app.services.signals import keep_long_recommendations
 
         rows = keep_long_recommendations(rows)
-        if not rows:
-            rows = self._liquidity_watch(closed=True)
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,
@@ -1462,6 +1465,7 @@ class TickChartFeed:
                 target_mult=target_mult,
                 stop_mult=stop_mult,
                 swing_low=swing_low,
+                min_reward=MIN_REWARD_RATIO,
             )
             target_price = float(target)
             stop_price = float(stop)
@@ -1505,8 +1509,8 @@ class TickChartFeed:
                     "mfi": report.get("institutional_mfi") or report.get("mfi"),
                     "scan_mode": "live",
                     "horizon": "intraday",
-                    "entry": True,
-                    "entry_rule": "intraday_flow",
+                    "entry": bool(report.get("entry")),
+                    "entry_rule": "live_scalp",
                 }
             )
         rows.sort(key=lambda item: int(item.get("confidence_score") or 0), reverse=True)
@@ -2156,6 +2160,20 @@ class TickChartFeed:
         self._seen.append(key)
         self._seen_set.add(key)
         return True
+
+
+def _is_live_scalp(row: dict[str, Any]) -> bool:
+    """A live scalp needs a confirmed entry, a recent print surge, and at least 1:1.5."""
+
+    if not row.get("entry"):
+        return False
+    surge = _json_number(row.get("volume_ratio"))
+    if surge is None or surge < 1.5:
+        return False
+    from app.services.institutional_strategy import MIN_REWARD_RATIO, reward_ratio
+
+    ratio = reward_ratio(row.get("entry_price"), row.get("target_price"), row.get("stop_loss"))
+    return ratio is not None and ratio >= MIN_REWARD_RATIO
 
 
 def parse_tick(payload: dict[str, Any]) -> tuple[str, Decimal, Decimal, datetime, str] | None:
