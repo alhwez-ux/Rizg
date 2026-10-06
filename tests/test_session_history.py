@@ -12,7 +12,13 @@ from app.models.screener import is_tasi_main_symbol
 from app.routers.tickchart import router as tickchart_router
 from app.services.last_quotes import LastQuoteBook
 from app.services.liquidity_engine import LiquidityRadarEngine
-from app.services.session_history import listed_main_market_symbols, main_market_symbols, parse_spark_bars, parse_spark_market
+from app.services.session_history import (
+    listed_main_market_symbols,
+    main_market_symbols,
+    overlay_session_closes,
+    parse_spark_bars,
+    parse_spark_market,
+)
 from app.services.tickchart_integration import TickChartFeed
 
 _RIYADH = ZoneInfo("Asia/Riyadh")
@@ -272,3 +278,16 @@ def test_history_fetch_falls_back_when_provider_is_slow(tmp_path: Path, monkeypa
     assert payload["success"] is True
     assert payload["source"] == "fallback"
     assert payload["fallback"] is True
+
+
+def test_overlay_replaces_a_print_sized_volume_with_the_session_close() -> None:
+    official = {"2222": {"last_price": 25.8, "volume": 13_764_976, "session_date": "2026-10-06"}}
+    rows = [{"symbol": "2222", "last_price": 25.8, "volume": 200}]
+    overlay_session_closes(rows, phase="closed", official=official)
+    assert rows[0]["last_price"] == 25.8
+    assert rows[0]["volume"] == 13_764_976
+
+    bare = [{"symbol": "2090", "last_price": 12.6, "volume": 0}]
+    overlay_session_closes(bare, phase="closed", official={})
+    assert bare[0]["last_price"] == 12.6
+    assert bare[0]["volume"] is None

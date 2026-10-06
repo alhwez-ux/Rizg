@@ -1363,9 +1363,17 @@ class TickChartFeed:
         from app.services.session_history import fetch_main_market_closes, listed_main_market_symbols
 
         self.ensure_close_book()
-        bars, quotes = fetch_main_market_closes(listed_main_market_symbols(), sessions=sessions)
+        bars, quotes = fetch_main_market_closes(
+            listed_main_market_symbols(),
+            sessions=sessions,
+            budget_seconds=75,
+        )
         imported = self.import_close_history(bars) if bars else 0
         applied = self._quotes.apply_closes(quotes) if quotes else 0
+        if quotes:
+            from app.services.session_history import save_official_session
+
+            save_official_session(quotes)
         if imported == 0 and applied == 0:
             applied = self._quotes.seed_bundled_tape()
         ready, total = self.close_history_coverage(need=sessions + 1)

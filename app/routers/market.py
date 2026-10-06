@@ -19,6 +19,7 @@ from app.services.ranking_store import RankingStore
 from app.services.shariah import company_name_for
 from app.services.sector_rotation import SAMPLE_SECTOR_TAPE, SectorRotationEngine, companies_for_sector
 from app.services.signals import keep_long_recommendations
+from app.services.session_history import overlay_session_closes
 from app.services.tasi_clock import now_riyadh, phase_label, session_phase
 from app.services.tickchart_integration import warm_public_quotes
 
@@ -215,6 +216,7 @@ async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
             }
             for item in tape.values()
         ]
+    overlay_session_closes(rows, phase=session_phase(now_riyadh()))
     synced_at = datetime.now(timezone.utc).isoformat()
     if rows:
         return RankingMatrixResponse(

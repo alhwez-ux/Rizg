@@ -6,9 +6,8 @@ import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
-import { rankingFromMarket } from "@/lib/marketEngine";
 import { GradeBadge } from "@/components/GradeBadge";
-import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, preferFinancialSnapshot, type FinancialGrade } from "@/lib/rankingGrade";
+import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, type FinancialGrade } from "@/lib/rankingGrade";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
@@ -28,19 +27,13 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [cached, setCached] = useState(false);
   const [gradeFilter, setGradeFilter] = useState<FinancialGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
-  const storedBySymbol = useMemo(() => {
-    const map = new Map<string, RankingRow>();
-    for (const row of rankingFromMarket().data) map.set(row.symbol.trim().toUpperCase(), row);
-    return map;
-  }, []);
   const visible = useMemo(
     () =>
       companies
-        .map((comp) => preferFinancialSnapshot(comp, storedBySymbol.get(comp.symbol.trim().toUpperCase())))
         .filter((comp) => passesShariahFilter(comp.symbol, shariahFilter))
         .slice()
         .sort(compareByFinancialGrade),
-    [companies, shariahFilter, storedBySymbol],
+    [companies, shariahFilter],
   );
   const graded = useMemo(() => {
     const buckets: Record<FinancialGrade, RankingRow[]> = { A: [], B: [], C: [], D: [], E: [] };

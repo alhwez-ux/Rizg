@@ -14,9 +14,10 @@ export interface GradeInput {
   category?: string | null;
   profit_growth?: number | null;
   debt_ratio?: number | null;
+  accumulated_loss_ratio?: number | null;
 }
 
-/** Losing companies are E. Health above 80 with low debt and strong operating returns is A. */
+/** A profitable company is never E. E is only an announced net loss or accumulated losses at or above 50% of capital. */
 export function financialGrade(row: GradeInput): FinancialGrade | null {
   if (!hasFinancialRank(row)) return null;
   if (isLosingCompany(row)) return "E";
@@ -58,19 +59,6 @@ function healthFromCategory(category: string): number | null {
   return null;
 }
 
-/** Keep a live financial snapshot. Fill a tape-only row from stored financials when those exist. */
-export function preferFinancialSnapshot<T extends GradeInput>(live: T, stored: GradeInput | null | undefined): T {
-  if (stored == null || hasFinancialRank(live)) return live;
-  return {
-    ...live,
-    matrix_score: stored.matrix_score ?? live.matrix_score,
-    net_income: stored.net_income ?? live.net_income,
-    category: stored.category ?? live.category,
-    profit_growth: stored.profit_growth ?? live.profit_growth,
-    debt_ratio: stored.debt_ratio ?? live.debt_ratio,
-  };
-}
-
 function hasFinancialRank(row: GradeInput): boolean {
   const category = String(row.category || "");
   if (/خاسر|قلاع|واعدة|متوسط|ضعيف/.test(category)) return true;
@@ -79,8 +67,8 @@ function hasFinancialRank(row: GradeInput): boolean {
 }
 
 function isLosingCompany(row: GradeInput): boolean {
-  if (String(row.category || "").includes("خاسر")) return true;
-  if (row.net_income != null && Number.isFinite(row.net_income) && row.net_income <= 0) return true;
-  const score = Number(row.matrix_score);
-  return Number.isFinite(score) && score < 0;
+  const income = row.net_income;
+  if (income != null && Number.isFinite(income)) return income < 0;
+  const accumulated = row.accumulated_loss_ratio;
+  return accumulated != null && Number.isFinite(accumulated) && accumulated >= 0.5;
 }

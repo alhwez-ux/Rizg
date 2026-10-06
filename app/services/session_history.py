@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -16,12 +16,13 @@ from app.services.tasi_clock import TASI_TZ, now_riyadh
 
 logger = logging.getLogger(__name__)
 
-YAHOO_SPARK = "https://query1.finance.yahoo.com/v7/finance/spark"
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.SR"
 _RIYADH = TASI_TZ
-_BATCH = 10
 _RANGE = "3mo"
+_CHART_WORKERS = 8
+_VOLUME_FLOOR = 10_000.0
+_OFFICIAL_SESSION = Path(__file__).resolve().parents[1] / "data" / "official_session.json"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-_RETRIES = 3
 _FETCH_BUDGET_SECONDS = 10.0
 _LISTINGS_PATH = Path(__file__).resolve().parents[1] / "data" / "tasi_main_symbols.json"
 
@@ -145,6 +146,122 @@ def parse_spark_market(
     return bars, quotes
 
 
+def load_official_session(path: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Last measured daily close and session volume, keyed by symbol."""
+
+    tape_path = path or _OFFICIAL_SESSION
+    try:
+        payload = json.loads(tape_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    quotes = payload.get("quotes") if isinstance(payload, dict) else None
+    if not isinstance(quotes, dict):
+        return {}
+    book: dict[str, dict[str, Any]] = {}
+    for raw_symbol, item in quotes.items():
+        ticker = str(raw_symbol or "").strip().upper()
+        if not is_tasi_main_symbol(ticker) or not isinstance(item, dict):
+            continue
+        price = _positive(item.get("last_price"))
+        if price is None:
+            continue
+        book[ticker] = {
+            "last_price": price,
+            "volume": _positive(item.get("volume")),
+            "session_date": str(item.get("session_date") or "")[:10],
+        }
+    return book
+
+
+def save_official_session(quotes: list[dict[str, Any]], path: Path | None = None) -> int:
+    """Persist measured daily closes. A missing volume is left out rather than stored as a print size."""
+
+    book: dict[str, dict[str, Any]] = {}
+    as_of = ""
+    for item in quotes:
+        ticker = str(item.get("symbol") or "").strip().upper()
+        price = _positive(item.get("last_price"))
+        if not is_tasi_main_symbol(ticker) or price is None:
+            continue
+        volume = _positive(item.get("volume"))
+        day = str(item.get("session_date") or "")[:10]
+        book[ticker] = {
+            "last_price": round(price, 2),
+            "volume": None if volume is None else float(int(volume)),
+            "session_date": day,
+        }
+        if day > as_of:
+            as_of = day
+    if not book:
+        return 0
+    tape_path = path or _OFFICIAL_SESSION
+    tape_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"as_of": as_of, "source": "daily-close", "quotes": book}
+    tape_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return len(book)
+
+
+def overlay_session_closes(
+    rows: list[dict[str, Any]],
+    *,
+    phase: str,
+    official: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Replace a print-sized volume with the measured session close. Never invent a price."""
+
+    book = official if official is not None else load_official_session()
+    closed = phase not in {"preopen", "open", "auction"}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ticker = str(row.get("symbol") or "").strip().upper()
+        known = book.get(ticker)
+        volume = _number(row.get("volume"))
+        implausible = volume is None or volume < _VOLUME_FLOOR
+        if closed and known is not None:
+            row["last_price"] = known["last_price"]
+            if known.get("volume"):
+                row["volume"] = known["volume"]
+            elif implausible:
+                row["volume"] = None
+            continue
+        if known is not None and implausible and known.get("volume"):
+            row["volume"] = known["volume"]
+        elif implausible:
+            row["volume"] = None
+    return rows
+
+
+def _download_chart(symbol: str, timeout: float) -> dict[str, Any] | None:
+    try:
+        with httpx.Client(
+            timeout=httpx.Timeout(timeout, connect=min(3.0, timeout)),
+            headers={"User-Agent": _UA, "Accept": "application/json"},
+        ) as http:
+            return _chart_with_client(http, symbol)
+    except httpx.HTTPError as exc:
+        logger.warning("daily close fetch failed for %s: %s", symbol, exc)
+        return None
+
+
+def _chart_with_client(http: httpx.Client, symbol: str) -> dict[str, Any] | None:
+    try:
+        response = http.get(YAHOO_CHART.format(symbol=symbol), params={"range": _RANGE, "interval": "1d"})
+        response.raise_for_status()
+        body = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("daily close fetch failed for %s: %s", symbol, exc)
+        return None
+    chart = body.get("chart") if isinstance(body, dict) else None
+    result = chart.get("result") if isinstance(chart, dict) else None
+    if not isinstance(result, list) or not result or not isinstance(result[0], dict):
+        return None
+    item = dict(result[0])
+    meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+    item["symbol"] = str(meta.get("symbol") or f"{symbol}.SR")
+    return item
+
+
 def fetch_main_market_closes(
     symbols: Iterable[str] | None = None,
     *,
@@ -159,55 +276,38 @@ def fetch_main_market_closes(
     if not tickers:
         return [], []
     cutoff = today or now_riyadh().date()
-    own_client = client is None
     budget = max(0.2, float(budget_seconds))
-    deadline = time.monotonic() + budget
-    http = client or httpx.Client(
-        timeout=httpx.Timeout(budget, connect=min(3.0, budget)),
-        headers={"User-Agent": _UA, "Accept": "application/json"},
-    )
-
-    def remaining() -> float:
-        return deadline - time.monotonic()
-
+    per_call = min(8.0, max(2.0, budget))
     bars: list[dict[str, Any]] = []
     quotes: list[dict[str, Any]] = []
-    try:
-        for start in range(0, len(tickers), _BATCH):
-            if remaining() <= 0.2:
-                logger.warning("EOD history fetch exceeded %.0fs; using the bars already downloaded", budget)
-                break
-            chunk = tickers[start : start + _BATCH]
-            joined = ",".join(f"{symbol}.SR" for symbol in chunk)
-            payload = None
-            for attempt in range(_RETRIES):
-                left = remaining()
-                if left <= 0.2:
-                    break
-                try:
-                    response = http.get(
-                        YAHOO_SPARK,
-                        params={"symbols": joined, "range": _RANGE, "interval": "1d"},
-                        timeout=httpx.Timeout(left, connect=min(3.0, left)),
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    break
-                except (httpx.HTTPError, ValueError) as exc:
-                    logger.warning("Yahoo spark attempt %s failed for %s: %s", attempt + 1, chunk[:3], exc)
-                    pause = min(0.4 * (attempt + 1), max(remaining(), 0.0))
-                    if pause > 0:
-                        time.sleep(pause)
-            if payload is None:
-                continue
-            chunk_bars, chunk_quotes = parse_spark_market(payload, today=cutoff, sessions=sessions)
-            bars.extend(chunk_bars)
-            quotes.extend(chunk_quotes)
-            if start + _BATCH < len(tickers) and remaining() > 0.2:
-                time.sleep(min(0.12, remaining()))
-    finally:
-        if own_client:
-            http.close()
+
+    def take(item: dict[str, Any] | None) -> None:
+        if item is None:
+            return
+        chunk_bars, chunk_quotes = parse_spark_market(
+            {"spark": {"result": [item]}},
+            today=cutoff,
+            sessions=sessions,
+        )
+        bars.extend(chunk_bars)
+        quotes.extend(chunk_quotes)
+
+    if client is not None:
+        for symbol in tickers:
+            take(_chart_with_client(client, symbol))
+        return bars, quotes
+
+    workers = min(_CHART_WORKERS, len(tickers))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_download_chart, symbol, per_call) for symbol in tickers]
+        for future in as_completed(futures):
+            take(future.result())
+    if len(quotes) < len(tickers):
+        logger.warning(
+            "daily close fetch returned %s/%s symbols within the worker pool",
+            len(quotes),
+            len(tickers),
+        )
     return bars, quotes
 
 
