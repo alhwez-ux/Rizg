@@ -61,14 +61,9 @@ export async function middleware(request: NextRequest) {
     return withNoStore(NextResponse.json({ message: "unauthorized" }, { status: 401 }), token ? "invalid" : "missing");
   }
 
-  const login = request.nextUrl.clone();
-  login.pathname = "/login";
-  const next = `${pathname}${request.nextUrl.search}`;
-  login.searchParams.set("next", next.startsWith("/") ? next : pathname);
-  login.searchParams.set("v", CLIENT_BUILD);
-  const redirect = withNoStore(NextResponse.redirect(login), token ? "invalid" : "missing");
-  clearStale(request, redirect);
-  return redirect;
+  const page = withNoStore(NextResponse.next(), token ? "invalid" : "missing");
+  clearStale(request, page);
+  return page;
 }
 
 export const config = {

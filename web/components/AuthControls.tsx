@@ -16,7 +16,7 @@ export function AuthControls({ showPassword = true, showLogout = true }: { showP
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
-    window.location.assign("/login");
+    window.location.assign("/");
   };
 
   const onChangePin = async (event: FormEvent) => {
@@ -75,11 +75,10 @@ export function AuthControls({ showPassword = true, showLogout = true }: { showP
       ) : null}
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <form
-            onSubmit={onChangePin}
-            className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-glow"
-          >
+        <form
+          onSubmit={onChangePin}
+          className="fixed end-3 top-16 z-30 w-[min(100%-1.5rem,20rem)] rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-start shadow-glow"
+        >
             <h2 className="text-lg font-semibold text-zinc-100">{ar.authChangePin}</h2>
             <p className="mt-1 text-xs text-zinc-500">{ar.authChangePinHint}</p>
             <label className="mt-4 block text-sm text-zinc-300">
@@ -114,7 +113,7 @@ export function AuthControls({ showPassword = true, showLogout = true }: { showP
             </label>
             {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
             {message ? <p className="mt-3 text-sm text-emerald-300">{message}</p> : null}
-            <div className="mt-4 flex gap-2">
+            <div className="mt-3 flex gap-2">
               <button
                 type="submit"
                 disabled={busy}
@@ -130,8 +129,7 @@ export function AuthControls({ showPassword = true, showLogout = true }: { showP
                 {ar.authClose}
               </button>
             </div>
-          </form>
-        </div>
+        </form>
       ) : null}
     </>
   );

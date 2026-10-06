@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, typ
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AuthControls } from "@/components/AuthControls";
+import { PinDock } from "@/components/PinDock";
 import { AnalystConsensusCard } from "@/components/AnalystConsensusCard";
 import { DailyLiquidityCard } from "@/components/DailyLiquidityCard";
 import { DailyOpportunitiesCard } from "@/components/DailyOpportunitiesCard";
@@ -263,6 +264,7 @@ function DashboardShell() {
 
   return (
     <section className="mx-auto flex w-full min-w-0 max-w-7xl flex-col items-center gap-6 px-4 pb-28 pt-10 text-center text-zinc-100 sm:px-6 lg:px-8">
+      <PinDock />
       {visible.notifications ? <NotificationCenter /> : null}
       <div className="flex w-full flex-col items-center gap-4 rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-5 text-center shadow-glow backdrop-blur-md sm:p-6">
         <div className="flex w-full flex-col items-center gap-3">
