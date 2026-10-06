@@ -1,6 +1,5 @@
 "use client";
 
-import { RecommendationStatus } from "@/components/SignalBadge";
 import { ar } from "@/lib/ar";
 import { wsUrlFor } from "@/lib/api";
 import {
@@ -77,15 +76,19 @@ export function LiquidityRadarCard({
     void refresh();
   };
 
+  const priceLabel = report
+    ? sessionPriceLabel(report)
+    : statusLabel;
+
   return (
-    <article className="relative rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-4 pt-5 shadow-glow sm:p-6 sm:pt-7">
+    <article className="relative rounded-2xl border border-zinc-800/80 bg-tape-panel/90 p-3 shadow-glow sm:p-4">
       {onRemove ? (
         <button
           type="button"
           onClick={onRemove}
           aria-label={`${ar.marketRadarRemove} ${title || symbol}`}
           title={ar.marketRadarRemove}
-          className="absolute left-2 top-2 z-20 inline-flex h-8 items-center gap-1 rounded-full border border-rose-400/70 bg-zinc-950 px-2.5 text-rose-100 shadow-lg shadow-rose-950/40 transition hover:border-rose-200 hover:bg-rose-500/20 hover:text-white"
+          className="absolute left-2 top-2 z-20 inline-flex h-7 items-center gap-1 rounded-full border border-rose-400/70 bg-zinc-950 px-2 text-rose-100 shadow-lg shadow-rose-950/40 transition hover:border-rose-200 hover:bg-rose-500/20 hover:text-white"
         >
           <span aria-hidden="true" className="text-base leading-none">
             ×
@@ -93,50 +96,46 @@ export function LiquidityRadarCard({
           <span className="text-[11px] font-semibold">{ar.marketRadarRemove}</span>
         </button>
       ) : null}
-      <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:justify-between sm:text-start">
-        <div className={onRemove ? "px-4 pt-8 sm:px-0 sm:pt-0" : ""}>
-          <p className="hidden text-sm font-medium text-zinc-500 sm:block">{ar.liveRadarTitle}</p>
-          <h3 className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-xl font-semibold text-zinc-50 sm:mt-1 sm:justify-start sm:text-2xl">
+      <header className={`flex items-start justify-between gap-3 ${onRemove ? "pe-16" : ""}`}>
+        <div className="min-w-0 text-start">
+          <h3 className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold text-zinc-50">
             {title ? <span>{title}</span> : null}
-            {report ? (
-              <span className="hidden sm:inline">
-                <RecommendationStatus value={report.entry ? "دخول" : report.exit ? "خروج" : null} />
-              </span>
-            ) : null}
-            <span className="font-mono text-base text-zinc-300 sm:text-lg" dir="ltr">
+            <span className="font-mono text-sm text-zinc-400" dir="ltr">
               {symbol}
             </span>
           </h3>
-          {report ? (
-            <div className="mt-2 flex justify-center sm:justify-start">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {report ? (
               <PathBadge price={report.last_price} vwap={report.session_vwap} change={report.change_percent} />
-            </div>
-          ) : null}
-          <CompanyStrengthLine symbol={symbol} />
-          <p className="mt-1 hidden text-xs text-zinc-500 sm:block">{ar.liveRadarHint}</p>
+            ) : null}
+            {report ? <RegimePill regime={regime} /> : null}
+            {report ? (
+              <SignalPill
+                report={{
+                  ...report,
+                  quote_mode: report.quote_mode as "live" | "waiting" | "last_close" | undefined,
+                }}
+              />
+            ) : null}
+            <CompanyStrengthLine symbol={symbol} />
+          </div>
         </div>
-        <div className={`hidden flex-wrap items-center gap-2 sm:flex ${onRemove ? "pl-[5.5rem]" : ""}`}>
-          <span
-            className={`inline-flex rounded-full border px-3 py-1.5 text-[11px] ${
-              live
-                ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                : "border-zinc-700 bg-zinc-900 text-zinc-400"
-            }`}
-          >
-            {statusLabel}
-          </span>
-          {report ? <RegimePill regime={regime} /> : null}
-          {report ? (
-            <SignalPill
-              report={{
-                ...report,
-                quote_mode: report.quote_mode as "live" | "waiting" | "last_close" | undefined,
-              }}
-            />
+        <div className="shrink-0 text-end">
+          <p className="text-[10px] text-zinc-500">{priceLabel}</p>
+          <p dir="ltr" className="font-mono text-xl font-semibold tabular-nums text-zinc-50">
+            {report ? priceText(report.last_price) : "—"}
+          </p>
+          {report?.change_percent ? (
+            <p
+              dir="ltr"
+              className={`font-mono text-xs tabular-nums ${(report.change_percent ?? 0) > 0 ? "text-emerald-300" : "text-rose-300"}`}
+            >
+              {formatPercent(report.change_percent)}
+            </p>
           ) : null}
-          <RetryButton onRetry={retry} />
+          <RetryButton onRetry={retry} className="mt-1" />
         </div>
-      </div>
+      </header>
 
       {report ? (
         <SessionPathStrip
@@ -146,7 +145,6 @@ export function LiquidityRadarCard({
           vwap={report.session_vwap ?? report.vwap}
           high={report.session_high}
           low={report.session_low}
-          stance={valuationStance(report.last_price, dossier.fairValue)}
         />
       ) : null}
 
@@ -155,12 +153,11 @@ export function LiquidityRadarCard({
           <DataSkeleton kind="card" />
         </div>
       ) : report ? (
-        <ReportBody report={report} source={data?.source} regime={regime} dossier={dossier} />
+        <ReportBody report={report} source={data?.source} dossier={dossier} />
       ) : (
         <p className="mt-4 text-center text-sm text-zinc-500 sm:mt-5 sm:text-start">{ar.liveRadarWaiting}</p>
       )}
 
-      <RetryButton onRetry={retry} className="mx-auto mt-4 sm:hidden" />
     </article>
   );
 }
@@ -172,7 +169,6 @@ function SessionPathStrip({
   vwap,
   high,
   low,
-  stance,
 }: {
   quoteMode?: string | null;
   phase?: string | null;
@@ -180,63 +176,33 @@ function SessionPathStrip({
   vwap: number | null;
   high?: number | null;
   low?: number | null;
-  stance: ReturnType<typeof valuationStance>;
 }) {
   const tape = resolveTapePath({ quoteMode, phase, price, vwap, high, low });
-  const tone = tape.path === "up" ? "path-up" : tape.path === "down" ? "path-down" : "border-zinc-700 bg-zinc-950 text-zinc-300";
-  const valuation =
-    stance === "over"
-      ? ar.valuationOver
-      : stance === "attractive"
-        ? ar.valuationAttractive
-        : stance === "near"
-          ? ar.valuationNear
-          : ar.valuationPending;
-  const valuationTone =
-    stance === "over"
-      ? "text-orange-200"
-      : stance === "attractive"
-        ? "text-emerald-200"
-        : "text-zinc-400";
   const gap =
     tape.price != null && tape.anchor != null && tape.anchor > 0
       ? ((tape.price - tape.anchor) / tape.anchor) * 100
       : null;
-
+  const sameAsHeader = tape.anchorSource === "close" || (tape.anchor != null && tape.price != null && tape.anchor === tape.price);
+  const showGap = gap != null && gap !== 0 && tape.anchorSource !== "close";
+  if (sameAsHeader && !showGap) return null;
   return (
-    <section className={`mt-4 w-full rounded-xl border p-4 ${tone}`}>
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">
-          {phase === "preopen" || phase === "open" || phase === "auction" ? ar.lastPrice : ar.liveRadarLastClosePrice}:{" "}
-          <strong dir="ltr" className="font-mono text-sm">
-            {priceText(tape.price)}
-          </strong>
-        </span>
-        <span className="text-xs font-medium">
-          {anchorLabel(tape.anchorSource)}:{" "}
-          <strong dir="ltr" className="font-mono text-sm">
+    <section className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-800 bg-zinc-950/50 px-2.5 py-1.5 text-[11px] text-zinc-300">
+      {sameAsHeader ? null : (
+        <span>
+          {anchorLabel(tape.anchorSource)}{" "}
+          <strong dir="ltr" className="font-mono">
             {priceText(tape.anchor)}
           </strong>
         </span>
-        {gap != null && gap !== 0 && tape.anchorSource !== "close" ? (
-          <span className="text-xs font-medium">
-            {tape.anchorSource === "range" ? ar.sessionRangeGap : ar.sessionVwapGap}:{" "}
-            <strong dir="ltr" className="font-mono text-sm">
-              {formatCompact(gap)}%
-            </strong>
-          </span>
-        ) : null}
-      </div>
-      {tape.path === "up" ? (
-        <p className="mt-3 inline-flex rounded-full bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white">
-          {tape.anchorSource === "range" ? ar.sessionPathUpRange : ar.sessionPathUp}
-        </p>
-      ) : tape.path === "down" ? (
-        <p className="mt-3 inline-flex rounded-full bg-rose-600 px-3 py-1.5 text-sm font-bold text-white">
-          {tape.anchorSource === "range" ? ar.sessionPathDownRange : ar.sessionPathDown}
-        </p>
+      )}
+      {showGap ? (
+        <span>
+          {tape.anchorSource === "range" ? ar.sessionRangeGap : ar.sessionVwapGap}{" "}
+          <strong dir="ltr" className="font-mono">
+            {formatCompact(gap)}%
+          </strong>
+        </span>
       ) : null}
-      <p className={`mt-2 text-xs font-semibold leading-5 ${valuationTone}`}>{valuation}</p>
     </section>
   );
 }
@@ -285,115 +251,43 @@ function sessionPriceLabel(report: { quote_mode?: string | null; session_phase?:
   return report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice;
 }
 
-function CompactSummary({ report, regime }: { report: LiveRadarReport; regime: TapeRegime }) {
-  const copy = regimeCopy(regime);
-  const priceLabel = sessionPriceLabel(report);
-  const signal = report.entry ? "دخول" : report.exit ? "خروج" : null;
-  const regimeColor =
-    copy.tone === "up" ? "text-emerald-300" : copy.tone === "down" ? "text-rose-300" : "text-zinc-200";
-
-  return (
-    <div className="mt-4 flex flex-col items-center gap-3 text-center sm:hidden">
-      <div>
-        <p className="text-xs text-zinc-500">{priceLabel}</p>
-        <p dir="ltr" className="mt-1 font-mono text-sm font-semibold text-zinc-100">
-          {priceText(report.last_price)}
-        </p>
-      </div>
-      <div>
-        <p className="text-xs text-zinc-500">{ar.regime}</p>
-        <p className={`mt-1 text-sm font-semibold ${regimeColor}`}>{copy.label}</p>
-      </div>
-      <div>
-        <p className="text-xs text-zinc-500">{ar.liveRadarConfirmed}</p>
-        <div className="mt-1 flex justify-center">
-          {signal ? (
-            <RecommendationStatus value={signal} />
-          ) : (
-            <p className="text-sm text-zinc-400">{ar.liveRadarNeutral}</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ReportBody({
   report,
   source,
-  regime,
   dossier,
 }: {
   report: LiveRadarReport;
   source?: string;
-  regime: TapeRegime;
   dossier: StockDossier;
 }) {
   const positive = report.net_flow > 0;
   const negative = report.net_flow < 0;
-  const copy = regimeCopy(regime);
-  const fair = resolveTapePath({
-    quoteMode: report.quote_mode,
-    phase: report.session_phase,
-    price: report.last_price,
-    vwap: report.session_vwap ?? report.vwap,
-    high: report.session_high,
-    low: report.session_low,
-  });
 
   return (
     <>
-      <CompactSummary report={report} regime={regime} />
-      <DossierStrip dossier={dossier} price={report.last_price} />
       <TradePlanLadder
-        className="mt-4"
+        className="mt-2"
+        variant="row"
         entry={report.suggested_entry}
         stop={report.stop_loss}
         resistances={[report.session_high]}
       />
+      <DossierStrip dossier={dossier} price={report.last_price} />
 
-      <div className="mt-5 hidden space-y-4 sm:block">
+      <div className="mt-2 space-y-2">
         {report.trap ? (
-          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-100">
             {ar.liveRadarTrap}: {report.trap.label}
           </p>
         ) : null}
 
-        <div
-          className={`rounded-xl border px-4 py-3 ${
-            copy.tone === "up"
-              ? "border-emerald-500/30 bg-emerald-500/10"
-              : copy.tone === "down"
-                ? "border-rose-500/30 bg-rose-500/10"
-                : "border-zinc-800 bg-zinc-950/60"
-          }`}
-        >
-          <p className="text-xs text-zinc-500">{ar.regime}</p>
-          <p
-            className={`mt-1 text-lg font-semibold ${
-              copy.tone === "up" ? "text-emerald-300" : copy.tone === "down" ? "text-rose-300" : "text-zinc-200"
-            }`}
-          >
-            {copy.label}
-          </p>
-          <p className="mt-1 text-xs text-zinc-400">{copy.hint}</p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-1.5">
           <Metric
             label={ar.netFlow}
             value={formatMoney(report.net_flow)}
             tone={positive ? "up" : negative ? "down" : "flat"}
           />
-          <Metric
-            label={sessionPriceLabel(report)}
-            value={priceText(report.last_price)}
-          />
-          <Metric
-            label={ar.heatmapColChange}
-            value={dashText(formatPercent(report.change_percent))}
-            tone={(report.change_percent ?? 0) > 0 ? "up" : (report.change_percent ?? 0) < 0 ? "down" : "flat"}
-          />
+          <Metric label={ar.atr} value={priceText(report.atr)} />
         </div>
 
         {report.bid != null || report.ask != null ? (
@@ -419,13 +313,7 @@ function ReportBody({
           </p>
         ) : null}
 
-        <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-          <span>
-            {anchorLabel(fair.anchorSource)} <span dir="ltr">{priceText(fair.anchor)}</span>
-          </span>
-          <span>
-            {ar.atr} <span dir="ltr">{priceText(report.atr)}</span>
-          </span>
+        <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
           <span>
             {ar.buyPressure} {dashText(formatRatio(report.buy_ratio))}
           </span>
@@ -478,24 +366,16 @@ function ReportBody({
         ) : null}
 
         {report.reasons.length ? (
-          <ul className="space-y-1 text-sm text-zinc-300">
-            {report.reasons.slice(0, 4).map((reason) => (
+          <ul className="space-y-0.5 text-[11px] leading-4 text-zinc-400">
+            {report.reasons.slice(0, 2).map((reason) => (
               <li key={reason}>• {reason}</li>
             ))}
           </ul>
         ) : null}
 
-        <p className="text-[11px] text-zinc-600">
+        <p className="text-[10px] text-zinc-600">
           {report.session_label ? `${report.session_label} · ` : ""}
-          {report.session_phase === "preopen" || report.session_phase === "open" || report.session_phase === "auction"
-            ? ar.lastPrice
-            : report.quote_mode === "last_close"
-            ? ar.liveRadarLastCloseHint
-            : report.quote_mode === "waiting"
-              ? ar.liveRadarWaiting
-              : source === "cached"
-                ? ar.liveRadarCached
-                : ar.liveRadarSource}
+          {source === "cached" ? ar.liveRadarCached : ar.liveRadarSource}
         </p>
       </div>
     </>
@@ -519,42 +399,36 @@ function DossierStrip({ dossier, price }: { dossier: StockDossier; price: number
         : "text-amber-200";
   const stance = valuationStance(price, dossier.fairValue);
   return (
-    <section className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 px-3 py-3">
-      <div className="grid auto-rows-fr grid-cols-2 gap-2 sm:grid-cols-4">
+    <section className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-2 py-1.5">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
         <DossierMetric label={ar.dossierShariah} value={shariah} valueClass={tone} />
         <DossierMetric label={ar.dossierPe} value={fixed(dossier.peRatio, 2)} state={dossier.peState} />
-        <DossierMetric
-          label={ar.dossierYield}
-          value={dossier.dividendYieldPct == null ? "" : `${fixed(dossier.dividendYieldPct, 2)}%`}
-          state={dossier.yieldState}
-        />
         <DossierMetric
           label={ar.dossierDebt}
           value={dossier.debtToMarket == null ? "" : `${(dossier.debtToMarket * 100).toFixed(1)}%`}
           state={dossier.debtState}
         />
-        <DossierMetric label={ar.dossierFair} value={dossier.fairValue == null ? "" : formatPrice(dossier.fairValue)} state={dossier.fairState} />
+        <DossierMetric
+          label={ar.dossierYield}
+          value={dossier.dividendYieldPct == null ? "" : `${fixed(dossier.dividendYieldPct, 2)}%`}
+          state={dossier.yieldState}
+        />
         <DossierMetric label={ar.dossierHealth} value={fixed(dossier.healthScore, 1)} state={dossier.healthState} />
         <DossierMetric label={ar.dossierLiquidity} value={fixed(dossier.liquidityScore, 1)} state={dossier.liquidityState} />
+        <DossierMetric label={ar.dossierFair} value={dossier.fairValue == null ? "" : formatPrice(dossier.fairValue)} state={dossier.fairState} />
       </div>
       <ValuationBadge stance={stance} />
-      <p className="mt-2 text-center text-[11px] text-zinc-500">{ar.dossierFairHint}</p>
     </section>
   );
 }
 
 function ValuationBadge({ stance }: { stance: ReturnType<typeof valuationStance> }) {
   if (stance === "pending") {
-    return <p className="mt-3 text-center text-xs text-zinc-500">{ar.valuationPending}</p>;
+    return <p className="mt-1 text-[10px] text-zinc-600">{ar.valuationPending}</p>;
   }
-  const tone =
-    stance === "over"
-      ? "border-orange-400/40 bg-orange-500/10 text-orange-200"
-      : stance === "attractive"
-        ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
-        : "border-zinc-700 bg-zinc-900 text-zinc-300";
+  const tone = stance === "over" ? "text-orange-200" : stance === "attractive" ? "text-emerald-200" : "text-zinc-400";
   const label = stance === "over" ? ar.valuationOver : stance === "attractive" ? ar.valuationAttractive : ar.valuationNear;
-  return <p className={`mt-3 rounded-xl border px-3 py-2 text-center text-xs font-semibold leading-5 ${tone}`}>{label}</p>;
+  return <p className={`mt-1 text-[11px] leading-4 ${tone}`}>{label}</p>;
 }
 
 function DossierMetric({
@@ -571,14 +445,14 @@ function DossierMetric({
   const missing = state !== "ready" || value === "" || value === "—";
   const shown = missing ? (state === "updating" ? ar.dossierUpdating : ar.dossierMissing) : value;
   return (
-    <div className="flex min-h-[4.5rem] flex-col justify-between rounded-lg border border-zinc-800/80 bg-zinc-950/30 px-2 py-2 text-center">
-      <p className="text-[11px] leading-4 text-zinc-500">{label}</p>
+    <div className="flex items-baseline justify-between gap-2 py-0.5">
+      <p className="text-[11px] text-zinc-500">{label}</p>
       <p
         dir={missing ? "rtl" : "ltr"}
         className={
           missing
-            ? "mt-1 text-xs font-medium leading-5 text-zinc-500"
-            : `mt-1 font-mono text-sm font-semibold leading-5 text-zinc-100 ${valueClass ?? ""}`
+            ? "text-[10px] font-normal leading-4 text-zinc-600"
+            : `font-mono text-xs font-semibold text-zinc-100 ${valueClass ?? ""}`
         }
       >
         {shown}
@@ -672,9 +546,9 @@ function Metric({
 }) {
   const color = tone === "up" ? "text-emerald-400" : tone === "down" ? "text-rose-400" : "text-zinc-100";
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-3">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p dir="ltr" className={`mt-1 font-mono text-sm ${color}`}>
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-2 py-1.5">
+      <p className="text-[10px] text-zinc-500">{label}</p>
+      <p dir="ltr" className={`mt-0.5 text-xs ${color}`}>
         {value}
       </p>
     </div>

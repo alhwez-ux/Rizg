@@ -17,9 +17,9 @@ function Cell({
   tone: string;
 }) {
   return (
-    <div className="min-h-[52px] rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-2 text-center">
-      <p className="text-[11px] text-zinc-500">{label}</p>
-      <p dir="ltr" className={`mt-0.5 font-mono text-sm font-semibold tabular-nums sm:text-base ${tone}`}>
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-1.5 py-1.5 text-center">
+      <p className="text-[10px] leading-4 text-zinc-500">{label}</p>
+      <p dir="ltr" className={`mt-0.5 font-mono text-xs font-semibold tabular-nums sm:text-sm ${tone}`}>
         {value}
       </p>
     </div>
@@ -31,14 +31,31 @@ export function TradePlanLadder({
   stop,
   resistances,
   className,
+  variant = "stack",
 }: {
   entry: number | string | null | undefined;
   stop: number | string | null | undefined;
   resistances?: Array<number | null | undefined>;
   className?: string;
+  variant?: "stack" | "row";
 }) {
   const plan = graduatedTargets(entry, stop, resistances);
   if (!plan) return null;
+  if (variant === "row") {
+    return (
+      <div className={className}>
+        <p className="mb-1 text-[10px] text-zinc-500">
+          {ar.dailyEntry} <span dir="ltr" className="font-mono text-zinc-300">{money(entry)}</span>
+        </p>
+        <div className="grid grid-cols-4 gap-1.5">
+          <Cell label={ar.target1} value={money(plan.t1)} tone="text-emerald-200" />
+          <Cell label={ar.target2} value={money(plan.t2)} tone="text-emerald-300" />
+          <Cell label={ar.target3} value={money(plan.t3)} tone="text-emerald-400" />
+          <Cell label={ar.stopLoss} value={money(stop)} tone="text-rose-300" />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`grid gap-2 ${className ?? ""}`}>
       <div className="grid grid-cols-2 gap-2">
