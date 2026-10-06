@@ -14,5 +14,8 @@ assert.equal(financialGrade({ matrix_score: 86, net_income: 1000, profit_growth:
 assert.equal(financialGrade({ matrix_score: 90, net_income: 1000, profit_growth: 12, debt_ratio: 0.6, category: "قلاع النمو والعوائد المتينة 🏰" }), "D");
 assert.equal(financialGrade({ matrix_score: 72, net_income: 400, profit_growth: -6, debt_ratio: 0.1, category: "شركات تشغيلية واعدة ومستقرة 📈" }), "C");
 assert.equal(financialGrade({ symbol: "1120", matrix_score: 86, net_income: 1000, profit_growth: 12, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
+assert.equal(financialGrade({ matrix_score: 0, net_income: 100, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
+assert.equal(financialGrade({ matrix_score: 0, net_income: 100, category: "شركات ذات أداء متوسط أو متحفظ ⚖️" }), "C");
+assert.equal(financialGrade({ matrix_score: 0, net_income: 10, category: "شركات ضعيفة النمو ⚠️لتجنبها" }), "D");
 
 console.log("ranking grade checks passed");

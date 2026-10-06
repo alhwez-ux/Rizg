@@ -47,7 +47,8 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
     }
     return buckets;
   }, [visible]);
-  const shown = gradeFilter === "all" ? visible : graded[gradeFilter];
+  const ungraded = visible.filter((row) => !financialGrade(row));
+  const sections = gradeFilter === "all" ? FINANCIAL_GRADES : [gradeFilter];
 
   const fetchRankedCompanies = async () => {
     if (!isConnected) return;
@@ -123,7 +124,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
                 <button
                   type="button"
                   onClick={() => setGradeFilter("all")}
-                  className={`rounded-full border px-3 py-1 text-xs font-bold ${gradeFilter === "all" ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400"}`}
+                  className={`rounded-full border px-3 py-1 text-xs font-bold ${gradeFilter === "all" ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-700 text-zinc-300"}`}
                 >
                   {ar.tableFilterAll}
                 </button>
@@ -134,19 +135,33 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
                     <button
                       key={grade}
                       type="button"
-                      disabled={count === 0}
                       onClick={() => setGradeFilter(grade)}
-                      className={`rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-30 ${gradeTone(grade, selected)}`}
+                      className={`rounded-full border px-3 py-1 text-xs font-bold ${gradeTone(grade, selected)}`}
                     >
                       {GRADE_LABEL[grade]}
-                      <span className="ms-1 font-mono opacity-70" dir="ltr">
+                      <span className="ms-1 font-mono opacity-80" dir="ltr">
                         {count}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <RankingTable rows={shown} />
+              {sections.map((grade) => (
+                <section key={grade} className="space-y-2">
+                  <h3 className={`inline-flex rounded-full border px-3 py-1 text-sm font-black ${gradeTone(grade, true)}`}>
+                    {GRADE_LABEL[grade]}
+                    <span className="ms-2 font-mono text-xs" dir="ltr">
+                      {graded[grade].length}
+                    </span>
+                  </h3>
+                  {graded[grade].length ? (
+                    <RankingTable rows={graded[grade]} />
+                  ) : (
+                    <p className="text-xs text-zinc-500">لا توجد شركات في هذه الفئة</p>
+                  )}
+                </section>
+              ))}
+              {gradeFilter === "all" && ungraded.length ? <RankingTable rows={ungraded} /> : null}
             </div>
           )}
         </div>

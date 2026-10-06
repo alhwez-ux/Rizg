@@ -1,5 +1,4 @@
 import { type FinancialGrade } from "@/lib/compliance/grading";
-import { TASI_COMPLIANCE_UNIVERSE } from "@/prisma/tasiUniverse";
 
 export type { FinancialGrade };
 export const FINANCIAL_GRADES: FinancialGrade[] = ["A", "B", "C", "D", "E"];
@@ -7,7 +6,6 @@ export const FINANCIAL_GRADES: FinancialGrade[] = ["A", "B", "C", "D", "E"];
 export const MATRIX_HOLD_MS = 60_000;
 
 const GRADE_RANK: Record<FinancialGrade, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-const DEBT_BY_SYMBOL = new Map(TASI_COMPLIANCE_UNIVERSE.map((item) => [item.symbol, item.debtRatio]));
 
 export interface GradeInput {
   symbol?: string | null;
@@ -22,8 +20,8 @@ export interface GradeInput {
 export function financialGrade(row: GradeInput): FinancialGrade | null {
   if (!hasFinancialRank(row)) return null;
   if (isLosingCompany(row)) return "E";
-  const health = finite(row.matrix_score);
-  const debt = finite(row.debt_ratio) ?? debtFor(row.symbol);
+  const health = finite(row.matrix_score) || healthFromCategory(String(row.category || ""));
+  const debt = finite(row.debt_ratio);
   const growth = finite(row.profit_growth);
   const highDebt = debt != null && debt >= 0.45;
   const lowDebt = debt == null || debt <= 0.25;
@@ -49,14 +47,15 @@ function rankOf(grade: FinancialGrade | null): number {
 }
 
 function finite(value: number | null | undefined): number | null {
-  return value != null && Number.isFinite(value) ? value : null;
+  return value != null && Number.isFinite(value) && value !== 0 ? value : null;
 }
 
-function debtFor(symbol: string | null | undefined): number | null {
-  const key = String(symbol || "").trim().toUpperCase();
-  if (!key) return null;
-  const debt = DEBT_BY_SYMBOL.get(key);
-  return debt == null ? null : debt;
+function healthFromCategory(category: string): number | null {
+  if (category.includes("قلاع")) return 85;
+  if (category.includes("واعدة")) return 68;
+  if (category.includes("متوسط")) return 55;
+  if (category.includes("ضعيف")) return 40;
+  return null;
 }
 
 function hasFinancialRank(row: GradeInput): boolean {
