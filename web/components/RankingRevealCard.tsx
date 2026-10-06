@@ -6,7 +6,8 @@ import { DataSkeleton } from "@/components/DataSkeleton";
 import { ar } from "@/lib/ar";
 import { displayCompanyTitle } from "@/lib/listedCompanies";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
-import { FINANCIAL_GRADES, financialGrade, MATRIX_HOLD_MS, type FinancialGrade } from "@/lib/rankingGrade";
+import { GradeBadge } from "@/components/GradeBadge";
+import { compareByFinancialGrade, FINANCIAL_GRADES, financialGrade, type FinancialGrade } from "@/lib/rankingGrade";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 
@@ -24,12 +25,14 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cached, setCached] = useState(false);
-  const [step, setStep] = useState(0);
-  const [heldAt, setHeldAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
+  const [gradeFilter, setGradeFilter] = useState<FinancialGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
   const visible = useMemo(
-    () => companies.filter((comp) => passesShariahFilter(comp.symbol, shariahFilter)),
+    () =>
+      companies
+        .filter((comp) => passesShariahFilter(comp.symbol, shariahFilter))
+        .slice()
+        .sort(compareByFinancialGrade),
     [companies, shariahFilter],
   );
   const graded = useMemo(() => {
@@ -44,10 +47,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
     }
     return buckets;
   }, [visible]);
-  const available = FINANCIAL_GRADES.filter((grade) => graded[grade].length > 0);
-  const active = available.length > 0 ? available[step % available.length] : null;
-  const activeRows = active ? graded[active] : [];
-  const holdLeft = Math.max(0, Math.ceil((MATRIX_HOLD_MS - (now - heldAt)) / 1000));
+  const shown = gradeFilter === "all" ? visible : graded[gradeFilter];
 
   const fetchRankedCompanies = async () => {
     if (!isConnected) return;
@@ -63,8 +63,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
       const result = await fetchRankingMatrix();
       setCompanies(result.data);
       setCached(result.source === "cached");
-      setStep(0);
-      setHeldAt(Date.now());
+      setGradeFilter("all");
       setIsRevealed(true);
     } catch {
       setCompanies([]);
@@ -74,19 +73,6 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (!isRevealed) return;
-    const clock = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(clock);
-  }, [isRevealed]);
-
-  useEffect(() => {
-    if (!isRevealed || available.length <= 1) return;
-    if (now - heldAt < MATRIX_HOLD_MS) return;
-    setStep((value) => value + 1);
-    setHeldAt(Date.now());
-  }, [available.length, heldAt, isRevealed, now]);
 
   useEffect(() => {
     if (!isConnected || !isRevealed) return;
@@ -131,23 +117,25 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
             </p>
           ) : visible.length === 0 ? (
             <p className="text-sm text-zinc-500">{shariahFilter === "pure" ? ar.shariahFilterEmpty : ar.rankingEmpty}</p>
-          ) : active ? (
+          ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGradeFilter("all")}
+                  className={`rounded-full border px-3 py-1 text-xs font-bold ${gradeFilter === "all" ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400"}`}
+                >
+                  {ar.tableFilterAll}
+                </button>
                 {FINANCIAL_GRADES.map((grade) => {
                   const count = graded[grade].length;
-                  const selected = grade === active;
+                  const selected = grade === gradeFilter;
                   return (
                     <button
                       key={grade}
                       type="button"
                       disabled={count === 0}
-                      onClick={() => {
-                        const index = available.indexOf(grade);
-                        if (index < 0) return;
-                        setStep(index);
-                        setHeldAt(Date.now());
-                      }}
+                      onClick={() => setGradeFilter(grade)}
                       className={`rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-30 ${gradeTone(grade, selected)}`}
                     >
                       {GRADE_LABEL[grade]}
@@ -158,21 +146,8 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
                   );
                 })}
               </div>
-              <div className={`rounded-xl border p-4 ${gradeTone(active, true)}`}>
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-black">{GRADE_LABEL[active]}</h3>
-                    <p className="mt-1 text-xs opacity-80">{ar.rankingHold}</p>
-                  </div>
-                  <p className="font-mono text-sm" dir="ltr">
-                    {ar.rankingHoldLeft}: {holdLeft}s
-                  </p>
-                </div>
-              </div>
-              <RankingTable rows={activeRows} grade={active} />
+              <RankingTable rows={shown} />
             </div>
-          ) : (
-            <RankingTable rows={visible} grade={null} />
           )}
         </div>
       ) : (
@@ -186,7 +161,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
 
 export default RankingRevealCard;
 
-function RankingTable({ rows, grade }: { rows: RankingRow[]; grade: FinancialGrade | null }) {
+function RankingTable({ rows }: { rows: RankingRow[] }) {
   return (
     <table className="w-full border-collapse text-start">
       <thead>
@@ -204,7 +179,7 @@ function RankingTable({ rows, grade }: { rows: RankingRow[]; grade: FinancialGra
       <tbody className="divide-y divide-zinc-800/60 text-sm">
         {rows.map((comp, index) => {
           const name = displayCompanyTitle(comp.symbol, comp.name);
-          const letter = grade ?? financialGrade(comp);
+          const letter = financialGrade(comp);
           return (
             <tr key={comp.symbol} className="transition-colors hover:bg-zinc-950/40">
               <td className="p-3">
@@ -221,11 +196,7 @@ function RankingTable({ rows, grade }: { rows: RankingRow[]; grade: FinancialGra
                 </span>
               </td>
               <td className="p-3 text-xs font-semibold">
-                {letter ? (
-                  <span className={`inline-block rounded-lg border px-2.5 py-1 ${gradeTone(letter, true)}`}>{letter}</span>
-                ) : (
-                  <span className="text-zinc-500">{ar.dossierMissing}</span>
-                )}
+                {letter ? <GradeBadge grade={letter} /> : <span className="text-zinc-500">{ar.dossierMissing}</span>}
               </td>
               <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
                 {formatPrice(comp.last_price)}

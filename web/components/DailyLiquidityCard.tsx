@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CompanyName } from "@/components/CompanyName";
+import { FinancialGradeBadge } from "@/components/GradeBadge";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { PathBadge } from "@/components/PathBadge";
 import { ar } from "@/lib/ar";
@@ -157,7 +158,10 @@ export function DailyLiquidityCard({
                           {row.rank}
                         </td>
                         <td className="p-3 text-center">
-                          <CompanyName symbol={row.symbol} name={row.name} />
+                          <span className="inline-flex flex-col items-center gap-1">
+                            <CompanyName symbol={row.symbol} name={row.name} />
+                            <FinancialGradeBadge symbol={row.symbol} />
+                          </span>
                         </td>
                         <td className="p-3 text-center">
                           <span

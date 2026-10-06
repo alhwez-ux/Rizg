@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CompanyName } from "@/components/CompanyName";
+import { FinancialGradeBadge } from "@/components/GradeBadge";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
 import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
@@ -351,7 +352,10 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
                       {row.symbol}
                     </td>
                     <td className="p-3 font-semibold text-zinc-100">
-                      <CompanyName symbol={row.symbol} name={row.name} align="start" />
+                      <span className="inline-flex flex-col items-start gap-1">
+                        <CompanyName symbol={row.symbol} name={row.name} align="start" />
+                        <FinancialGradeBadge symbol={row.symbol} />
+                      </span>
                     </td>
                     <td className="p-3">
                       <PathBadge price={row.last_price ?? row.close_price} vwap={row.session_vwap} change={row.change_percent} />
@@ -476,7 +480,10 @@ function CloseBoard({
                 selected === row.symbol ? "border-emerald-400/50" : "border-zinc-800"
               }`}
             >
-              <CompanyName symbol={row.symbol} name={row.name} />
+              <span className="inline-flex flex-col items-center gap-1">
+                <CompanyName symbol={row.symbol} name={row.name} />
+                <FinancialGradeBadge symbol={row.symbol} />
+              </span>
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                 <span className="rounded-xl border border-zinc-700 px-2.5 py-1 text-[11px] font-semibold text-zinc-200">{row.signal_type}</span>
                 <PathBadge price={row.last_price ?? row.close_price} vwap={row.session_vwap} change={row.change_percent} />

@@ -1,6 +1,7 @@
 "use client";
 
 import { CompanyName } from "@/components/CompanyName";
+import { FinancialGradeBadge } from "@/components/GradeBadge";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { TradePlanLadder } from "@/components/TradePlanLadder";
 import { ar } from "@/lib/ar";
@@ -19,7 +20,10 @@ function OpportunityCard({
     <article className="flex min-h-[220px] flex-col rounded-2xl border border-sky-500/25 bg-zinc-950/50 p-4 text-start">
       <div className="flex items-start justify-between gap-3">
         <button type="button" onClick={() => onOpen?.({ symbol: row.symbol, name: row.name })} className="min-w-0 text-start">
-          <CompanyName symbol={row.symbol} name={row.name} align="start" />
+          <span className="inline-flex flex-col items-start gap-1">
+            <CompanyName symbol={row.symbol} name={row.name} align="start" />
+            <FinancialGradeBadge symbol={row.symbol} />
+          </span>
           {row.sector ? <p className="mt-0.5 text-xs text-zinc-500">{row.sector}</p> : null}
         </button>
         <span className="shrink-0 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 font-mono text-xs font-bold text-emerald-100 tabular-nums" dir="ltr">

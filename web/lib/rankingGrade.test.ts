@@ -10,5 +10,9 @@ assert.equal(financialGrade({ matrix_score: 20, net_income: 10, category: "شر�
 assert.equal(financialGrade({ matrix_score: -1000, net_income: -500, category: "الشركات الخاسرة وعالية المخاطر 🔴" }), "E");
 assert.equal(financialGrade({ matrix_score: 90, net_income: -1, category: "قلاع النمو والعوائد المتينة 🏰" }), "E");
 assert.equal(financialGrade({ matrix_score: 0, net_income: null, category: "تكرتشارت لحظي" }), null);
+assert.equal(financialGrade({ matrix_score: 86, net_income: 1000, profit_growth: 12, debt_ratio: 0.08, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
+assert.equal(financialGrade({ matrix_score: 90, net_income: 1000, profit_growth: 12, debt_ratio: 0.6, category: "قلاع النمو والعوائد المتينة 🏰" }), "D");
+assert.equal(financialGrade({ matrix_score: 72, net_income: 400, profit_growth: -6, debt_ratio: 0.1, category: "شركات تشغيلية واعدة ومستقرة 📈" }), "C");
+assert.equal(financialGrade({ symbol: "1120", matrix_score: 86, net_income: 1000, profit_growth: 12, category: "قلاع النمو والعوائد المتينة 🏰" }), "A");
 
 console.log("ranking grade checks passed");

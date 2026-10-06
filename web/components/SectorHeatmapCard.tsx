@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CompanyName } from "@/components/CompanyName";
+import { FinancialGradeBadge } from "@/components/GradeBadge";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { PathBadge } from "@/components/PathBadge";
 import { LiquidityRadarCard } from "@/components/LiquidityRadarCard";
@@ -424,7 +425,10 @@ function CompanyTable({
                     {comp.symbol}
                   </td>
                   <td className="p-3 font-bold text-zinc-100 transition-colors group-hover:text-sky-400">
-                    <CompanyName symbol={comp.symbol} name={comp.name} align="start" />
+                    <span className="inline-flex flex-col items-start gap-1">
+                      <CompanyName symbol={comp.symbol} name={comp.name} align="start" />
+                      <FinancialGradeBadge symbol={comp.symbol} />
+                    </span>
                   </td>
                   <td className="p-3 font-mono font-semibold text-zinc-100" dir="ltr">
                     {formatPrice(comp.last_price)}

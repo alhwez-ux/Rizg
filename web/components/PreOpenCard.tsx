@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { CompanyName } from "@/components/CompanyName";
+import { FinancialGradeBadge } from "@/components/GradeBadge";
 import { DataSkeleton } from "@/components/DataSkeleton";
 import { PathBadge } from "@/components/PathBadge";
 import { ar } from "@/lib/ar";
@@ -83,7 +84,10 @@ function PreOpenRowCard({
       className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4 text-center transition hover:border-amber-500/30 hover:bg-zinc-950/80"
     >
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <CompanyName symbol={row.symbol} name={row.name} />
+        <span className="inline-flex flex-col items-center gap-1">
+          <CompanyName symbol={row.symbol} name={row.name} />
+          <FinancialGradeBadge symbol={row.symbol} />
+        </span>
         <PathBadge price={row.expected_open} change={row.open_variation_pct} />
       </div>
       <div className="mt-3">

@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { TasiSchedulerChip } from "@/components/TasiSchedulerChip";
 import { ar } from "@/lib/ar";
 import { resolveListedCompany, searchListedCompanies, type ListedCompany } from "@/lib/listedCompanies";
-import { companyRankFor, strengthTone } from "@/lib/rankingMatrix";
+import { GradeBadge } from "@/components/GradeBadge";
+import { companyRankFor } from "@/lib/rankingMatrix";
+import { financialGrade } from "@/lib/rankingGrade";
 import {
   fetchTickChartStatus,
   followTickChartSymbol,
@@ -33,7 +35,7 @@ export function TickChartSyncChip({
   const [busy, setBusy] = useState<"follow" | "refresh" | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [rankNote, setRankNote] = useState<{ symbol: string; category: string | null } | null>(null);
+  const [rankNote, setRankNote] = useState<{ symbol: string; category: string | null; grade: ReturnType<typeof financialGrade> } | null>(null);
   const followSeq = useRef(0);
   const { isConnected } = useConnectionGuard();
 
@@ -113,11 +115,11 @@ export function TickChartSyncChip({
       void companyRankFor(followed)
         .then((rank) => {
           if (followSeq.current !== seq) return;
-          setRankNote({ symbol: followed, category: rank?.category ?? null });
+          setRankNote({ symbol: followed, category: rank?.category ?? null, grade: rank ? financialGrade(rank) : null });
         })
         .catch(() => {
           if (followSeq.current !== seq) return;
-          setRankNote({ symbol: followed, category: null });
+          setRankNote({ symbol: followed, category: null, grade: null });
         });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : ar.tickchartFollowError);
@@ -246,8 +248,8 @@ export function TickChartSyncChip({
       ) : null}
       {message ? <p className="text-center text-xs text-zinc-400">{message}</p> : null}
       {rankNote ? (
-        <p className={`text-center text-xs font-semibold ${strengthClass(rankNote.category)}`}>
-          {rankNote.category ? `${ar.followStrength}: ${rankNote.category}` : ar.followStrengthMissing}
+        <p className="flex justify-center">
+          {rankNote.grade ? <GradeBadge grade={rankNote.grade} /> : <span className="text-[10px] text-zinc-600">{ar.followStrengthMissing}</span>}
         </p>
       ) : null}
     </div>
@@ -255,15 +257,6 @@ export function TickChartSyncChip({
 }
 
 export default TickChartSyncChip;
-
-function strengthClass(category: string | null): string {
-  const tone = category ? strengthTone(category) : "mid";
-  if (tone === "strong") return "text-emerald-300";
-  if (tone === "steady") return "text-sky-300";
-  if (tone === "weak") return "text-amber-300";
-  if (tone === "risk") return "text-rose-300";
-  return "text-zinc-300";
-}
 
 function formatSyncTime(value: string | null | undefined): string {
   if (!value) return ar.tickchartLastSyncNever;
