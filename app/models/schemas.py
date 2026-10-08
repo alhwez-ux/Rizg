@@ -408,6 +408,30 @@ class SmartMoneyScanResponse(BaseModel):
     data: list[SmartMoneyRow] = Field(default_factory=list)
 
 
+class CorrectionRadarRow(BaseModel):
+    symbol: str
+    name: str
+    sector: str = ""
+    last_price: float | None = None
+    signal: str
+    signal_kind: str
+    reasons: list[str] = Field(default_factory=list)
+    pillars: int = 0
+
+
+class CorrectionRadarResponse(BaseModel):
+    success: bool = True
+    session_phase: str
+    session_label: str
+    source: str = "TickChart"
+    count: int = 0
+    approach_count: int = 0
+    rebound_count: int = 0
+    hint: str = ""
+    scanned_at: str
+    data: list[CorrectionRadarRow] = Field(default_factory=list)
+
+
 class RecoveryPlanRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 

@@ -29,6 +29,7 @@ export const VISIBILITY_KEYS = [
   "toolRecovery",
   "toolDividends",
   "toolRanking",
+  "toolCorrection",
 ] as const;
 
 export type VisibilityKey = (typeof VISIBILITY_KEYS)[number];
@@ -102,6 +103,7 @@ export const VISIBILITY_GROUPS: VisibilityGroup[] = [
       { key: "toolRecovery", label: "حاسبة التعديل" },
       { key: "toolDividends", label: "التوزيعات" },
       { key: "toolRanking", label: "تصنيف الشركات" },
+      { key: "toolCorrection", label: "منبه التصحيح" },
     ],
   },
 ];

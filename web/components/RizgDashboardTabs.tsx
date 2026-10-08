@@ -28,6 +28,7 @@ import { DividendsCalendarCard } from "@/components/DividendsCalendarCard";
 import { PreOpenCard } from "@/components/PreOpenCard";
 import { SmartMoneyCard } from "@/components/SmartMoneyCard";
 import { RecoveryCard } from "@/components/RecoveryCard";
+import { CorrectionRadarCard } from "@/components/CorrectionRadarCard";
 import NotificationCenter from "./NotificationCenter";
 import { useAnalystConsensus } from "@/hooks/useAnalystConsensus";
 import { useDailyOpportunities } from "@/hooks/useDailyOpportunities";
@@ -46,15 +47,19 @@ import { useDashboardVisibility } from "@/hooks/useDashboardVisibility";
 import { ar } from "@/lib/ar";
 
 type PrimaryTab = "home" | "opportunities" | "tools";
-type ToolId = "preopen" | "funds" | "analysts" | "recovery" | "dividends" | "ranking";
+type ToolId = "preopen" | "funds" | "analysts" | "recovery" | "dividends" | "ranking" | "correction";
 
-const toolVisibility: Record<ToolId, "toolPreopen" | "toolFunds" | "toolAnalysts" | "toolRecovery" | "toolDividends" | "toolRanking"> = {
+const toolVisibility: Record<
+  ToolId,
+  "toolPreopen" | "toolFunds" | "toolAnalysts" | "toolRecovery" | "toolDividends" | "toolRanking" | "toolCorrection"
+> = {
   preopen: "toolPreopen",
   funds: "toolFunds",
   analysts: "toolAnalysts",
   recovery: "toolRecovery",
   dividends: "toolDividends",
   ranking: "toolRanking",
+  correction: "toolCorrection",
 };
 
 function parseTool(value: string | null): ToolId | null {
@@ -64,7 +69,8 @@ function parseTool(value: string | null): ToolId | null {
     value === "analysts" ||
     value === "recovery" ||
     value === "dividends" ||
-    value === "ranking"
+    value === "ranking" ||
+    value === "correction"
   ) {
     return value;
   }
@@ -154,6 +160,7 @@ function DashboardShell() {
         { id: "recovery" as const, label: ar.tabsRecovery },
         { id: "dividends" as const, label: ar.tabsDividends },
         { id: "ranking" as const, label: ar.homeRanking },
+        { id: "correction" as const, label: ar.correctionTitle },
       ] satisfies { id: ToolId; label: string }[],
     [],
   );
@@ -466,6 +473,11 @@ function DashboardShell() {
               </PanelBoundary>
             ) : null}
             {activeTool === "ranking" && visible.toolRanking ? <PanelBoundary><RankingRevealCard shariahFilter={shariahFilter} /></PanelBoundary> : null}
+            {activeTool === "correction" && visible.toolCorrection ? (
+              <PanelBoundary>
+                <CorrectionRadarCard shariahFilter={shariahFilter} onOpenSymbol={openWatchedCompany} />
+              </PanelBoundary>
+            ) : null}
           </div>
         ) : null}
 
