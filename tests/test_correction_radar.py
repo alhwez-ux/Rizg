@@ -75,6 +75,41 @@ def test_missing_mfi_does_not_count_as_divergence() -> None:
     assert "السعر عند أعلى إغلاق يومي حديث" in row["reasons"]
 
 
+def test_appended_print_volume_does_not_fake_a_fade() -> None:
+    assert (
+        classify_correction(
+            {
+                "symbol": "2222",
+                "last_price": 13,
+                "volume": 200,
+                "session_date": "2026-08-04",
+                "history": _history([10, 11, 12], [200_000, 180_000, 150_000]),
+                "institutional_inflow": 1,
+                "institutional_outflow": 9,
+            }
+        )
+        is None
+    )
+
+
+def test_buy_blocks_in_the_middle_of_the_range_are_not_a_low() -> None:
+    closes = [10, 12, 14, 16, 18, 20, 18, 16, 14, 13, 14]
+    volumes = [40_000] * 10 + [80_000]
+    assert (
+        classify_correction(
+            {
+                "symbol": "2010",
+                "last_price": 15,
+                "history": _history(closes, volumes),
+                "block_trades": 2,
+                "block_volume": 20_000,
+                "block_side": "buy",
+            }
+        )
+        is None
+    )
+
+
 def test_print_sized_volume_does_not_fake_a_fade() -> None:
     assert (
         classify_correction(

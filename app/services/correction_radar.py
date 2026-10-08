@@ -89,10 +89,7 @@ def _bars(history: Any) -> list[tuple[str, float, float]]:
         return []
     raw.sort(key=lambda row: row[0])
     volumes = [row[2] for row in raw]
-    ordered = sorted(volumes)
-    median = ordered[len(ordered) // 2]
-    if median >= _PRINT_MEDIAN:
-        raw = [row for row in raw if row[2] >= _PRINT_VOLUME]
+    raw = [row for row in raw if not _is_print_volume(row[2], volumes)]
     merged: list[tuple[str, float, float]] = []
     for row in raw:
         if merged and row[0] and merged[-1][0] == row[0]:
@@ -100,6 +97,14 @@ def _bars(history: Any) -> list[tuple[str, float, float]]:
         else:
             merged.append(row)
     return merged
+
+
+def _is_print_volume(volume: float, peers: list[float]) -> bool:
+    if not peers:
+        return False
+    ordered = sorted(peers)
+    median = ordered[len(ordered) // 2]
+    return median >= _PRINT_MEDIAN and volume < _PRINT_VOLUME
 
 
 def _near(price: float, level: float, band: float = _TOUCH) -> bool:
@@ -220,7 +225,7 @@ def _rebound(snapshot: dict[str, Any], bars: list[tuple[str, float, float]], pri
     low_zone = at_support or at_atr or (vwap is not None and price <= vwap)
     if not low_zone and len(prior) >= _MIN_RANGE:
         ordered = sorted(prior)
-        low_zone = price <= ordered[len(ordered) // 2]
+        low_zone = price <= ordered[max(0, len(ordered) // 4)]
     if _block(snapshot, "buy") and low_zone:
         pillars += 1
         reasons.append(REASON_BUY_BLOCKS)
@@ -247,10 +252,11 @@ def classify_correction(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     if price is None:
         return None
     bars = _bars(snapshot.get("history"))
-    if price and bars and _day_key(snapshot.get("session_date")) and _day_key(snapshot.get("session_date")) != bars[-1][0]:
+    session_day = _day_key(snapshot.get("session_date"))
+    if price and bars and session_day and session_day != bars[-1][0]:
         today_volume = _positive(snapshot.get("volume"))
-        if today_volume is not None:
-            bars = [*bars, (_day_key(snapshot.get("session_date")), price, today_volume)]
+        if today_volume is not None and not _is_print_volume(today_volume, [row[2] for row in bars]):
+            bars = [*bars, (session_day, price, today_volume)]
     approach_count, approach_reasons = _approach(snapshot, bars, price)
     rebound_count, rebound_reasons = _rebound(snapshot, bars, price)
     if approach_count >= 2 and rebound_count >= 2 and approach_count == rebound_count:

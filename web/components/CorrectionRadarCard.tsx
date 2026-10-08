@@ -35,11 +35,16 @@ export function CorrectionRadarCard({
 }) {
   const { payload, rows, loading, error, late } = useCorrectionRadar();
   const [filter, setFilter] = useState<FilterKind>("all");
-  const visible = useMemo(
-    () =>
-      rows.filter((row) => passesShariahFilter(row.symbol, shariahFilter) && (filter === "all" || row.signal_kind === filter)),
-    [filter, rows, shariahFilter],
+  const scoped = useMemo(
+    () => rows.filter((row) => passesShariahFilter(row.symbol, shariahFilter)),
+    [rows, shariahFilter],
   );
+  const visible = useMemo(
+    () => (filter === "all" ? scoped : scoped.filter((row) => row.signal_kind === filter)),
+    [filter, scoped],
+  );
+  const approachCount = scoped.filter((row) => row.signal_kind === "approach").length;
+  const reboundCount = scoped.filter((row) => row.signal_kind === "rebound").length;
 
   return (
     <section className="rounded-2xl border border-orange-500/20 bg-tape-panel/90 p-5 text-zinc-100 shadow-glow sm:p-6">
@@ -48,7 +53,7 @@ export function CorrectionRadarCard({
         <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-zinc-400">{payload?.hint || ar.correctionHint}</p>
         {payload ? (
           <p className="mt-2 text-[11px] text-zinc-500">
-            {payload.approach_count} {ar.correctionFilterApproach} · {payload.rebound_count} {ar.correctionFilterRebound}
+            {approachCount} {ar.correctionFilterApproach} · {reboundCount} {ar.correctionFilterRebound}
           </p>
         ) : null}
       </div>
