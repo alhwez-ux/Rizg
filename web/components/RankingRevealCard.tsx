@@ -24,6 +24,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [late, setLate] = useState(false);
   const [cached, setCached] = useState(false);
   const [gradeFilter, setGradeFilter] = useState<FinancialGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
@@ -74,9 +75,10 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
           setCompanies(result.data);
           setCached(result.source === "cached");
           setError(null);
+          setLate(false);
         })
         .catch(() => {
-          /* keep the last successful snapshot while TickChart refreshes */
+          setLate(true);
         });
     }, 2_000);
     return () => window.clearInterval(timer);
@@ -103,7 +105,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
 
       {isRevealed ? (
         <div className="animate-fadeIn transition-all">
-          {error ? (
+          {error && visible.length === 0 ? (
             <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
               {error}
             </p>
@@ -111,6 +113,7 @@ export function RankingRevealCard({ shariahFilter = "all" }: { shariahFilter?: S
             <p className="text-sm text-zinc-500">{shariahFilter === "pure" ? ar.shariahFilterEmpty : ar.rankingEmpty}</p>
           ) : (
             <div className="space-y-4">
+              {late ? <p className="text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"

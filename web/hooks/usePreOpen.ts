@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchPreOpenScan, type PreOpenScanResponse } from "@/lib/preopen";
+import { sessionPollMs } from "@/lib/sessionPoll";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
-const LIVE_POLL_MS = 8_000;
+const LIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 30_000;
 
 export function usePreOpen() {
@@ -38,16 +39,21 @@ export function usePreOpen() {
     }
     alive.current = true;
     void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, inWindow ? LIVE_POLL_MS : IDLE_POLL_MS);
+    let timer = 0;
+    const arm = () => {
+      timer = window.setTimeout(() => {
+        void refresh();
+        arm();
+      }, inWindow ? LIVE_POLL_MS : sessionPollMs(IDLE_POLL_MS));
+    };
+    arm();
     const onRefresh = () => {
       void refresh();
     };
     window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     return () => {
       alive.current = false;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
   }, [inWindow, isConnected, refresh]);

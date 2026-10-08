@@ -55,11 +55,18 @@ logger = logging.getLogger(__name__)
 
 
 async def warm_public_quotes(feed: Any) -> int:
-    """Refresh the public last-close book without blocking the event loop."""
+    """Serve the last book immediately. A due refresh runs beside the request."""
 
     refresher = getattr(feed, "ensure_public_quotes", None)
     if not callable(refresher):
         return 0
+    scheduler = getattr(feed, "schedule_public_quotes", None)
+    if callable(scheduler):
+        try:
+            if scheduler():
+                return 0
+        except Exception:
+            logger.warning("public quote schedule failed", exc_info=True)
     try:
         return int(await asyncio.to_thread(refresher) or 0)
     except Exception:
@@ -154,6 +161,7 @@ class TickChartFeed:
         self._peer_nets_cache: tuple[float, list[float]] | None = None
         self._delayed_pull_at: float = 0.0
         self._public_quotes_at: float = 0.0
+        self._public_quotes_running = False
         self._symbol_quote_at: dict[str, float] = {}
         self._quote_cursor = 0
         self._quote_cycle_done = False
@@ -421,6 +429,13 @@ class TickChartFeed:
     async def pull_session(self) -> dict[str, Any]:
         """Immediately pull live ticks or last-close quotes for the sector/radar tape."""
 
+        self._public_quotes_at = 0.0
+        self._live_reco_cache = None
+        self._symbol_quote_at.clear()
+        try:
+            await asyncio.to_thread(self.ensure_public_quotes, force=True)
+        except Exception:
+            logger.warning("forced session quote refresh failed", exc_info=True)
         seeded = self.seed_last_closes()
         if not self._ingestion_allowed():
             rows = self.market_rows()
@@ -1259,7 +1274,34 @@ class TickChartFeed:
         main = [row for row in bars if is_tasi_main_symbol(str(row.get("symbol") or ""))]
         return self._quotes.merge_history(main)
 
-    def ensure_public_quotes(self, *, fetcher: Any = None) -> int:
+    def schedule_public_quotes(self) -> bool:
+        """Start a quote refresh beside the request when a last book is already on hand."""
+
+        if os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
+            return True
+        if not self._quotes.snapshot():
+            return False
+        if self._public_quotes_running or not self._public_quotes_due():
+            return True
+        self._public_quotes_running = True
+
+        def run() -> None:
+            try:
+                self.ensure_public_quotes(force=True)
+            finally:
+                self._public_quotes_running = False
+
+        threading.Thread(target=run, name="rizg-public-quotes", daemon=True).start()
+        return True
+
+    def _public_quotes_due(self) -> bool:
+        if not self._public_quotes_at:
+            return True
+        phase = session_phase(now_riyadh())
+        wait = 4 if phase in {"preopen", "open", "auction"} else (90 if self._quote_cycle_done else 15)
+        return time.monotonic() - self._public_quotes_at >= wait
+
+    def ensure_public_quotes(self, *, fetcher: Any = None, force: bool = False) -> int:
         """Fill last price, change, and session value from public daily bars.
 
         Live TickChart prints still win when they arrive. This path exists so the
@@ -1269,15 +1311,17 @@ class TickChartFeed:
 
         if fetcher is None and os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
             return 0
+        phase = session_phase(now_riyadh())
+        open_session = phase in {"preopen", "open", "auction"}
         now = time.monotonic()
-        if fetcher is None and self._public_quotes_at:
-            wait = 90 if self._quote_cycle_done else 15
+        if not force and fetcher is None and self._public_quotes_at:
+            wait = 4 if open_session else (90 if self._quote_cycle_done else 15)
             if now - self._public_quotes_at < wait:
                 return 0
         symbols = self.main_market_symbols() or self._universe_symbols()
         if not symbols:
             return 0
-        symbols = self._next_quote_window(symbols, 30)
+        symbols = self._next_quote_window(symbols, 48 if open_session else 30)
         load = fetcher
         if load is None:
             from app.services.session_history import fetch_main_market_closes
@@ -1329,7 +1373,8 @@ class TickChartFeed:
         if tape.get("last_price") or self._engine.session_snapshot(ticker).last_price is not None:
             return
         now = time.monotonic()
-        if now - self._symbol_quote_at.get(ticker, 0.0) < 45:
+        gap = 4 if phase in {"preopen", "open", "auction"} else 45
+        if now - self._symbol_quote_at.get(ticker, 0.0) < gap:
             return
         self._symbol_quote_at[ticker] = now
         try:
@@ -1999,7 +2044,10 @@ class TickChartFeed:
             if self._rest_paused or not self._ingestion_allowed():
                 self._feed_mode = "cache"
                 return
-            await asyncio.sleep(self._poll_seconds)
+            pause = float(self._poll_seconds)
+            if session_phase(now_riyadh()) in {"preopen", "open", "auction"}:
+                pause = min(pause, 4.0)
+            await asyncio.sleep(max(1.0, pause))
 
     async def _rest_trades(self, symbol: str) -> int:
         payload = await self._get_json(f"/market/trades/{symbol}/", {"limit": 50})

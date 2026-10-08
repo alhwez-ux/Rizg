@@ -41,7 +41,7 @@ export function LiquidityRadarCard({
   symbolName?: string;
   onRemove?: () => void;
 }) {
-  const { data, loading, refresh } = useLiveRadar(symbol);
+  const { data, loading, delayed, settling, refresh } = useLiveRadar(symbol);
   const { status } = useLiquiditySocket(wsUrlFor(symbol));
   const report = useHeldReport(symbol, data?.analysis ?? null);
   const regime = useSymbolRegime(
@@ -146,6 +146,10 @@ export function LiquidityRadarCard({
           high={report.session_high}
           low={report.session_low}
         />
+      ) : null}
+
+      {delayed || settling ? (
+        <p className="mt-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p>
       ) : null}
 
       {loading && !report ? (

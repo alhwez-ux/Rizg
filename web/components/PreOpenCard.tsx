@@ -210,7 +210,7 @@ export function PreOpenCard({
         </div>
       </div>
 
-      {error ? (
+      {error && rows.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
         <DataSkeleton kind="table" rows={4} />
@@ -218,6 +218,7 @@ export function PreOpenCard({
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.preopenEmpty}</p>
       ) : (
         <>
+          {error ? <p className="mb-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
           {visible.length === 0 ? (
             <p className="text-sm text-zinc-500">{ar.shariahFilterEmpty}</p>
           ) : (

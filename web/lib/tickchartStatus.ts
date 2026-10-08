@@ -1,4 +1,5 @@
 import { apiFetch, apiUrl, HEAVY_API_TIMEOUT_MS } from "@/lib/api";
+import { clearRankCache } from "@/lib/rankingMatrix";
 
 export const SESSION_REFRESHED_EVENT = "rizg-session-refreshed";
 
@@ -108,6 +109,7 @@ export async function refreshTickChartLive(): Promise<SessionRefreshResult> {
 }
 
 async function pullSessionTape(): Promise<SessionRefreshResult> {
+  clearRankCache();
   const response = await apiFetch("/api/v1/tickchart/refresh", {
     method: "POST",
     body: "{}",

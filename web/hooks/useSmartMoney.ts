@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { fetchSmartMoneyScan, type SmartMoneyScanResponse } from "@/lib/smartMoney";
+import { sessionPollMs } from "@/lib/sessionPoll";
 import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const POLL_MS = 12_000;
@@ -36,16 +37,21 @@ export function useSmartMoney() {
     }
     alive.current = true;
     void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, POLL_MS);
+    let timer = 0;
+    const arm = () => {
+      timer = window.setTimeout(() => {
+        void refresh();
+        arm();
+      }, sessionPollMs(POLL_MS));
+    };
+    arm();
     const onRefresh = () => {
       void refresh();
     };
     window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     return () => {
       alive.current = false;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
   }, [isConnected, refresh]);

@@ -11,6 +11,7 @@ import { fetchDailyLiquidity, type DailyLiquidityRow, type LiquidityGrade } from
 import { formatMoney, formatPercent, formatPrice, formatVolume } from "@/lib/liquidity";
 import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
+import { sessionPollMs } from "@/lib/sessionPoll";
 
 const GRADE_TONE: Record<LiquidityGrade, string> = {
   A: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200",
@@ -37,6 +38,7 @@ export function DailyLiquidityCard({
   const [isRevealed, setIsRevealed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [late, setLate] = useState(false);
   const [filter, setFilter] = useState<LiquidityGrade | "all">("all");
   const { isConnected } = useConnectionGuard();
 
@@ -63,17 +65,29 @@ export function DailyLiquidityCard({
 
   useEffect(() => {
     if (!isConnected || !isRevealed) return;
-    const timer = window.setInterval(() => {
-      void fetchDailyLiquidity()
-        .then((next) => {
-          setRows(next);
-          setError(null);
-        })
-        .catch(() => {
-          /* keep last snapshot while TickChart refreshes */
-        });
-    }, 12_000);
-    return () => window.clearInterval(timer);
+    let stopped = false;
+    let timer = 0;
+    const arm = () => {
+      if (stopped) return;
+      timer = window.setTimeout(() => {
+        if (stopped) return;
+        void fetchDailyLiquidity()
+          .then((next) => {
+            setRows(next);
+            setError(null);
+            setLate(false);
+          })
+          .catch(() => {
+            if (!stopped) setLate(true);
+          });
+        arm();
+      }, sessionPollMs(12_000));
+    };
+    arm();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, [isConnected, isRevealed]);
 
   const visible = useMemo(
@@ -113,6 +127,7 @@ export function DailyLiquidityCard({
             <p className="text-sm text-zinc-500">{ar.flowDetectorEmpty}</p>
           ) : (
             <>
+              {late ? <p className="mb-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
               <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
                 {(["all", "A", "B", "C", "D"] as const).map((grade) => {
                   const selected = filter === grade;

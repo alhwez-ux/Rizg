@@ -76,7 +76,7 @@ export function DailyOpportunitiesCard({
         <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-zinc-400">{ar.dailyHint}</p>
         <p className="mt-2 min-h-4 text-[11px] text-zinc-500">{payload?.session_label || "\u00a0"}</p>
       </div>
-      {error ? (
+      {error && rows.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
         <DataSkeleton kind="grid" rows={2} />
@@ -84,6 +84,7 @@ export function DailyOpportunitiesCard({
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.dailyEmpty}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 text-start md:grid-cols-2">
+          {error ? <p className="text-center text-xs text-zinc-500 md:col-span-2">{ar.liveTicksUpdating}</p> : null}
           {rows.map((row) => (
             <OpportunityCard key={row.symbol} row={row} onOpen={onOpenSymbol} />
           ))}

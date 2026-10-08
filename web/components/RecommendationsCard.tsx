@@ -10,6 +10,7 @@ import { CloseRecommendationIcon } from "@/components/CloseRecommendationIcon";
 import { PathBadge } from "@/components/PathBadge";
 import { graduatedTargets } from "@/lib/tradeTargets";
 import { useTasiSession } from "@/hooks/useTasiSession";
+import { sessionPollMs } from "@/lib/sessionPoll";
 import { ar } from "@/lib/ar";
 import { formatPercent, formatPrice } from "@/lib/liquidity";
 import {
@@ -42,6 +43,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [late, setLate] = useState(false);
   const [cached, setCached] = useState(false);
   const [sessionLabel, setSessionLabel] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState<RecommendationScanMode | string>("end_of_day");
@@ -51,6 +53,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [selected, setSelected] = useState<MarketRecommendation | null>(null);
   const inflight = useRef(false);
+  const slowTimer = useRef(0);
   const loadedRef = useRef(false);
   const rowsRef = useRef<MarketRecommendation[]>([]);
   const entryLocks = useRef(new Map<string, FrozenEntry>());
@@ -98,6 +101,10 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
     inflight.current = true;
     if (!loadedRef.current) setLoading(true);
     setError(null);
+    window.clearTimeout(slowTimer.current);
+    if (rowsRef.current.length > 0) {
+      slowTimer.current = window.setTimeout(() => setLate(true), 1_200);
+    }
     try {
       const result = await fetchMarketRecommendations();
       const data = mergeIncoming(result.data);
@@ -109,6 +116,7 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
       loadedRef.current = true;
       setLoaded(true);
       setError(null);
+      setLate(false);
       setSelected((current) => {
         if (!current) return null;
         return data.find((row) => row.symbol === current.symbol) ?? null;
@@ -116,10 +124,13 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
     } catch (err) {
       loadedRef.current = true;
       setLoaded(true);
-      if (rowsRef.current.length === 0 && !isTimeoutError(err)) {
+      if (rowsRef.current.length > 0 || isTimeoutError(err)) {
+        setLate(true);
+      } else {
         setError(ar.recoLoadError);
       }
     } finally {
+      window.clearTimeout(slowTimer.current);
       inflight.current = false;
       setLoading(false);
     }
@@ -142,11 +153,16 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
 
   useEffect(() => {
     if (!isConnected) return;
-    const interval = scanMode === "live" || sessionLive ? LIVE_POLL_MS : CLOSE_POLL_MS;
-    const timer = window.setInterval(() => {
-      void load();
-    }, interval);
-    return () => window.clearInterval(timer);
+    const idle = scanMode === "live" || sessionLive ? LIVE_POLL_MS : CLOSE_POLL_MS;
+    let timer = 0;
+    const arm = () => {
+      timer = window.setTimeout(() => {
+        void load();
+        arm();
+      }, sessionPollMs(idle));
+    };
+    arm();
+    return () => window.clearTimeout(timer);
   }, [isConnected, load, scanMode, sessionLive]);
 
   useEffect(() => {
@@ -305,6 +321,9 @@ export function RecommendationsCard({ shariahFilter = "all" }: { shariahFilter?:
         </div>
       ) : null}
 
+      {late && visible.length > 0 ? (
+        <p className="mb-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p>
+      ) : null}
       {loading && !loaded && visible.length === 0 ? (
         <DataSkeleton kind="table" rows={5} />
       ) : error && visible.length === 0 ? (

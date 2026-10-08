@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, wsUrlTape } from "@/lib/api";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
 import { parseTick } from "@/lib/liquidity";
+import { sessionPollMs } from "@/lib/sessionPoll";
+import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const MAX_BACKOFF_MS = 10_000;
 const MAX_ATTEMPTS = 5;
@@ -61,12 +63,22 @@ export function useTapeLastPrices(symbols: string[]): Map<string, number> {
       }
     };
     void load();
-    const timer = window.setInterval(() => {
+    let timer = 0;
+    const arm = () => {
+      timer = window.setTimeout(() => {
+        void load();
+        arm();
+      }, sessionPollMs(20_000));
+    };
+    arm();
+    const onRefresh = () => {
       void load();
-    }, 20_000);
+    };
+    window.addEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
   }, [wanted]);
 

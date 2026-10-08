@@ -144,7 +144,7 @@ export function SmartMoneyCard({
         ) : null}
       </div>
 
-      {error ? (
+      {error && rows.length === 0 ? (
         <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
       ) : loading && rows.length === 0 ? (
         <DataSkeleton kind="table" rows={4} />
@@ -152,6 +152,7 @@ export function SmartMoneyCard({
         <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.fundsEmpty}</p>
       ) : (
         <>
+          {error ? <p className="mb-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
           <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
             {(
               [

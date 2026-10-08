@@ -15,6 +15,7 @@ import {
   type TickChartStatus,
 } from "@/lib/tickchartStatus";
 import { useConnectionGuard } from "@/hooks/useConnectionGuard";
+import { tasiSessionPhase } from "@/lib/tasiClock";
 
 export function TickChartSyncChip({
   onFollow,
@@ -35,6 +36,7 @@ export function TickChartSyncChip({
   const [busy, setBusy] = useState<"follow" | "refresh" | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [linkLate, setLinkLate] = useState(false);
   const [rankNote, setRankNote] = useState<{ symbol: string; category: string | null; grade: ReturnType<typeof financialGrade> } | null>(null);
   const followSeq = useRef(0);
   const { isConnected } = useConnectionGuard();
@@ -44,9 +46,13 @@ export function TickChartSyncChip({
     let alive = true;
     const load = async () => {
       const next = await fetchTickChartStatus();
-      if (alive) {
+      if (!alive) return;
+      if (next) {
         setStatus(next);
-        if (next?.last_sync_at) setLastSyncAt(next.last_sync_at);
+        setLinkLate(false);
+        if (next.last_sync_at) setLastSyncAt(next.last_sync_at);
+      } else {
+        setLinkLate(true);
       }
     };
     const bootstrap = async () => {
@@ -78,6 +84,8 @@ export function TickChartSyncChip({
     };
   }, [isConnected]);
 
+  const phase = tasiSessionPhase();
+  const sessionHot = phase === "preopen" || phase === "open" || phase === "auction";
   const live = Boolean(status?.connected || status?.trades_live || status?.depth_live || status?.quote_mode === "live");
   const local = Boolean(status?.autosync_watching);
   const lastClose = !live && (status?.quote_mode === "last_close" || Number(status?.last_quotes || 0) > 0);
@@ -134,10 +142,12 @@ export function TickChartSyncChip({
     try {
       const pulled = await refreshTickChartLive();
       const next = await fetchTickChartStatus();
-      setStatus(next);
+      if (next) setStatus(next);
+      setLinkLate(false);
       setLastSyncAt(pulled.last_sync_at || next?.last_sync_at || new Date().toISOString());
       setMessage(pulled.count > 0 ? `${ar.tickchartRefreshed} (${pulled.count})` : ar.tickchartRefreshed);
     } catch (err) {
+      setLinkLate(true);
       setMessage(err instanceof Error ? err.message : ar.tickchartRefreshError);
     } finally {
       setBusy(null);
@@ -162,16 +172,26 @@ export function TickChartSyncChip({
             }`}
             title={ar.tickchartSyncHint}
           >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                live || local ? "animate-pulse bg-emerald-400" : lastClose ? "bg-sky-400" : "bg-zinc-500"
-              }`}
-            />
+            <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+              {live || busy === "refresh" || (sessionHot && Boolean(status) && !linkLate) ? (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-75" />
+              ) : null}
+              <span
+                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                  live || busy === "refresh" || local || (sessionHot && Boolean(status) && !linkLate)
+                    ? "bg-emerald-400"
+                    : lastClose
+                      ? "bg-sky-400"
+                      : "bg-zinc-500"
+                }`}
+              />
+            </span>
             {ar.tickchartStream}
             <span className="font-medium opacity-80">· {label}</span>
           </div>
         </div>
       ) : null}
+      {linkLate ? <p className="text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
 
       {showSearch ? (
       <div className="relative flex flex-col gap-2 sm:flex-row">
@@ -233,7 +253,7 @@ export function TickChartSyncChip({
             disabled={busy !== null}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
           >
-            {busy === "refresh" ? ar.tickchartRefreshing : ar.tickchartRefresh}
+            {busy === "refresh" ? ar.liveTicksUpdating : ar.tickchartRefresh}
           </button>
           <TasiSchedulerChip />
         </div>

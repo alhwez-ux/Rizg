@@ -35,6 +35,11 @@ export async function fetchRankingMatrix(): Promise<RankingMatrixResponse> {
 
 const RANK_CACHE_MS = 5 * 60_000;
 let rankCache: { at: number; rows: RankingRow[] } | null = null;
+
+export function clearRankCache(): void {
+  rankCache = null;
+  rankInflight = null;
+}
 let rankInflight: Promise<RankingRow[]> | null = null;
 
 async function loadRanks(): Promise<RankingRow[]> {
