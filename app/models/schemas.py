@@ -432,6 +432,19 @@ class CorrectionRadarResponse(BaseModel):
     data: list[CorrectionRadarRow] = Field(default_factory=list)
 
 
+class TasiCorrectionResponse(BaseModel):
+    success: bool = True
+    symbol: str = "TASI"
+    state: str | None = None
+    label: str = ""
+    alert: bool = False
+    value: float | None = None
+    change_percent: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+    ema20: float | None = None
+    ema50: float | None = None
+
+
 class RecoveryPlanRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
