@@ -236,7 +236,7 @@ class TickChartFeed:
             "source": "TickChart",
             "mode": "cloud",
             "last_ingested": self._last_cloud_count,
-            "last_sync_at": self._last_cloud_ingest,
+            "last_sync_at": self._latest_sync_stamp(last_quotes),
             "quote_mode": quote_mode,
             "last_quotes": len(last_quotes),
             "price_source": "TickChart",
@@ -1288,6 +1288,14 @@ class TickChartFeed:
 
         main = [row for row in bars if is_tasi_main_symbol(str(row.get("symbol") or ""))]
         return self._quotes.merge_history(main)
+
+    def _latest_sync_stamp(self, rows: list[dict[str, Any]]) -> str | None:
+        latest = self._last_cloud_ingest
+        for row in rows:
+            stamp = str(row.get("at") or "")
+            if stamp and (latest is None or stamp > latest):
+                latest = stamp
+        return latest
 
     def refresh_live_session(self, *, force: bool = False, fetcher: Any = None) -> int:
         """Replace the quote book with today's measured prints. Outside the session this is a no-op."""

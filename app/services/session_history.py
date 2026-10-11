@@ -222,16 +222,70 @@ def fetch_live_session_prints(
             quotes.extend(take(chunk, client))
         return quotes
 
-    quotes = []
-    workers = min(6, len(chunks))
+    quotes: list[dict[str, Any]] = []
+    workers = min(6, max(1, len(chunks)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = []
-        for chunk in chunks:
-            futures.append(pool.submit(_download_live_chunk, chunk, cutoff))
+        futures = [pool.submit(_download_live_chunk, chunk, cutoff) for chunk in chunks]
         for future in as_completed(futures):
             quotes.extend(future.result() or [])
-    if tickers and len(quotes) < max(1, len(tickers) // 5):
-        logger.warning("live session quotes returned %s/%s symbols", len(quotes), len(tickers))
+    covered = {str(row.get("symbol") or "") for row in quotes}
+    missing = [symbol for symbol in tickers if symbol not in covered]
+    if len(quotes) < max(1, len(tickers) // 5):
+        logger.warning("live spark returned %s/%s symbols; reading chart meta for a slice", len(quotes), len(tickers))
+        quotes.extend(_fetch_chart_metas(_next_meta_window(missing, 48), today=cutoff))
+    return quotes
+
+
+_meta_cursor = 0
+
+
+def _next_meta_window(symbols: list[str], size: int) -> list[str]:
+    global _meta_cursor
+    count = len(symbols)
+    if count == 0:
+        return []
+    width = max(1, min(int(size), count))
+    start = _meta_cursor % count
+    window = [symbols[(start + offset) % count] for offset in range(width)]
+    _meta_cursor = (start + width) % count
+    return window
+
+
+def _fetch_chart_metas(symbols: list[str], *, today: date) -> list[dict[str, Any]]:
+    """One-symbol chart meta, used when the batched spark request comes back empty."""
+
+    if not symbols:
+        return []
+    quotes: list[dict[str, Any]] = []
+    workers = min(8, len(symbols))
+
+    def one(symbol: str) -> list[dict[str, Any]]:
+        try:
+            with httpx.Client(
+                timeout=httpx.Timeout(5.0, connect=3.0),
+                headers={"User-Agent": _UA, "Accept": "application/json"},
+            ) as http:
+                response = http.get(
+                    YAHOO_CHART.format(symbol=symbol),
+                    params={"range": "1d", "interval": "1m"},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("live chart meta failed for %s: %s", symbol, exc)
+            return []
+        chart = body.get("chart") if isinstance(body, dict) else None
+        result = chart.get("result") if isinstance(chart, dict) else None
+        if not isinstance(result, list) or not result or not isinstance(result[0], dict):
+            return []
+        item = dict(result[0])
+        meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+        item["symbol"] = str(meta.get("symbol") or f"{symbol}.SR")
+        return parse_live_prints({"spark": {"result": [item]}}, today=today)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in as_completed(pool.submit(one, symbol) for symbol in symbols):
+            quotes.extend(future.result() or [])
     return quotes
 
 
