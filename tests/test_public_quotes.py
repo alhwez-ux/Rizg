@@ -141,6 +141,46 @@ def test_open_session_uses_todays_price_not_the_prior_close(tmp_path: Path, monk
     assert feed._quotes.display_price("1140") == 23.42
 
 
+def test_open_session_refresh_replaces_the_book_and_stamps_the_sync(tmp_path: Path, monkeypatch) -> None:
+    from app.services.tasi_clock import now_riyadh
+
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _feed(tmp_path)
+    today = now_riyadh().date()
+
+    def fetcher(_symbols):
+        return [
+            {
+                "symbol": "1120",
+                "last_price": 62.3,
+                "volume": 1_000_000,
+                "change_percent": -1.2,
+                "session_date": today,
+            }
+        ]
+
+    assert feed.refresh_live_session(force=True, fetcher=fetcher) == 1
+    assert feed._quotes.is_session_print("1120")
+    tape = next(item for item in feed.quote_tape() if item["symbol"] == "1120")
+    assert tape["last_price"] == 62.3
+    assert tape["quote_mode"] == "live"
+    assert feed.status()["quote_mode"] == "live"
+    assert feed.status()["last_sync_at"]
+
+
+def test_closed_session_does_not_fetch_live_prints(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    feed = _feed(tmp_path)
+    called = {"n": 0}
+
+    def fetcher(_symbols):
+        called["n"] += 1
+        return [{"symbol": "1120", "last_price": 1, "session_date": date(2026, 10, 11)}]
+
+    assert feed.refresh_live_session(force=True, fetcher=fetcher) == 0
+    assert called["n"] == 0
+
+
 def test_public_quote_refresh_reaches_later_symbols(tmp_path: Path) -> None:
     feed = _feed(tmp_path)
     seen: list[list[str]] = []

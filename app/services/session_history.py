@@ -17,6 +17,8 @@ from app.services.tasi_clock import TASI_TZ, now_riyadh
 logger = logging.getLogger(__name__)
 
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.SR"
+YAHOO_SPARK = "https://query1.finance.yahoo.com/v7/finance/spark"
+_LIVE_CHUNK = 50
 _RIYADH = TASI_TZ
 _RANGE = "3mo"
 _CHART_WORKERS = 8
@@ -144,6 +146,105 @@ def parse_spark_market(
             }
         )
     return bars, quotes
+
+
+def parse_live_prints(payload: dict[str, Any], *, today: date | None = None) -> list[dict[str, Any]]:
+    """Today's last price from Yahoo meta. A print from another session is left out."""
+
+    cutoff = today or now_riyadh().date()
+    rows: list[dict[str, Any]] = []
+    for item in _spark_results(payload):
+        ticker = str(item.get("symbol") or "").strip().upper().replace(".SR", "")
+        if not is_tasi_main_symbol(ticker):
+            continue
+        chart = _first_response(item)
+        if not isinstance(chart, dict):
+            continue
+        meta = chart.get("meta") if isinstance(chart.get("meta"), dict) else {}
+        price = _positive(meta.get("regularMarketPrice"))
+        day = _riyadh_day(meta.get("regularMarketTime"))
+        if price is None or day != cutoff:
+            continue
+        prev = _positive(meta.get("chartPreviousClose") or meta.get("previousClose"))
+        change = _number(meta.get("regularMarketChangePercent"))
+        if change is None and prev and prev > 0:
+            change = round(((price - prev) / prev) * 100, 4)
+        volume = _positive(meta.get("regularMarketVolume"))
+        rows.append(
+            {
+                "symbol": ticker,
+                "last_price": price,
+                "volume": volume or 0.0,
+                "prev_close": prev,
+                "change_percent": change,
+                "session_date": cutoff,
+            }
+        )
+    return rows
+
+
+def fetch_live_session_prints(
+    symbols: Iterable[str] | None = None,
+    *,
+    today: date | None = None,
+    client: httpx.Client | None = None,
+) -> list[dict[str, Any]]:
+    """Pull today's last price for the main market. Missing chunks keep the previous book."""
+
+    tickers = main_market_symbols(symbols or listed_main_market_symbols())
+    if not tickers:
+        return []
+    cutoff = today or now_riyadh().date()
+    chunks = [tickers[index : index + _LIVE_CHUNK] for index in range(0, len(tickers), _LIVE_CHUNK)]
+
+    def take(chunk: list[str], http: httpx.Client) -> list[dict[str, Any]]:
+        try:
+            response = http.get(
+                YAHOO_SPARK,
+                params={
+                    "symbols": ",".join(f"{symbol}.SR" for symbol in chunk),
+                    "range": "1d",
+                    "interval": "1m",
+                },
+            )
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("live session quote chunk failed: %s", exc)
+            return []
+        if not isinstance(body, dict):
+            return []
+        return parse_live_prints(body, today=cutoff)
+
+    if client is not None:
+        quotes: list[dict[str, Any]] = []
+        for chunk in chunks:
+            quotes.extend(take(chunk, client))
+        return quotes
+
+    quotes = []
+    workers = min(6, len(chunks))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = []
+        for chunk in chunks:
+            futures.append(pool.submit(_download_live_chunk, chunk, cutoff))
+        for future in as_completed(futures):
+            quotes.extend(future.result() or [])
+    if tickers and len(quotes) < max(1, len(tickers) // 5):
+        logger.warning("live session quotes returned %s/%s symbols", len(quotes), len(tickers))
+    return quotes
+
+
+def _download_live_chunk(chunk: list[str], today: date) -> list[dict[str, Any]]:
+    try:
+        with httpx.Client(
+            timeout=httpx.Timeout(6.0, connect=3.0),
+            headers={"User-Agent": _UA, "Accept": "application/json"},
+        ) as http:
+            return fetch_live_session_prints(chunk, today=today, client=http)
+    except httpx.HTTPError as exc:
+        logger.warning("live session quote chunk failed: %s", exc)
+        return []
 
 
 def load_official_session(path: Path | None = None) -> dict[str, dict[str, Any]]:

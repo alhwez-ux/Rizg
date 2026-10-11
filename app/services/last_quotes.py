@@ -147,6 +147,15 @@ class LastQuoteBook:
             return None
         return number if number > 0 else None
 
+    def is_session_print(self, symbol: str, *, day: date | None = None) -> bool:
+        """True only for a dated print stored for today's session."""
+
+        row = self.get(symbol)
+        if not row or row.get("close_source") != "session":
+            return False
+        today = (day or now_riyadh().date()).isoformat()
+        return str(row.get("session_date") or "")[:10] == today
+
     def session_last(self, symbol: str, *, day: date | None = None) -> float | None:
         """Last traded price stored for today's session, not an older completed close."""
 

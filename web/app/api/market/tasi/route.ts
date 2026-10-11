@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.SR?interval=1d&range=5d";
+const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.SR?interval=1m&range=1d";
 
 type TasiQuote = {
   index: "TASI";
@@ -12,7 +12,7 @@ type TasiQuote = {
 };
 
 let cached: { at: number; quote: TasiQuote } | null = null;
-const CACHE_MS = 30_000;
+const CACHE_MS = 8_000;
 
 function toFinite(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);

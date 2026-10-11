@@ -36,8 +36,12 @@ export function useTasiIndex(): { quote: TasiIndexQuote; status: ConnectionStatu
       }
     };
     void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 8_000);
     return () => {
       alive = false;
+      window.clearInterval(timer);
     };
   }, [isConnected]);
 

@@ -16,6 +16,7 @@ from app.services.session_history import (
     listed_main_market_symbols,
     main_market_symbols,
     overlay_session_closes,
+    parse_live_prints,
     parse_spark_bars,
     parse_spark_market,
 )
@@ -278,6 +279,49 @@ def test_history_fetch_falls_back_when_provider_is_slow(tmp_path: Path, monkeypa
     assert payload["success"] is True
     assert payload["source"] == "fallback"
     assert payload["fallback"] is True
+
+
+def test_live_print_uses_today_market_price_and_drops_an_older_one() -> None:
+    today = datetime(2026, 10, 11, 12, 12, tzinfo=_RIYADH)
+    older = datetime(2026, 10, 8, 15, 0, tzinfo=_RIYADH)
+    payload = {
+        "spark": {
+            "result": [
+                {
+                    "symbol": "1120.SR",
+                    "response": [
+                        {
+                            "meta": {
+                                "regularMarketPrice": 62.3,
+                                "regularMarketTime": int(today.timestamp()),
+                                "chartPreviousClose": 63.1,
+                                "regularMarketVolume": 2_000_000,
+                            },
+                            "timestamp": [int(older.timestamp())],
+                            "indicators": {"quote": [{"close": [60.0], "volume": [10]}]},
+                        }
+                    ],
+                },
+                {
+                    "symbol": "2222.SR",
+                    "response": [
+                        {
+                            "meta": {
+                                "regularMarketPrice": 25.0,
+                                "regularMarketTime": int(older.timestamp()),
+                            }
+                        }
+                    ],
+                },
+            ]
+        }
+    }
+    rows = parse_live_prints(payload, today=date(2026, 10, 11))
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "1120"
+    assert rows[0]["last_price"] == 62.3
+    assert rows[0]["session_date"] == date(2026, 10, 11)
+    assert rows[0]["volume"] == 2_000_000
 
 
 def test_overlay_replaces_a_print_sized_volume_with_the_session_close() -> None:

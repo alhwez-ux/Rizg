@@ -34,6 +34,8 @@ from app.services.last_quotes import LastQuoteBook
 from app.services.under_watch import UnderWatchService
 from app.services.watchlist import WatchlistService
 
+_SESSION_POLL_SECONDS = 8.0
+
 DEFAULT_TICKCHART_SYMBOLS = [
     "2222",
     "1120",
@@ -162,6 +164,7 @@ class TickChartFeed:
         self._delayed_pull_at: float = 0.0
         self._public_quotes_at: float = 0.0
         self._public_quotes_running = False
+        self._session_lock = threading.Lock()
         self._symbol_quote_at: dict[str, float] = {}
         self._quote_cursor = 0
         self._quote_cycle_done = False
@@ -214,7 +217,11 @@ class TickChartFeed:
 
     def status(self) -> dict[str, Any]:
         last_quotes = self._quotes.snapshot()
-        if self._trades_live or self._depth_live or self._desktop_live:
+        phase = session_phase(now_riyadh())
+        session_print = phase in {"preopen", "open", "auction"} and any(
+            self._quotes.is_session_print(str(row.get("symbol") or "")) for row in last_quotes[:80]
+        )
+        if self._trades_live or self._depth_live or self._desktop_live or session_print:
             quote_mode = "live"
         elif last_quotes:
             quote_mode = "last_close"
@@ -277,6 +284,7 @@ class TickChartFeed:
         self._tasks = [
             asyncio.create_task(self._supervise_network(), name="tickchart-supervisor"),
             asyncio.create_task(self._hydrate_close_history(), name="tickchart-close-history"),
+            asyncio.create_task(self._poll_session_quotes(), name="tickchart-session-quotes"),
         ]
 
     async def stop(self) -> None:
@@ -432,8 +440,13 @@ class TickChartFeed:
         self._public_quotes_at = 0.0
         self._live_reco_cache = None
         self._symbol_quote_at.clear()
+        self._quote_cursor = 0
         try:
-            await asyncio.to_thread(self.ensure_public_quotes, force=True)
+            phase_now = session_phase(now_riyadh())
+            if phase_now in {"preopen", "open", "auction"}:
+                await asyncio.to_thread(self.refresh_live_session, force=True)
+            else:
+                await asyncio.to_thread(self.ensure_public_quotes, force=True)
         except Exception:
             logger.warning("forced session quote refresh failed", exc_info=True)
         seeded = self.seed_last_closes()
@@ -702,7 +715,9 @@ class TickChartFeed:
             spread = round(float(ask) - float(bid), 6)
         if last_price is None:
             last_price = report.get("last_price")
-        if live_tick and phase == "open":
+        if (live_tick and phase == "open") or (
+            phase in {"preopen", "open", "auction"} and self._quotes.is_session_print(ticker)
+        ):
             quote_mode = "live"
         elif last_price is not None:
             quote_mode = "last_close"
@@ -835,8 +850,8 @@ class TickChartFeed:
             "session_high": stored.get("high"),
             "inflow": max(net_flow, 0.0),
             "outflow": max(-net_flow, 0.0),
-            "live": False,
-            "quote_mode": "last_close",
+            "live": _session_book_mode(self._quotes, ticker) == "live",
+            "quote_mode": _session_book_mode(self._quotes, ticker),
             "under_watch": False,
             "explosive": False,
             "hidden_accumulation": False,
@@ -1119,7 +1134,7 @@ class TickChartFeed:
                     "volume": volume,
                     "value_traded": value,
                     "net_flow": net_flow,
-                    "quote_mode": "last_close",
+                    "quote_mode": _session_book_mode(self._quotes, symbol),
                 }
             )
         rows.sort(
@@ -1274,9 +1289,62 @@ class TickChartFeed:
         main = [row for row in bars if is_tasi_main_symbol(str(row.get("symbol") or ""))]
         return self._quotes.merge_history(main)
 
+    def refresh_live_session(self, *, force: bool = False, fetcher: Any = None) -> int:
+        """Replace the quote book with today's measured prints. Outside the session this is a no-op."""
+
+        if fetcher is None and os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
+            return 0
+        phase = session_phase(now_riyadh())
+        if phase not in {"preopen", "open", "auction"}:
+            return 0
+        now = time.monotonic()
+        if not force and self._public_quotes_at and now - self._public_quotes_at < _SESSION_POLL_SECONDS:
+            return 0
+        if not self._session_lock.acquire(blocking=force):
+            return 0
+        try:
+            if not force and self._public_quotes_at and time.monotonic() - self._public_quotes_at < _SESSION_POLL_SECONDS:
+                return 0
+            load = fetcher
+            if load is None:
+                from app.services.session_history import fetch_live_session_prints
+
+                load = fetch_live_session_prints
+            try:
+                quotes = load(self.main_market_symbols() or self._universe_symbols())
+            except Exception:
+                logger.warning("live session quote refresh failed", exc_info=True)
+                return 0
+            applied = self._quotes.apply_closes(list(quotes or [])) if quotes else 0
+            if applied:
+                self._public_quotes_at = time.monotonic()
+                self._last_cloud_ingest = datetime.now(timezone.utc).isoformat()
+                self._last_cloud_count = max(self._last_cloud_count, applied)
+            return applied
+        finally:
+            self._session_lock.release()
+
+    async def _poll_session_quotes(self) -> None:
+        """Keep today's prices moving through the session, at least every 8 seconds."""
+
+        while self._running:
+            wait = _SESSION_POLL_SECONDS
+            try:
+                if session_phase(now_riyadh()) in {"preopen", "open", "auction"}:
+                    await asyncio.to_thread(self.refresh_live_session)
+                else:
+                    wait = 30.0
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("session quote poll failed", exc_info=True)
+            await asyncio.sleep(wait)
+
     def schedule_public_quotes(self) -> bool:
         """Start a quote refresh beside the request when a last book is already on hand."""
 
+        if session_phase(now_riyadh()) in {"preopen", "open", "auction"}:
+            return True
         if os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
             return True
         if not self._quotes.snapshot():
@@ -1313,6 +1381,8 @@ class TickChartFeed:
             return 0
         phase = session_phase(now_riyadh())
         open_session = phase in {"preopen", "open", "auction"}
+        if fetcher is None and open_session:
+            return self.refresh_live_session(force=force)
         now = time.monotonic()
         if not force and fetcher is None and self._public_quotes_at:
             wait = 4 if open_session else (90 if self._quote_cycle_done else 15)
@@ -2220,6 +2290,15 @@ class TickChartFeed:
         self._seen.append(key)
         self._seen_set.add(key)
         return True
+
+
+def _session_book_mode(quotes: LastQuoteBook, symbol: str) -> str:
+    phase = session_phase(now_riyadh())
+    if phase in {"preopen", "open", "auction"} and quotes.is_session_print(symbol):
+        return "live"
+    if quotes.price(symbol):
+        return "last_close"
+    return "waiting"
 
 
 def _is_live_scalp(row: dict[str, Any]) -> bool:
