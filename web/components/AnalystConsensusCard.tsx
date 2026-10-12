@@ -68,18 +68,115 @@ function PickCard({
   );
 }
 
+function rangeText(low: string, high: string): string {
+  if (!low) return "—";
+  if (!high || low === high) return low;
+  return `${low} – ${high}`;
+}
+
+function houseLine(count: number): string {
+  if (count === 1) return "📊 سجّلها بيت خبرة واحد";
+  if (count === 2) return "📊 أجمع عليها بيتا خبرة";
+  return `📊 أجمع عليها ${count} من بيوت الخبرة`;
+}
+
+function ConsensusCard({
+  row,
+  onOpen,
+}: {
+  row: AnalystPickRow;
+  onOpen?: (company: { symbol: string; name: string }) => void;
+}) {
+  return (
+    <article className="rounded-2xl border border-amber-400/30 bg-zinc-950/50 p-4 text-start">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <button type="button" onClick={() => onOpen?.({ symbol: row.symbol, name: row.name })} className="min-w-0 text-start">
+          <p className="font-bold text-zinc-50">{row.name}</p>
+          <p className="mt-0.5 font-mono text-xs text-zinc-400" dir="ltr">
+            {row.symbol}
+          </p>
+        </button>
+        {row.analyst_count >= 2 ? (
+          <span className="rounded-full border border-amber-300/40 bg-amber-400/15 px-2.5 py-1 text-[11px] font-bold text-amber-100">
+            {ar.analystConsensusBadge}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-3 text-sm font-semibold text-amber-50">{houseLine(row.analyst_count || row.houses.length)}</p>
+      <p className="mt-1 text-[11px] text-zinc-500">{ar.analystConsensusWindow}</p>
+      <div className="mt-3 flex min-h-[28px] flex-wrap gap-1.5">
+        {row.houses.map((house) => (
+          <span key={house} className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-100">
+            {house}
+          </span>
+        ))}
+      </div>
+      <p className="mt-3 font-mono text-[11px] tabular-nums text-zinc-300" dir="ltr">
+        {ar.analystConsensusPrice} {row.last_price != null ? row.last_price.toFixed(2) : "—"}
+      </p>
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="min-h-[52px] rounded-xl border border-zinc-800 px-2 py-2">
+          <dt className="text-[11px] text-zinc-500">{ar.analystConsensusEntry}</dt>
+          <dd dir="ltr" className="font-mono text-sm font-semibold tabular-nums text-zinc-100">
+            {rangeText(row.entry_low || row.entry_price, row.entry_high || row.entry_price)}
+          </dd>
+        </div>
+        <div className="min-h-[52px] rounded-xl border border-zinc-800 px-2 py-2">
+          <dt className="text-[11px] text-zinc-500">{ar.analystConsensusTarget}</dt>
+          <dd dir="ltr" className="font-mono text-sm font-semibold tabular-nums text-emerald-300">
+            {rangeText(row.target_low || row.target_price, row.target_high || row.target_price)}
+          </dd>
+        </div>
+        <div className="min-h-[52px] rounded-xl border border-zinc-800 px-2 py-2">
+          <dt className="text-[11px] text-zinc-500">{ar.analystConsensusStop}</dt>
+          <dd dir="ltr" className="font-mono text-sm font-semibold tabular-nums text-rose-300">
+            {rangeText(row.stop_low || row.stop_loss, row.stop_high || row.stop_loss)}
+          </dd>
+        </div>
+      </dl>
+      {row.shariah_label ? <p className="mt-3 text-[11px] text-emerald-200/80">{row.shariah_label}</p> : null}
+    </article>
+  );
+}
+
 export function AnalystConsensusCard({
   payload,
   loading,
   error,
   onOpenSymbol,
+  mode = "book",
 }: {
   payload: AnalystConsensusResponse | null;
   loading?: boolean;
   error?: string | null;
   onOpenSymbol?: (company: { symbol: string; name: string }) => void;
+  mode?: "book" | "window";
 }) {
   const rows = payload?.data ?? [];
+  if (mode === "window") {
+    return (
+      <section className="rounded-2xl border border-amber-400/25 bg-tape-panel/90 p-5 text-center text-zinc-100 shadow-glow sm:p-6">
+        <div className="mb-5 border-b border-zinc-800 pb-4">
+          <h2 className="text-xl font-bold text-zinc-50">{ar.tabsConsensus}</h2>
+          <p className="mx-auto mt-1 max-w-2xl text-xs leading-relaxed text-zinc-400">{ar.analystConsensusHint}</p>
+        </div>
+        {error ? (
+          <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</p>
+        ) : loading && rows.length === 0 ? (
+          <DataSkeleton kind="grid" rows={2} />
+        ) : rows.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.analystConsensusEmpty}</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {rows.map((row) => (
+              <ConsensusCard key={row.symbol} row={row} onOpen={onOpenSymbol} />
+            ))}
+          </div>
+        )}
+        <p className="mt-4 text-xs leading-relaxed text-zinc-500">{payload?.hint || ar.analystDisclaimer}</p>
+      </section>
+    );
+  }
   return (
     <section className="rounded-2xl border border-violet-400/20 bg-tape-panel/90 p-5 text-center text-zinc-100 shadow-glow sm:p-6">
       <div className="mb-5 border-b border-zinc-800 pb-4">

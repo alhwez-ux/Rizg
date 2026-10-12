@@ -179,12 +179,13 @@ class TasiMarketScheduler:
 
         current = now_riyadh()
         feed = self._tickchart
-        refresher = getattr(feed, "ensure_public_quotes", None) if feed is not None else None
-        if callable(refresher):
-            try:
-                await asyncio.to_thread(refresher)
-            except Exception:
-                logger.exception("public quote refresh failed")
+        if force or is_intraday_window(current):
+            refresher = getattr(feed, "ensure_public_quotes", None) if feed is not None else None
+            if callable(refresher):
+                try:
+                    await asyncio.to_thread(refresher)
+                except Exception:
+                    logger.exception("public quote refresh failed")
         guard = getattr(self, "_guard", None)
         if not force and guard is not None and not guard.is_connected:
             scanner = getattr(feed, "scan_explosive_watch", None) if feed is not None else None

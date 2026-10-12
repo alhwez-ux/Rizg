@@ -1431,6 +1431,12 @@ class TickChartFeed:
             if price > 0 and volume > 0 and not row.get("value_traded"):
                 row["value_traded"] = price * volume
             shaped.append(row)
+        if not open_session:
+            shaped = [
+                row
+                for row in shaped
+                if not self._quotes.is_session_print(str(row.get("symbol") or ""))
+            ]
         applied = self._quotes.apply_closes(shaped) if shaped else 0
         if fetcher is None:
             self._public_quotes_at = time.monotonic()

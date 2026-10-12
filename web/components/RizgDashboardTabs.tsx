@@ -46,7 +46,7 @@ import { useTasiTone } from "@/hooks/useTasiTone";
 import { useDashboardVisibility } from "@/hooks/useDashboardVisibility";
 import { ar } from "@/lib/ar";
 
-type PrimaryTab = "home" | "opportunities" | "tools";
+type PrimaryTab = "home" | "opportunities" | "consensus" | "tools";
 type ToolId = "preopen" | "funds" | "analysts" | "recovery" | "dividends" | "ranking" | "correction";
 
 const toolVisibility: Record<
@@ -78,6 +78,7 @@ function parseTool(value: string | null): ToolId | null {
 }
 
 function parseView(tab: string | null, section: string | null): { primary: PrimaryTab; tool: ToolId | null } {
+  if (tab === "consensus") return { primary: "consensus", tool: null };
   if (tab === "daily" || tab === "opportunities" || section === "recommendations" || section === "flow") {
     return { primary: "opportunities", tool: null };
   }
@@ -111,6 +112,11 @@ function DashboardShell() {
   const { payload: fundsPayload, loading: fundsLoading, error: fundsError } = useSmartMoney();
   const { payload: dailyPayload, loading: dailyLoading, error: dailyError } = useDailyOpportunities(shariahFilter === "pure");
   const { payload: analystPayload, loading: analystLoading, error: analystError } = useAnalystConsensus(shariahFilter === "pure");
+  const {
+    payload: consensusPayload,
+    loading: consensusLoading,
+    error: consensusError,
+  } = useAnalystConsensus(shariahFilter === "pure", 5);
   const visibleRadarCards = useMemo(
     () => radarCards.filter((item) => passesShariahFilter(item.symbol, shariahFilter)),
     [radarCards, shariahFilter],
@@ -147,6 +153,7 @@ function DashboardShell() {
       [
         { id: "home" as const, label: ar.tabsHome, icon: "💧" },
         { id: "opportunities" as const, label: ar.tabsOpportunities, icon: "⚡" },
+        { id: "consensus" as const, label: ar.tabsConsensus, icon: "⭐" },
         { id: "tools" as const, label: ar.tabsTools, icon: "🧰" },
       ] satisfies { id: PrimaryTab; label: string; icon: string }[],
     [],
@@ -192,6 +199,10 @@ function DashboardShell() {
       }
       if (id === "opportunities") {
         replaceQuery({ tab: "opportunities", section: null, sector: null, symbol: null, name: null });
+        return;
+      }
+      if (id === "consensus") {
+        replaceQuery({ tab: "consensus", section: null, sector: null, symbol: null, name: null });
         return;
       }
       replaceQuery({ tab: "tools", section: activeTool ?? "preopen", sector: null, symbol: null, name: null });
@@ -404,6 +415,18 @@ function DashboardShell() {
               </PanelBoundary>
             ) : null}
           </div>
+        ) : null}
+
+        {!watchOpen && activeTab === "consensus" ? (
+          <PanelBoundary>
+            <AnalystConsensusCard
+              mode="window"
+              payload={consensusPayload}
+              loading={consensusLoading}
+              error={consensusError}
+              onOpenSymbol={openWatchedCompany}
+            />
+          </PanelBoundary>
         ) : null}
 
         {!watchOpen && activeTab === "tools" ? (

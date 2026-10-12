@@ -9,7 +9,7 @@ import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const POLL_MS = 60_000;
 
-export function useAnalystConsensus(pureOnly: boolean) {
+export function useAnalystConsensus(pureOnly: boolean, windowDays = 0) {
   const [payload, setPayload] = useState<AnalystConsensusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,9 +18,10 @@ export function useAnalystConsensus(pureOnly: boolean) {
 
   const refresh = useCallback(async () => {
     try {
-      const next = await fetchAnalystConsensus(pureOnly);
+      const next = await fetchAnalystConsensus(pureOnly, windowDays);
       if (!alive.current) return;
-      setPayload({ ...next, data: next.data.map((row) => holdEntry("analyst", row)) });
+      const data = windowDays > 0 ? next.data : next.data.map((row) => holdEntry("analyst", row));
+      setPayload({ ...next, data });
       setError(null);
     } catch (err) {
       if (!alive.current) return;
@@ -28,7 +29,7 @@ export function useAnalystConsensus(pureOnly: boolean) {
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, [pureOnly]);
+  }, [pureOnly, windowDays]);
 
   useEffect(() => {
     if (!isConnected) {

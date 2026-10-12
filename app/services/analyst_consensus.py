@@ -91,14 +91,165 @@ def active_consensus(
     return rows
 
 
+def rolling_consensus(
+    *,
+    today: date | None = None,
+    window_days: int = 5,
+    pure_only: bool = False,
+    book: list[dict[str, Any]] | None = None,
+    last_prices: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Buy plans published inside the rolling window, ranked by recorded house agreement.
+
+    A pick with no publish date stays out. Entry, target, and stop stay the report
+    figures. The live price is shown beside them and does not move those levels.
+    """
+
+    cutoff = today or now_riyadh().date()
+    span = max(1, min(int(window_days), 30))
+    start = cutoff.fromordinal(cutoff.toordinal() - (span - 1))
+    prices = {str(symbol).strip().upper(): value for symbol, value in (last_prices or {}).items()}
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in book if book is not None else load_consensus_book():
+        if not isinstance(item, dict):
+            continue
+        published = _publish_report(item, start=start, cutoff=cutoff, pure_only=pure_only)
+        if published is None:
+            continue
+        symbol = published["symbol"]
+        bucket = grouped.setdefault(symbol, {"plans": [], "houses": {}})
+        for plan in published["plans"]:
+            house = plan["house"]
+            previous = bucket["houses"].get(house)
+            if previous is None or plan["published_on"] >= previous["published_on"]:
+                bucket["houses"][house] = plan
+    rows: list[dict[str, Any]] = []
+    for symbol, bucket in grouped.items():
+        plans = list(bucket["houses"].values())
+        if not plans:
+            continue
+        rows.append(_consensus_row(symbol, plans, live=_positive(prices.get(symbol)), window_days=span))
+    rows.sort(key=lambda row: (-float(row["consensus_strength"]), -int(row["analyst_count"]), row["symbol"]))
+    return rows
+
+
+def _publish_report(
+    item: dict[str, Any],
+    *,
+    start: date,
+    cutoff: date,
+    pure_only: bool,
+) -> dict[str, Any] | None:
+    symbol = str(item.get("symbol") or "").strip().upper()
+    if not symbol or not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
+        return None
+    if pure_only and not is_pure(symbol):
+        return None
+    stance = str(item.get("stance") or "buy").strip().lower()
+    if stance not in {"buy", "entry"}:
+        return None
+    published = _as_date(item.get("published_on"))
+    if published is None or published < start or published > cutoff:
+        return None
+    if not is_valid_long_plan(item.get("entry_price"), item.get("target_price"), item.get("stop_loss")):
+        return None
+    houses = [str(name).strip() for name in (item.get("houses") or []) if str(name).strip()]
+    if not houses:
+        return None
+    try:
+        weight = float(item.get("weight") if item.get("weight") is not None else 1)
+    except (TypeError, ValueError):
+        weight = 1.0
+    if weight <= 0:
+        weight = 1.0
+    entry = Decimal(str(item["entry_price"]))
+    target = Decimal(str(item["target_price"]))
+    stop = Decimal(str(item["stop_loss"]))
+    plans = [
+        {
+            "house": house,
+            "published_on": published.isoformat(),
+            "weight": weight,
+            "entry": entry,
+            "target": target,
+            "stop": stop,
+            "note": str(item.get("note") or "").strip(),
+        }
+        for house in houses
+    ]
+    return {"symbol": symbol, "plans": plans}
+
+
+def _consensus_row(symbol: str, plans: list[dict[str, Any]], *, live: float | None, window_days: int) -> dict[str, Any]:
+    entries = [plan["entry"] for plan in plans]
+    targets = [plan["target"] for plan in plans]
+    stops = [plan["stop"] for plan in plans]
+    entry_low, entry_high = min(entries), max(entries)
+    target_low, target_high = min(targets), max(targets)
+    stop_low, stop_high = min(stops), max(stops)
+    strength = sum(float(plan["weight"]) for plan in plans)
+    latest = max(str(plan["published_on"]) for plan in plans)
+    ratio = reward_ratio(entry_low, target_high, stop_low)
+    status = classified_status(symbol)
+    notes = [str(plan["note"]) for plan in plans if plan.get("note")]
+    return {
+        "symbol": symbol,
+        "name": company_name_for(symbol) or symbol,
+        "sector": sector_for(symbol) or "",
+        "houses": [str(plan["house"]) for plan in plans],
+        "analyst_count": len(plans),
+        "consensus_strength": round(strength, 2),
+        "published_on": latest,
+        "window_days": window_days,
+        "last_price": None if live is None else round(live, 2),
+        "entry_price": f"{entry_low:.2f}",
+        "entry_low": f"{entry_low:.2f}",
+        "entry_high": f"{entry_high:.2f}",
+        "target_price": f"{target_high:.2f}",
+        "target_low": f"{target_low:.2f}",
+        "target_high": f"{target_high:.2f}",
+        "stop_loss": f"{stop_low:.2f}",
+        "stop_low": f"{stop_low:.2f}",
+        "stop_high": f"{stop_high:.2f}",
+        "reward_ratio": 0 if ratio is None else round(float(ratio), 2),
+        "timeframe": f"{window_days} أيام",
+        "valid_until": latest,
+        "note": notes[0] if notes else "",
+        "entry_locked_at": None,
+        "shariah_status": status,
+        "shariah_label": shariah_label(symbol),
+    }
+
+
 def consensus_payload(
     *,
     today: date | None = None,
     pure_only: bool = False,
     last_prices: Mapping[str, Any] | None = None,
     store: EntrySnapshotStore | None = None,
+    window_days: int | None = None,
 ) -> dict[str, Any]:
     cutoff = today or now_riyadh().date()
+    if window_days is not None:
+        span = max(1, min(int(window_days), 30))
+        rows = rolling_consensus(
+            today=cutoff,
+            window_days=span,
+            pure_only=pure_only,
+            last_prices=last_prices,
+        )
+        return {
+            "success": True,
+            "source": "curated",
+            "count": len(rows),
+            "as_of": cutoff.isoformat(),
+            "window_days": span,
+            "hint": (
+                f"توصيات شراء مؤرخة خلال آخر {span} أيام. الترتيب بعدد بيوت الخبرة وثقل التوصية المسجّل. "
+                "الدخول والهدف والوقف أرقام التقارير، والسعر الحالي من التسعير الحي إن وُجد."
+            ),
+            "data": rows,
+        }
     rows = active_consensus(
         today=cutoff,
         pure_only=pure_only,

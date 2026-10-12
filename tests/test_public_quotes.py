@@ -168,6 +168,26 @@ def test_open_session_refresh_replaces_the_book_and_stamps_the_sync(tmp_path: Pa
     assert feed.status()["last_sync_at"]
 
 
+def test_closed_refresh_keeps_todays_session_print(tmp_path: Path, monkeypatch) -> None:
+    from app.services.tasi_clock import now_riyadh
+
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    feed = _feed(tmp_path)
+    today = now_riyadh().date()
+    feed._quotes.apply_closes(
+        [{"symbol": "1120", "last_price": 62.3, "session_date": today, "volume": 10}]
+    )
+    stamped = feed._quotes.get("1120")["at"]
+
+    def fetcher(symbols, sessions=10):
+        del symbols, sessions
+        return [], [{"symbol": "1120", "last_price": 60.0, "volume": 5, "session_date": today}]
+
+    assert feed.ensure_public_quotes(force=True, fetcher=fetcher) == 0
+    assert feed._quotes.price("1120") == 62.3
+    assert feed._quotes.get("1120")["at"] == stamped
+
+
 def test_closed_session_does_not_fetch_live_prints(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
     feed = _feed(tmp_path)

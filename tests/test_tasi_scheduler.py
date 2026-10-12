@@ -34,10 +34,21 @@ def test_preopen_and_session_and_close_phases() -> None:
 
 def test_scan_skips_outside_session(monkeypatch) -> None:
     monkeypatch.setattr("app.services.tasi_scheduler.is_intraday_window", lambda moment=None: False)
-    scheduler = TasiMarketScheduler(_settings(), enable_scheduler=False)
+
+    class _Feed:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def ensure_public_quotes(self) -> int:
+            self.calls += 1
+            return 0
+
+    feed = _Feed()
+    scheduler = TasiMarketScheduler(_settings(), tickchart=feed, enable_scheduler=False)
     result = asyncio.run(scheduler.scan_session())
     assert result["skipped"] is True
     assert result["reason"] == "outside_session"
+    assert feed.calls == 0
 
 
 def test_open_prep_lists_major_symbols_without_sahm() -> None:

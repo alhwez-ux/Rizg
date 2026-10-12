@@ -11,8 +11,12 @@ router = APIRouter(prefix="/api/v1/analysts", tags=["analysts"])
 async def get_analyst_consensus(
     request: Request,
     pure_only: bool = Query(default=False, description="الأسهم النقية فقط"),
+    window_days: int | None = Query(default=None, ge=1, le=30, description="نافذة النشر بالأيام"),
 ) -> AnalystConsensusResponse:
-    """House picks whose entry is the live print at first sight, then locked."""
+    """House picks whose entry is the live print at first sight, then locked.
+
+    `window_days` switches to dated buy reports inside that rolling window.
+    """
 
     feed = getattr(request.app.state, "tickchart", None)
     store = getattr(request.app.state, "analyst_entry_store", None) or default_analyst_store()
@@ -21,5 +25,6 @@ async def get_analyst_consensus(
         pure_only=pure_only,
         last_prices=collect_last_prices(feed),
         store=store,
+        window_days=window_days,
     )
     return AnalystConsensusResponse.model_validate(payload)

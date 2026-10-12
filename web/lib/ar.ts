@@ -252,6 +252,7 @@ export const ar = {
   notifyClear: "مسح الكل",
   tabsHome: "الرادار الحي",
   tabsOpportunities: "الفرص والسيولة الذكية",
+  tabsConsensus: "شركات المحللين",
   tabsTools: "أدوات",
   correctionTitle: "منبه التصحيح",
   correctionHint:
@@ -520,6 +521,15 @@ export const ar = {
   analystEmpty: "لا توجد توصية سارية تحقق الهدف > الدخول > الوقف",
   analystTimeframe: "الأفق",
   analystDisclaimer: "سجل مُراجع داخل رزق وليس بثاً مباشراً من مواقع البحث. الخطة تختفي بعد انتهاء الأفق.",
+  analystConsensusBadge: "⭐ إجماع المحللين",
+  analystConsensusHint:
+    "شركات سجّلت بيوت الخبرة شراءً لها خلال آخر 5 أيام. الترتيب بعدد البيوت وثقل التوصية المحفوظ، والمستويات من التقارير لا من تقدير المنصة.",
+  analystConsensusEmpty: "لا توجد توصية شراء بتاريخ نشر داخل آخر 5 أيام.",
+  analystConsensusWindow: "خلال الـ 5 أيام الماضية",
+  analystConsensusEntry: "نطاق الدخول",
+  analystConsensusTarget: "الهدف",
+  analystConsensusStop: "وقف الخسارة",
+  analystConsensusPrice: "السعر الحالي",
   tabsDividends: "التوزيعات",
   dividendsTitle: "أخبار الأرباح والتوزيعات",
   dividendsHint: "تقويم التوزيعات النقدية لتاسي — الأحقية اليوم أو لاحقاً بتوقيت الرياض",

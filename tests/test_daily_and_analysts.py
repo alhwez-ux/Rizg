@@ -141,6 +141,72 @@ def test_analyst_book_drops_expired_inverted_and_prohibited(tmp_path: Path) -> N
     assert all(row["shariah_status"] == "PURE" for row in pure)
 
 
+def test_five_day_consensus_ranks_recorded_houses_and_keeps_report_levels() -> None:
+    from app.services.analyst_consensus import rolling_consensus
+
+    today = date(2026, 10, 12)
+    book = [
+        {
+            "symbol": "1120",
+            "houses": ["الراجحي المالية", "الجزيرة كابيتال"],
+            "published_on": "2026-10-10",
+            "entry_price": 90,
+            "target_price": 99,
+            "stop_loss": 86,
+            "weight": 1,
+        },
+        {
+            "symbol": "1150",
+            "houses": ["دراية المالية"],
+            "published_on": "2026-10-11",
+            "entry_price": 27,
+            "target_price": 31,
+            "stop_loss": 25,
+            "weight": 3,
+        },
+        {
+            "symbol": "1140",
+            "houses": ["البلاد المالية"],
+            "published_on": "2026-10-06",
+            "entry_price": 28,
+            "target_price": 32,
+            "stop_loss": 26,
+        },
+        {
+            "symbol": "2222",
+            "houses": ["الأهلي كابيتال"],
+            "entry_price": 26,
+            "target_price": 29,
+            "stop_loss": 25,
+        },
+        {
+            "symbol": "2010",
+            "houses": ["الراجحي المالية"],
+            "published_on": "2026-10-12",
+            "entry_price": 64,
+            "target_price": 61,
+            "stop_loss": 66,
+        },
+    ]
+    rows = rolling_consensus(today=today, window_days=5, last_prices={"1120": 91.5, "1150": 26.4}, book=book)
+    assert [row["symbol"] for row in rows] == ["1150", "1120"]
+    rich = rows[0]
+    assert rich["analyst_count"] == 1
+    assert rich["consensus_strength"] == 3
+    assert rich["entry_price"] == "27.00"
+    assert rich["last_price"] == 26.4
+    agreed = rows[1]
+    assert agreed["analyst_count"] == 2
+    assert agreed["houses"] == ["الراجحي المالية", "الجزيرة كابيتال"]
+    assert agreed["entry_low"] == "90.00"
+    assert agreed["target_price"] == "99.00"
+    assert agreed["stop_loss"] == "86.00"
+    assert agreed["last_price"] == 91.5
+    assert "1140" not in {row["symbol"] for row in rows}
+    assert "2222" not in {row["symbol"] for row in rows}
+    assert "2010" not in {row["symbol"] for row in rows}
+
+
 def test_analyst_entry_locks_live_print_and_ignores_book_price(tmp_path: Path) -> None:
     store = EntrySnapshotStore(tmp_path / "analyst-lock.json")
     first = active_consensus(today=date(2026, 9, 24), last_prices=_LIVE, store=store)

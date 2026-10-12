@@ -572,10 +572,20 @@ class AnalystPickRow(BaseModel):
     name: str
     sector: str = ""
     houses: list[str] = Field(default_factory=list)
+    analyst_count: int = 0
+    consensus_strength: float = 0
+    published_on: str = ""
+    window_days: int = 0
     last_price: float | None = None
     entry_price: str
+    entry_low: str = ""
+    entry_high: str = ""
     target_price: str
+    target_low: str = ""
+    target_high: str = ""
     stop_loss: str
+    stop_low: str = ""
+    stop_high: str = ""
     reward_ratio: float
     timeframe: str
     valid_until: str
@@ -590,6 +600,7 @@ class AnalystConsensusResponse(BaseModel):
     source: str = "curated"
     count: int = 0
     as_of: str
+    window_days: int = 0
     hint: str = ""
     data: list[AnalystPickRow] = Field(default_factory=list)
 
