@@ -199,9 +199,14 @@ def fetch_live_session_prints(
     if not tickers:
         return []
     cutoff = today or now_riyadh().date()
-    chunks = [tickers[index : index + _LIVE_CHUNK] for index in range(0, len(tickers), _LIVE_CHUNK)]
+    chunks = _symbol_batches(tickers, _LIVE_CHUNK)
 
     def take(chunk: list[str], http: httpx.Client) -> list[dict[str, Any]]:
+        if len(chunk) > _LIVE_CHUNK:
+            rows: list[dict[str, Any]] = []
+            for part in _symbol_batches(chunk, _LIVE_CHUNK):
+                rows.extend(take(part, http))
+            return rows
         try:
             response = http.get(
                 YAHOO_SPARK,
@@ -213,8 +218,16 @@ def fetch_live_session_prints(
             )
             response.raise_for_status()
             body = response.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status == 400 and len(chunk) > 1:
+                mid = len(chunk) // 2
+                logger.warning("yahoo rejected a %s-symbol quote url; splitting the batch", len(chunk))
+                return take(chunk[:mid], http) + take(chunk[mid:], http)
+            logger.warning("live session quote chunk failed: status=%s symbols=%s", status, len(chunk))
+            return []
         except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("live session quote chunk failed: %s", exc)
+            logger.warning("live session quote chunk failed: %s symbols=%s", type(exc).__name__, len(chunk))
             return []
         if not isinstance(body, dict):
             return []
@@ -233,7 +246,10 @@ def fetch_live_session_prints(
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futures = [pool.submit(_download_live_chunk, chunk, cutoff) for chunk in chunks]
                 for future in as_completed(futures):
-                    quotes.extend(future.result() or [])
+                    try:
+                        quotes.extend(future.result() or [])
+                    except Exception:
+                        logger.warning("live session quote batch failed", exc_info=True)
             covered = {str(row.get("symbol") or "") for row in quotes}
             missing = [symbol for symbol in tickers if symbol not in covered]
             if len(quotes) < max(1, len(tickers) // 5):
@@ -294,8 +310,18 @@ def _fetch_chart_metas(symbols: list[str], *, today: date) -> list[dict[str, Any
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in as_completed(pool.submit(one, symbol) for symbol in symbols):
-            quotes.extend(future.result() or [])
+            try:
+                quotes.extend(future.result() or [])
+            except Exception:
+                logger.warning("live chart meta batch failed", exc_info=True)
     return quotes
+
+
+def _symbol_batches(symbols: list[str], size: int) -> list[list[str]]:
+    """Keep each Yahoo symbol list short enough that the request URL is accepted."""
+
+    step = max(1, min(int(size), _LIVE_CHUNK))
+    return [symbols[index : index + step] for index in range(0, len(symbols), step)]
 
 
 def _download_live_chunk(chunk: list[str], today: date) -> list[dict[str, Any]]:

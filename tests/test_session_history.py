@@ -328,6 +328,43 @@ def test_live_fetch_requests_the_daily_meta_only() -> None:
     assert rows[0]["last_price"] == 62.05
 
 
+def test_live_fetch_splits_a_long_symbol_list_and_survives_a_rejected_batch() -> None:
+    import httpx
+
+    from app.services.session_history import fetch_live_session_prints
+
+    symbols = [f"{1000 + index:04d}" for index in range(120)]
+    sizes: list[int] = []
+    rejected = {"small": False}
+
+    class _Ok:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"spark": {"result": []}}
+
+    class _Client:
+        def get(self, url: str, params: dict | None = None) -> _Ok:
+            count = len([part for part in str((params or {}).get("symbols") or "").split(",") if part])
+            sizes.append(count)
+            request = httpx.Request("GET", url)
+            if count > 20:
+                response = httpx.Response(400, request=request)
+                raise httpx.HTTPStatusError("400", request=request, response=response)
+            if not rejected["small"]:
+                rejected["small"] = True
+                response = httpx.Response(503, request=request)
+                raise httpx.HTTPStatusError("503", request=request, response=response)
+            return _Ok()
+
+    rows = fetch_live_session_prints(symbols, today=date(2026, 10, 13), client=_Client())
+    assert rows == []
+    assert max(sizes) <= 50
+    assert rejected["small"] is True
+    assert sum(1 for size in sizes if size <= 20) >= 2
+
+
 def test_live_print_uses_today_market_price_and_drops_an_older_one() -> None:
     today = datetime(2026, 10, 11, 12, 12, tzinfo=_RIYADH)
     older = datetime(2026, 10, 8, 15, 0, tzinfo=_RIYADH)
