@@ -230,8 +230,16 @@ def _with_prior_closes(feed: Any, row: dict[str, Any]) -> dict[str, Any]:
         bars = history(symbol)
     except Exception:
         return noted
-    closes = [_positive(bar.get("close")) for bar in bars or [] if isinstance(bar, dict)]
-    closes = [price for price in closes if price is not None]
+    session_day = str(noted.get("session_date") or now_riyadh().date().isoformat())[:10]
+    closes = []
+    for bar in bars or []:
+        if not isinstance(bar, dict):
+            continue
+        bar_day = str(bar.get("date") or bar.get("session_date") or "")[:10]
+        close = _positive(bar.get("close"))
+        if close is None or (len(bar_day) >= 10 and bar_day >= session_day):
+            continue
+        closes.append(close)
     recent = closes[-10:]
     if not recent:
         return noted

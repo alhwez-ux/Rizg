@@ -660,7 +660,9 @@ class TickChartFeed:
         else:
             last_price = self._quotes.display_price(ticker) or tape_price or ranking.get("last_price") or self._ranking_price(ticker)
             live_tick = False
-        change = stored.get("change_percent")
+        change = self._quotes.session_change(ticker, last_price)
+        if change is None:
+            change = stored.get("change_percent")
         if change is None:
             change = live.get("change_percent")
         session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
@@ -827,8 +829,9 @@ class TickChartFeed:
             value = float(stored.get("value_traded") or 0)
         except (TypeError, ValueError):
             value = 0.0
+        measured = self._quotes.session_change(ticker, price)
         try:
-            change = float(stored.get("change_percent") or 0)
+            change = float(measured if measured is not None else stored.get("change_percent") or 0)
         except (TypeError, ValueError):
             change = 0.0
         if value <= 0 and volume > 0:
@@ -1109,8 +1112,9 @@ class TickChartFeed:
                 continue
             if price <= 0:
                 continue
+            measured = self._quotes.session_change(symbol, price)
             try:
-                change = float(item.get("change_percent") or 0)
+                change = float(measured if measured is not None else item.get("change_percent") or 0)
             except (TypeError, ValueError):
                 change = 0.0
             try:
@@ -1759,7 +1763,10 @@ class TickChartFeed:
                     "session_volume": live.get("session_volume") or stored.get("volume") or ranked.get("volume") or 0,
                     "volume": stored.get("volume") or ranked.get("volume") or live.get("session_volume") or 0,
                     "volume_ratio": live.get("volume_ratio"),
-                    "change_percent": live.get("change_percent") or stored.get("change_percent") or ranked.get("change_percent"),
+                    "change_percent": self._quotes.session_change(symbol, last)
+                    or live.get("change_percent")
+                    or stored.get("change_percent")
+                    or ranked.get("change_percent"),
                     "institutional_mfi": live.get("institutional_mfi"),
                     "mfi": live.get("mfi") or ranked.get("mfi"),
                     "net_flow": stored.get("net_flow") or live.get("net_flow") or 0,

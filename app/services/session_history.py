@@ -169,10 +169,11 @@ def parse_live_prints(payload: dict[str, Any], *, today: date | None = None) -> 
         day = _riyadh_day(meta.get("regularMarketTime"))
         if price is None or day != cutoff:
             continue
-        prev = _positive(meta.get("chartPreviousClose") or meta.get("previousClose"))
-        change = _number(meta.get("regularMarketChangePercent"))
-        if change is None and prev and prev > 0:
+        prev = _positive(meta.get("previousClose") or meta.get("chartPreviousClose"))
+        if prev and prev > 0:
             change = round(((price - prev) / prev) * 100, 4)
+        else:
+            change = _number(meta.get("regularMarketChangePercent"))
         volume = _positive(meta.get("regularMarketVolume"))
         rows.append(
             {

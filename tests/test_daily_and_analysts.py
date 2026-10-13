@@ -65,6 +65,27 @@ def test_daily_board_shows_rebound_setups_not_the_liquid_list(tmp_path: Path) ->
     assert named["reward_ratio"] >= 1.5
 
 
+def test_daily_breakout_ignores_todays_close_when_measuring_the_prior_ceiling(tmp_path: Path) -> None:
+    class _Quotes:
+        def close_history(self, symbol: str):
+            assert symbol == "6050"
+            return [
+                {"date": "2026-10-12", "close": 53.05},
+                {"date": "2026-10-13", "close": 58.35},
+            ]
+
+    class _Feed:
+        _quotes = _Quotes()
+
+        def market_rows(self):
+            return [{"symbol": "6050", "last_price": 58.35, "session_date": "2026-10-13"}]
+
+    payload = scan_daily_opportunities(_Feed(), snapshots=[], recommendations=[], store=EntrySnapshotStore(tmp_path / "empty.json"))
+    assert payload["count"] == 1
+    assert payload["data"][0]["symbol"] == "6050"
+    assert payload["data"][0]["setup"] == "اختراق مقاومة يومية"
+
+
 def test_daily_opportunity_enforces_two_r_and_locks_entry(tmp_path: Path) -> None:
     store = EntrySnapshotStore(tmp_path / "locks.json")
     first = scan_daily_opportunities(snapshots=[_accum()], store=store, recommendations=[])

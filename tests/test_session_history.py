@@ -408,6 +408,57 @@ def test_live_print_uses_today_market_price_and_drops_an_older_one() -> None:
     assert rows[0]["volume"] == 2_000_000
 
 
+def test_live_print_change_follows_the_previous_close_not_a_stale_percent() -> None:
+    today = datetime(2026, 10, 13, 15, 0, tzinfo=_RIYADH)
+    payload = {
+        "spark": {
+            "result": [
+                {
+                    "symbol": "6050.SR",
+                    "response": [
+                        {
+                            "meta": {
+                                "regularMarketPrice": 58.35,
+                                "regularMarketTime": int(today.timestamp()),
+                                "previousClose": 53.05,
+                                "regularMarketChangePercent": 4.8,
+                                "regularMarketVolume": 1_000_000,
+                            }
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    rows = parse_live_prints(payload, today=date(2026, 10, 13))
+    assert len(rows) == 1
+    assert rows[0]["change_percent"] == round((58.35 - 53.05) / 53.05 * 100, 4)
+    assert rows[0]["prev_close"] == 53.05
+
+
+def test_stored_change_uses_the_prior_session_when_today_is_already_saved(tmp_path) -> None:
+    book = LastQuoteBook(tmp_path / "quotes.json")
+    book.merge_history(
+        [
+            {"symbol": "6050", "date": "2026-10-12", "close": 53.05, "volume": 1000},
+            {"symbol": "6050", "date": "2026-10-13", "close": 58.35, "volume": 1000},
+        ],
+        keep_today=False,
+    )
+    book.apply_closes(
+        [
+            {
+                "symbol": "6050",
+                "last_price": 58.35,
+                "change_percent": 4.8,
+                "prev_close": 55.68,
+                "session_date": date(2026, 10, 13),
+            }
+        ]
+    )
+    assert book.session_change("6050", 58.35) == round((58.35 - 53.05) / 53.05 * 100, 4)
+
+
 def test_overlay_replaces_a_print_sized_volume_with_the_session_close() -> None:
     official = {"2222": {"last_price": 25.8, "volume": 13_764_976, "session_date": "2026-10-06"}}
     rows = [{"symbol": "2222", "last_price": 25.8, "volume": 200}]

@@ -168,6 +168,29 @@ class LastQuoteBook:
             return None
         return _positive(row.get("last_price"))
 
+    def session_change(self, symbol: str, price: Any) -> float | None:
+        """Percent move from the previous measured session close to this price."""
+
+        current = _positive(price)
+        if current is None:
+            return None
+        row = self.get(symbol) or {}
+        day = str(row.get("session_date") or "")[:10]
+        prior = None
+        for bar in self.close_history(symbol):
+            bar_day = str(bar.get("date") or "")[:10]
+            close = _positive(bar.get("close"))
+            if close is None or len(bar_day) < 10:
+                continue
+            if day and bar_day >= day:
+                continue
+            prior = close
+        if prior is None:
+            prior = _positive(row.get("prev_close"))
+        if prior is None or prior <= 0:
+            return None
+        return round(((current - prior) / prior) * 100, 4)
+
     def display_price(self, symbol: str) -> float | None:
         """Price shown across the platform: today's print while the session is on, otherwise the completed close."""
 
