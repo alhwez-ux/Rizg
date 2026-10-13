@@ -86,52 +86,6 @@ def test_daily_breakout_ignores_todays_close_when_measuring_the_prior_ceiling(tm
     assert payload["data"][0]["setup"] == "اختراق مقاومة يومية"
 
 
-def test_multi_day_rise_appears_even_when_today_is_not_a_single_session_setup(tmp_path: Path) -> None:
-    class _Quotes:
-        def close_history(self, symbol: str):
-            assert symbol == "6050"
-            return [
-                {"date": "2026-10-06", "close": 42.0, "volume": 800},
-                {"date": "2026-10-07", "close": 43.0, "volume": 900},
-                {"date": "2026-10-08", "close": 44.0, "volume": 1000},
-                {"date": "2026-10-11", "close": 48.0, "volume": 2200},
-                {"date": "2026-10-12", "close": 53.05, "volume": 2600},
-                {"date": "2026-10-13", "close": 58.35, "volume": 3100},
-            ]
-
-    class _Feed:
-        _quotes = _Quotes()
-
-        def market_rows(self):
-            return [{"symbol": "6050", "last_price": 58.35, "session_date": "2026-10-13"}]
-
-    payload = scan_daily_opportunities(_Feed(), snapshots=[], recommendations=[], store=EntrySnapshotStore(tmp_path / "empty.json"))
-    assert payload["count"] == 1
-    row = payload["data"][0]
-    assert row["setup"] == "زخم متراكم"
-    assert row["timeframe"] == "3–5 جلسات"
-    assert "5 جلسات" in row["reason"]
-    assert "حجم" in row["reason"]
-
-
-def test_a_quiet_three_session_drift_stays_off_the_opportunity_list(tmp_path: Path) -> None:
-    class _Quotes:
-        def close_history(self, symbol: str):
-            return [
-                {"date": f"2026-10-{day:02d}", "close": 50.0, "volume": 1000}
-                for day in (6, 7, 8, 11, 12, 13)
-            ]
-
-    class _Feed:
-        _quotes = _Quotes()
-
-        def market_rows(self):
-            return [{"symbol": "1120", "last_price": 50.0, "session_date": "2026-10-13"}]
-
-    payload = scan_daily_opportunities(_Feed(), snapshots=[], recommendations=[], store=EntrySnapshotStore(tmp_path / "empty.json"))
-    assert payload["count"] == 0
-
-
 def test_daily_opportunity_enforces_two_r_and_locks_entry(tmp_path: Path) -> None:
     store = EntrySnapshotStore(tmp_path / "locks.json")
     first = scan_daily_opportunities(snapshots=[_accum()], store=store, recommendations=[])

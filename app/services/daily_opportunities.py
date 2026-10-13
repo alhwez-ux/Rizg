@@ -20,19 +20,14 @@ TIMEFRAME = "جلسة اليوم"
 _DEFAULT_STORE = EntrySnapshotStore(Path("data/intraday_entry_snapshots.json"))
 
 HINT = (
-    "أسهم اقتربت من دعم، أو ارتدت من متوسط السيولة، أو اخترقت مقاومة اليوم، "
-    "أو صعدت بتسارع خلال آخر 3 إلى 5 جلسات. هذه ليست قائمة أعلى سيولة."
+    "أسهم اقتربت من دعم رئيسي، أو ارتدت من متوسط السيولة، أو اخترقت مقاومة اليوم. "
+    "هذه ليست قائمة أعلى سيولة."
 )
 CLOSE_HINT = "فرص الإغلاق التي بقيت قرب الدعم أو أكملت ارتداد الجلسة."
 SETUP_SUPPORT = "ارتداد من دعم رئيسي"
 SETUP_VWAP = "ارتداد من متوسط السيولة"
 SETUP_BREAK = "اختراق مقاومة يومية"
-SETUP_MOMENTUM = "زخم متراكم"
-TIMEFRAME_MOMENTUM = "3–5 جلسات"
 _NEAR_SUPPORT = 0.015
-_MIN_CHANGE_3 = 8.0
-_MIN_CHANGE_5 = 12.0
-_VOLUME_SURGE = 1.5
 
 
 def scan_daily_opportunities(
@@ -102,32 +97,16 @@ def _from_rebound(feed: Any, item: dict[str, Any]) -> dict[str, Any] | None:
     if not _tradable(symbol):
         return None
     noted = _with_prior_closes(feed, item)
+    setup = rebound_setup(noted)
+    if setup is None:
+        return None
     price = _positive(noted.get("last_price") or noted.get("price") or noted.get("close"))
     if price is None:
-        return None
-    momentum = multi_day_momentum(noted.get("recent_closes") or [], noted.get("recent_volumes") or [])
-    setup = None if momentum is not None else rebound_setup(noted)
-    if momentum is None and setup is None:
         return None
     bound = _bind_live_levels(price, price, None, None)
     if bound is None:
         return None
     entry, target, stop = bound
-    if momentum is not None:
-        return {
-            "symbol": symbol,
-            "name": _listed_name(symbol, noted.get("name")),
-            "sector": noted.get("sector") or sector_for(symbol) or "",
-            "last_price": price,
-            "entry_price": entry,
-            "target_price": target,
-            "stop_loss": stop,
-            "signal_kind": "momentum",
-            "setup": SETUP_MOMENTUM,
-            "reason": momentum["reason"],
-            "score": momentum["score"],
-            "timeframe": TIMEFRAME_MOMENTUM,
-        }
     return {
         "symbol": symbol,
         "name": _listed_name(symbol, noted.get("name")),
@@ -193,7 +172,7 @@ def _publish(raw: dict[str, Any], *, pure_only: bool) -> dict[str, Any] | None:
         "target_price": f"{target:.2f}",
         "stop_loss": f"{stop:.2f}",
         "reward_ratio": round(ratio, 2),
-        "timeframe": str(raw.get("timeframe") or TIMEFRAME),
+        "timeframe": TIMEFRAME,
         "setup": str(raw.get("setup") or "فرصة يومية"),
         "reason": str(raw.get("reason") or ""),
         "score": float(raw.get("score") or 0),
@@ -252,7 +231,6 @@ def _with_prior_closes(feed: Any, row: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         return noted
     session_day = str(noted.get("session_date") or now_riyadh().date().isoformat())[:10]
-    price = _positive(noted.get("last_price") or noted.get("price") or noted.get("close"))
     closes = []
     for bar in bars or []:
         if not isinstance(bar, dict):
@@ -263,119 +241,13 @@ def _with_prior_closes(feed: Any, row: dict[str, Any]) -> dict[str, Any]:
             continue
         closes.append(close)
     recent = closes[-10:]
-    if recent:
-        if not _positive(noted.get("prior_low")):
-            noted["prior_low"] = min(recent)
-        if not _positive(noted.get("prior_high")):
-            noted["prior_high"] = max(recent)
-    noted["recent_closes"] = _momentum_closes(bars, session_day, price)
-    noted["recent_volumes"] = _momentum_volumes(bars, session_day, noted)
+    if not recent:
+        return noted
+    if not _positive(noted.get("prior_low")):
+        noted["prior_low"] = min(recent)
+    if not _positive(noted.get("prior_high")):
+        noted["prior_high"] = max(recent)
     return noted
-
-
-def multi_day_momentum(closes: list[float], volumes: list[float]) -> dict[str, Any] | None:
-    """A measured 3-to-5 session rise, or a close that left the prior base, with volume when it exists."""
-
-    prices = [value for value in (_positive(item) for item in closes) if value is not None]
-    if len(prices) < 4:
-        return None
-    last = prices[-1]
-    change_3 = _span_change(prices, 3)
-    change_5 = _span_change(prices, 5) if len(prices) >= 6 else None
-    window = 5 if change_5 is not None and change_5 >= _MIN_CHANGE_5 else 3
-    change = change_5 if window == 5 else change_3
-    if change is None:
-        return None
-    accelerated = change_3 is not None and change_3 >= _MIN_CHANGE_3
-    if change_5 is not None and change_5 >= _MIN_CHANGE_5:
-        accelerated = True
-    base = prices[-8:-3] if len(prices) >= 8 else []
-    left_base = bool(base) and last > max(base) and change_3 is not None and change_3 > 0
-    surge = _volume_surge(volumes)
-    if surge is False:
-        return None
-    if not accelerated and not (left_base and surge is True):
-        return None
-    if not accelerated and surge is None:
-        return None
-    parts = [f"صعود {change:.2f}% خلال {window} جلسات"]
-    if surge is True:
-        parts.append("مع ارتفاع حجم آخر 3 جلسات عن متوسط الجلسات السابقة")
-    if left_base:
-        parts.append("وخرج من نطاق التجميع السابق")
-    score = min(99.0, 60.0 + max(change, 0.0))
-    return {"reason": " ".join(parts), "score": round(score, 1), "change": round(change, 4), "sessions": window}
-
-
-def _span_change(prices: list[float], sessions: int) -> float | None:
-    if len(prices) < sessions + 1:
-        return None
-    start = prices[-(sessions + 1)]
-    last = prices[-1]
-    if start <= 0:
-        return None
-    return ((last - start) / start) * 100
-
-
-def _volume_surge(volumes: list[float]) -> bool | None:
-    """True when the last 3 sessions are at least 1.5× the sessions before them. None if volume was not measured."""
-
-    amounts = []
-    for item in volumes:
-        number = _positive(item)
-        if number is not None:
-            amounts.append(number)
-    if len(amounts) < 6:
-        return None
-    recent = amounts[-3:]
-    earlier = amounts[-6:-3]
-    baseline = sum(earlier) / len(earlier)
-    if baseline <= 0:
-        return None
-    return (sum(recent) / len(recent)) / baseline >= _VOLUME_SURGE
-
-
-def _momentum_closes(bars: list[dict[str, Any]] | None, session_day: str, price: float | None) -> list[float]:
-    ordered: list[tuple[str, float]] = []
-    for bar in bars or []:
-        if not isinstance(bar, dict):
-            continue
-        day = str(bar.get("date") or bar.get("session_date") or "")[:10]
-        close = _positive(bar.get("close"))
-        if close is None or len(day) < 10:
-            continue
-        ordered.append((day, close))
-    ordered.sort(key=lambda item: item[0])
-    closes = [close for day, close in ordered if not session_day or day <= session_day]
-    if price is not None and (not closes or not _near(closes[-1], price)):
-        closes.append(price)
-    return closes[-6:]
-
-
-def _momentum_volumes(bars: list[dict[str, Any]] | None, session_day: str, row: dict[str, Any]) -> list[float]:
-    ordered: list[tuple[str, float]] = []
-    for bar in bars or []:
-        if not isinstance(bar, dict):
-            continue
-        day = str(bar.get("date") or bar.get("session_date") or "")[:10]
-        volume = _positive(bar.get("volume"))
-        if volume is None or len(day) < 10:
-            continue
-        if session_day and day > session_day:
-            continue
-        ordered.append((day, volume))
-    ordered.sort(key=lambda item: item[0])
-    volumes = [volume for _, volume in ordered]
-    current = _positive(row.get("session_volume") or row.get("volume"))
-    if current is not None and ordered and session_day and ordered[-1][0] == session_day:
-        volumes[-1] = current
-    elif current is not None:
-        volumes.append(current)
-    return volumes[-6:]
-
-
-def _near(left: float, right: float) -> bool:
-    return abs(left - right) <= max(right * 0.0001, 0.0001)
 
 
 def _rebound_score(row: dict[str, Any], setup: str) -> float:
