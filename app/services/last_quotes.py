@@ -169,27 +169,32 @@ class LastQuoteBook:
         return _positive(row.get("last_price"))
 
     def session_change(self, symbol: str, price: Any) -> float | None:
-        """Percent move from the previous measured session close to this price."""
+        """((current close - previous session close) / previous session close) * 100."""
 
         current = _positive(price)
-        if current is None:
+        previous = self.previous_session_close(symbol, current)
+        if current is None or previous is None or previous <= 0:
             return None
+        return round(((current - previous) / previous) * 100, 4)
+
+    def previous_session_close(self, symbol: str, price: Any = None) -> float | None:
+        """The measured close of the session immediately before the shown price."""
+
+        current = _positive(price)
         row = self.get(symbol) or {}
+        ordered = _dated_closes(self.close_history(symbol))
+        if current is not None and len(ordered) >= 2 and _same_price(ordered[-1][1], current):
+            return ordered[-2][1]
         day = str(row.get("session_date") or "")[:10]
-        prior = None
-        for bar in self.close_history(symbol):
-            bar_day = str(bar.get("date") or "")[:10]
-            close = _positive(bar.get("close"))
-            if close is None or len(bar_day) < 10:
-                continue
-            if day and bar_day >= day:
-                continue
-            prior = close
-        if prior is None:
-            prior = _positive(row.get("prev_close"))
-        if prior is None or prior <= 0:
-            return None
-        return round(((current - prior) / prior) * 100, 4)
+        if day:
+            prior = [close for bar_day, close in ordered if bar_day < day]
+            if prior:
+                return prior[-1]
+        if len(ordered) >= 2:
+            return ordered[-2][1]
+        if ordered and (current is None or not _same_price(ordered[-1][1], current)):
+            return ordered[-1][1]
+        return _positive(row.get("prev_close"))
 
     def display_price(self, symbol: str) -> float | None:
         """Price shown across the platform: today's print while the session is on, otherwise the completed close."""
@@ -372,6 +377,23 @@ def _close_row(item: dict[str, Any]) -> tuple[str, float | None, dict[str, Any]]
         "session_date": item.get("session_date"),
     }
     return ticker, price, extras
+
+
+def _dated_closes(bars: list[dict[str, Any]]) -> list[tuple[str, float]]:
+    by_day: dict[str, float] = {}
+    for bar in bars:
+        if not isinstance(bar, dict):
+            continue
+        day = str(bar.get("date") or bar.get("session_date") or "")[:10]
+        close = _positive(bar.get("close") if bar.get("close") is not None else bar.get("last_price"))
+        if close is None or len(day) < 10:
+            continue
+        by_day[day] = close
+    return sorted(by_day.items())
+
+
+def _same_price(left: float, right: float) -> bool:
+    return abs(left - right) <= max(right * 0.0001, 0.0001)
 
 
 def _positive(value: Any) -> float | None:

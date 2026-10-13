@@ -172,7 +172,7 @@ export function LiquidityRadarCard({
               dir="ltr"
               className={`font-mono text-xs tabular-nums ${(report.change_percent ?? 0) > 0 ? "text-emerald-300" : "text-rose-300"}`}
             >
-              {formatPercent(report.change_percent)}
+              {formatPercent(report.change_percent, 2)}
             </p>
           ) : null}
           <RetryButton onRetry={retry} className="mt-1" />

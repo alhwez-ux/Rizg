@@ -459,6 +459,32 @@ def test_stored_change_uses_the_prior_session_when_today_is_already_saved(tmp_pa
     assert book.session_change("6050", 58.35) == round((58.35 - 53.05) / 53.05 * 100, 4)
 
 
+def test_session_change_ignores_a_stale_session_date_and_yahoo_previous_close(tmp_path) -> None:
+    book = LastQuoteBook(tmp_path / "quotes.json")
+    book.merge_history(
+        [
+            {"symbol": "6050", "date": "2026-10-12", "close": 53.05, "volume": 1000},
+            {"symbol": "6050", "date": "2026-10-13", "close": 58.35, "volume": 1000},
+        ],
+        keep_today=False,
+    )
+    book.apply_closes(
+        [
+            {
+                "symbol": "6050",
+                "last_price": 58.35,
+                "change_percent": 4.8,
+                "prev_close": 55.68,
+                "session_date": date(2026, 10, 13),
+            }
+        ]
+    )
+    with book._guard:
+        book._quotes["6050"]["session_date"] = "2026-10-12"
+    assert book.previous_session_close("6050", 58.35) == 53.05
+    assert book.session_change("6050", 58.35) == round(((58.35 - 53.05) / 53.05) * 100, 4)
+
+
 def test_overlay_replaces_a_print_sized_volume_with_the_session_close() -> None:
     official = {"2222": {"last_price": 25.8, "volume": 13_764_976, "session_date": "2026-10-06"}}
     rows = [{"symbol": "2222", "last_price": 25.8, "volume": 200}]
