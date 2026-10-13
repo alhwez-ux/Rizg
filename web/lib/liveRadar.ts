@@ -62,6 +62,8 @@ export interface LiveRadarReport {
   watch_flag?: string | null;
   explosive?: boolean;
   hidden_accumulation?: boolean;
+  ichimoku_trend?: "up" | "range" | "down" | null;
+  ichimoku_signal?: "entry" | "exit" | "watch" | null;
 }
 
 export interface LiveRadarResponse {
@@ -205,6 +207,14 @@ function parseReport(raw: unknown): LiveRadarReport | null {
     watch_flag: row.watch_flag == null ? null : String(row.watch_flag),
     explosive: Boolean(row.explosive),
     hidden_accumulation: Boolean(row.hidden_accumulation) || String(row.watch_flag || "") === HIDDEN_ACCUM_FLAG,
+    ichimoku_trend:
+      row.ichimoku_trend === "up" || row.ichimoku_trend === "range" || row.ichimoku_trend === "down"
+        ? row.ichimoku_trend
+        : null,
+    ichimoku_signal:
+      row.ichimoku_signal === "entry" || row.ichimoku_signal === "exit" || row.ichimoku_signal === "watch"
+        ? row.ichimoku_signal
+        : null,
   };
 }
 

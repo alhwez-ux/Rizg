@@ -27,6 +27,47 @@ import { buildStockDossier, resolveTapePath, valuationStance, type FieldState, t
 
 type QuoteMode = "live" | "waiting" | "last_close";
 
+function IchimokuBadge({
+  trend,
+  signal,
+}: {
+  trend?: "up" | "range" | "down" | null;
+  signal?: "entry" | "exit" | "watch" | null;
+}) {
+  if (!trend && !signal) return null;
+  const trendLabel =
+    trend === "up" ? `${ar.ichimokuUp} 🟢` : trend === "range" ? `${ar.ichimokuRange} 🟡` : trend === "down" ? `${ar.ichimokuDown} 🔴` : null;
+  const trendClass =
+    trend === "up"
+      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100"
+      : trend === "range"
+        ? "border-amber-400/40 bg-amber-500/15 text-amber-100"
+        : trend === "down"
+          ? "border-rose-400/40 bg-rose-500/15 text-rose-100"
+          : "";
+  const signalLabel = signal === "entry" ? ar.ichimokuEntry : signal === "exit" ? ar.ichimokuExit : signal === "watch" ? ar.ichimokuWatch : null;
+  const signalClass =
+    signal === "entry"
+      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+      : signal === "exit"
+        ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
+        : "border-zinc-500/40 bg-zinc-800/80 text-zinc-200";
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {trendLabel ? (
+        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${trendClass}`}>
+          {trendLabel}
+        </span>
+      ) : null}
+      {signalLabel ? (
+        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${signalClass}`}>
+          {signalLabel}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function toQuoteMode(value: string | null | undefined): QuoteMode | undefined {
   if (value === "live" || value === "waiting" || value === "last_close") return value;
   return undefined;
@@ -98,11 +139,12 @@ export function LiquidityRadarCard({
       ) : null}
       <header className={`flex items-start justify-between gap-3 ${onRemove ? "pe-16" : ""}`}>
         <div className="min-w-0 text-start">
-          <h3 className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold text-zinc-50">
+          <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-lg font-semibold text-zinc-50">
             {title ? <span>{title}</span> : null}
             <span className="font-mono text-sm text-zinc-400" dir="ltr">
               {symbol}
             </span>
+            <IchimokuBadge trend={report?.ichimoku_trend} signal={report?.ichimoku_signal} />
           </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {report ? (

@@ -166,6 +166,7 @@ class TickChartFeed:
         self._public_quotes_running = False
         self._session_lock = threading.Lock()
         self._symbol_quote_at: dict[str, float] = {}
+        self._ichimoku_at: dict[str, float] = {}
         self._quote_cursor = 0
         self._quote_cycle_done = False
         from app.services.entry_snapshot_store import EntrySnapshotStore
@@ -635,6 +636,7 @@ class TickChartFeed:
             await self.hydrate_symbol(ticker)
         await self._subscribe_symbol(ticker)
         await asyncio.to_thread(self._ensure_session_price, ticker)
+        await asyncio.to_thread(self._ensure_ichimoku_history, ticker)
         return self.radar_report(ticker)
 
     def radar_report(self, symbol: str) -> dict[str, Any]:
@@ -801,6 +803,7 @@ class TickChartFeed:
         report["session_open"] = _json_number(stored.get("open"))
         report["session_high"] = _json_number(stored.get("high")) or _json_number(levels.session_high)
         report["session_low"] = _json_number(stored.get("low")) or _json_number(levels.session_low)
+        report.update(self._ichimoku_fields(ticker, stored))
         return report
 
     def _stored_market_row(self, symbol: str) -> dict[str, Any] | None:
@@ -1443,6 +1446,53 @@ class TickChartFeed:
         if applied == 0 and not self._quotes.snapshot():
             self.ensure_close_book()
         return applied
+
+    def _ensure_ichimoku_history(self, symbol: str) -> None:
+        """Fetch one symbol's daily OHLC when the card opens. Cached for hours."""
+
+        ticker = str(symbol or "").strip().upper()
+        if not ticker or os.environ.get("RIZG_DISABLE_PUBLIC_QUOTES") == "1":
+            return
+        now = time.monotonic()
+        from app.services.ichimoku import history_has_cloud
+
+        ready = history_has_cloud(self._quotes.close_history(ticker))
+        stamp = self._ichimoku_at.get(ticker)
+        elapsed = None if stamp is None else now - stamp
+        if ready and (elapsed is None or elapsed < 6 * 3600):
+            if stamp is None:
+                self._ichimoku_at[ticker] = now
+            return
+        if elapsed is not None and elapsed < 15 * 60:
+            return
+        self._ichimoku_at[ticker] = now
+        try:
+            from app.services.session_history import fetch_symbol_ohlc
+
+            rows = fetch_symbol_ohlc(ticker)
+        except Exception:
+            logger.warning("ichimoku history failed for %s", ticker, exc_info=True)
+            return
+        if rows:
+            self._quotes.merge_history(rows, keep_today=False)
+
+    def _ichimoku_fields(self, ticker: str, stored: dict[str, Any]) -> dict[str, Any]:
+        from app.services.ichimoku import ichimoku_reading
+
+        today = None
+        session_day = stored.get("session_date")
+        if session_day and stored.get("open") and stored.get("high") and stored.get("low"):
+            today = {
+                "date": session_day,
+                "open": stored.get("open"),
+                "high": stored.get("high"),
+                "low": stored.get("low"),
+                "close": stored.get("last_price"),
+            }
+        reading = ichimoku_reading(self._quotes.close_history(ticker), today)
+        if not reading:
+            return {"ichimoku_trend": None, "ichimoku_signal": None}
+        return {"ichimoku_trend": reading["trend"], "ichimoku_signal": reading["signal"]}
 
     def _ensure_session_price(self, symbol: str) -> None:
         """Refresh one open-session quote so a watched card is not stuck on yesterday's close."""

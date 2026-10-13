@@ -13,7 +13,7 @@ from app.services.tasi_clock import latest_completed_session, now_riyadh, sessio
 
 _DEFAULT_PATH = Path("data/tickchart_last_quotes.json")
 _BUNDLED_TAPE = Path(__file__).resolve().parents[1] / "data" / "tasi_close_tape.json"
-_HISTORY_LIMIT = 40
+_HISTORY_LIMIT = 90
 
 
 class LastQuoteBook:
@@ -240,7 +240,12 @@ class LastQuoteBook:
                 if keep_today and day >= today:
                     continue
                 volume = _positive(item.get("volume") or item.get("session_volume")) or 0.0
-                grouped.setdefault(ticker, []).append({"date": day, "close": close, "volume": volume})
+                stored = {"date": day, "close": close, "volume": volume}
+                for key in ("open", "high", "low"):
+                    value = _positive(item.get(key))
+                    if value is not None:
+                        stored[key] = value
+                grouped.setdefault(ticker, []).append(stored)
             for ticker, incoming in grouped.items():
                 current = {
                     str(row.get("date")): dict(row)
@@ -248,7 +253,12 @@ class LastQuoteBook:
                     if isinstance(row, dict) and row.get("date")
                 }
                 for bar in incoming:
-                    current[bar["date"]] = bar
+                    previous = current.get(bar["date"]) or {}
+                    merged = {**previous, **bar}
+                    for key in ("open", "high", "low"):
+                        if key not in bar and previous.get(key) is not None:
+                            merged[key] = previous[key]
+                    current[bar["date"]] = merged
                     applied += 1
                 ordered = sorted(current.values(), key=lambda row: str(row.get("date") or ""))
                 self._history[ticker] = ordered[-_HISTORY_LIMIT:]

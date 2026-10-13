@@ -86,7 +86,7 @@ def parse_spark_bars(
             if close is None:
                 continue
             volume = _number(volumes[index] if isinstance(volumes, list) and index < len(volumes) else 0) or 0.0
-            series.append({"symbol": ticker, "date": day.isoformat(), "close": close, "volume": volume})
+            series.append(_ohlc_row(ticker, day, close, volume, quote, index))
         series.sort(key=lambda row: str(row.get("date") or ""))
         rows.extend(series[-want:])
     return rows
@@ -127,7 +127,7 @@ def parse_spark_market(
             if day is None or close is None:
                 continue
             volume = _number(volumes[index] if isinstance(volumes, list) and index < len(volumes) else 0) or 0.0
-            series.append({"symbol": ticker, "date": day.isoformat(), "close": close, "volume": volume})
+            series.append(_ohlc_row(ticker, day, close, volume, quote, index))
         series.sort(key=lambda row: str(row.get("date") or ""))
         if not series:
             continue
@@ -427,6 +427,82 @@ def overlay_session_closes(
         elif implausible:
             row["volume"] = None
     return rows
+
+
+def fetch_symbol_ohlc(symbol: str, *, timeout: float = 8.0) -> list[dict[str, Any]]:
+    """One symbol's daily open/high/low/close. Never used for a market-wide sweep."""
+
+    ticker = str(symbol or "").strip().upper().split(".", 1)[0]
+    if not is_tasi_main_symbol(ticker):
+        return []
+    try:
+        with _http_client(timeout) as http:
+            response = http.get(
+                YAHOO_CHART.format(symbol=ticker),
+                params={"range": "6mo", "interval": "1d"},
+            )
+            response.raise_for_status()
+            body = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.warning("ichimoku history fetch failed for %s", ticker)
+        return []
+    chart = body.get("chart") if isinstance(body, dict) else None
+    result = chart.get("result") if isinstance(chart, dict) else None
+    if not isinstance(result, list) or not result or not isinstance(result[0], dict):
+        return []
+    item = dict(result[0])
+    meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+    item["symbol"] = str(meta.get("symbol") or f"{ticker}.SR")
+    return parse_chart_ohlc({"spark": {"result": [item]}})
+
+
+def parse_chart_ohlc(payload: dict[str, Any], *, limit: int = 120) -> list[dict[str, Any]]:
+    """Dated OHLC bars from one chart payload. Bars without a high or low are omitted."""
+
+    rows: list[dict[str, Any]] = []
+    for item in _spark_results(payload):
+        ticker = str(item.get("symbol") or "").strip().upper().replace(".SR", "")
+        if not is_tasi_main_symbol(ticker):
+            continue
+        chart = _first_response(item)
+        stamps = chart.get("timestamp") if isinstance(chart, dict) else None
+        quote = _quote_block(chart)
+        closes = quote.get("close") if isinstance(quote, dict) else None
+        volumes = quote.get("volume") if isinstance(quote, dict) else None
+        if not isinstance(stamps, list) or not isinstance(closes, list):
+            continue
+        series: list[dict[str, Any]] = []
+        for index, stamp in enumerate(stamps):
+            day = _riyadh_day(stamp)
+            close = _positive(closes[index] if index < len(closes) else None)
+            if day is None or close is None:
+                continue
+            volume = _number(volumes[index] if isinstance(volumes, list) and index < len(volumes) else 0) or 0.0
+            row = _ohlc_row(ticker, day, close, volume, quote, index)
+            if row.get("open") is None or row.get("high") is None or row.get("low") is None:
+                continue
+            series.append(row)
+        series.sort(key=lambda row: str(row.get("date") or ""))
+        rows.extend(series[-max(1, limit) :])
+    return rows
+
+
+def _ohlc_row(
+    ticker: str,
+    day: date,
+    close: float,
+    volume: float,
+    quote: dict[str, Any] | None,
+    index: int,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {"symbol": ticker, "date": day.isoformat(), "close": close, "volume": volume}
+    if isinstance(quote, dict):
+        for key in ("open", "high", "low"):
+            values = quote.get(key)
+            value = _positive(values[index] if isinstance(values, list) and index < len(values) else None)
+            if value is not None:
+                row[key] = value
+    return row
 
 
 def _download_chart(symbol: str, timeout: float) -> dict[str, Any] | None:
