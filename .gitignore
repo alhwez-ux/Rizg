@@ -25,6 +25,7 @@ data/entry_snapshots.json
 data/under_watch.json
 data/followed.json
 data/eod_recommendations.json
+data/logs/
 .pytest_cache/
 *.tsbuildinfo
 web/tsconfig.tsbuildinfo

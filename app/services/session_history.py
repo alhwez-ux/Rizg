@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
@@ -19,9 +21,11 @@ logger = logging.getLogger(__name__)
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.SR"
 YAHOO_SPARK = "https://query1.finance.yahoo.com/v7/finance/spark"
 _LIVE_CHUNK = 50
+_FETCH_WORKERS = 2
+_FETCH_LOCK = threading.Lock()
 _RIYADH = TASI_TZ
 _RANGE = "3mo"
-_CHART_WORKERS = 8
+_CHART_WORKERS = _FETCH_WORKERS
 _VOLUME_FLOOR = 10_000.0
 _OFFICIAL_SESSION = Path(__file__).resolve().parents[1] / "data" / "official_session.json"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -204,7 +208,7 @@ def fetch_live_session_prints(
                 params={
                     "symbols": ",".join(f"{symbol}.SR" for symbol in chunk),
                     "range": "1d",
-                    "interval": "1m",
+                    "interval": "1d",
                 },
             )
             response.raise_for_status()
@@ -222,18 +226,26 @@ def fetch_live_session_prints(
             quotes.extend(take(chunk, client))
         return quotes
 
-    quotes: list[dict[str, Any]] = []
-    workers = min(6, max(1, len(chunks)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_download_live_chunk, chunk, cutoff) for chunk in chunks]
-        for future in as_completed(futures):
-            quotes.extend(future.result() or [])
-    covered = {str(row.get("symbol") or "") for row in quotes}
-    missing = [symbol for symbol in tickers if symbol not in covered]
-    if len(quotes) < max(1, len(tickers) // 5):
-        logger.warning("live spark returned %s/%s symbols; reading chart meta for a slice", len(quotes), len(tickers))
-        quotes.extend(_fetch_chart_metas(_next_meta_window(missing, 48), today=cutoff))
-    return quotes
+    with _FETCH_LOCK:
+        quotes = []
+        workers = min(_FETCH_WORKERS, max(1, len(chunks)))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_download_live_chunk, chunk, cutoff) for chunk in chunks]
+                for future in as_completed(futures):
+                    quotes.extend(future.result() or [])
+            covered = {str(row.get("symbol") or "") for row in quotes}
+            missing = [symbol for symbol in tickers if symbol not in covered]
+            if len(quotes) < max(1, len(tickers) // 5):
+                logger.warning(
+                    "live spark returned %s/%s symbols; reading chart meta for a slice",
+                    len(quotes),
+                    len(tickers),
+                )
+                quotes.extend(_fetch_chart_metas(_next_meta_window(missing, 24), today=cutoff))
+        finally:
+            gc.collect()
+        return quotes
 
 
 _meta_cursor = 0
@@ -257,17 +269,14 @@ def _fetch_chart_metas(symbols: list[str], *, today: date) -> list[dict[str, Any
     if not symbols:
         return []
     quotes: list[dict[str, Any]] = []
-    workers = min(8, len(symbols))
+    workers = min(_FETCH_WORKERS, len(symbols))
 
     def one(symbol: str) -> list[dict[str, Any]]:
         try:
-            with httpx.Client(
-                timeout=httpx.Timeout(5.0, connect=3.0),
-                headers={"User-Agent": _UA, "Accept": "application/json"},
-            ) as http:
+            with _http_client(5.0) as http:
                 response = http.get(
                     YAHOO_CHART.format(symbol=symbol),
-                    params={"range": "1d", "interval": "1m"},
+                    params={"range": "1d", "interval": "1d"},
                 )
                 response.raise_for_status()
                 body = response.json()
@@ -291,14 +300,21 @@ def _fetch_chart_metas(symbols: list[str], *, today: date) -> list[dict[str, Any
 
 def _download_live_chunk(chunk: list[str], today: date) -> list[dict[str, Any]]:
     try:
-        with httpx.Client(
-            timeout=httpx.Timeout(6.0, connect=3.0),
-            headers={"User-Agent": _UA, "Accept": "application/json"},
-        ) as http:
+        with _http_client(6.0) as http:
             return fetch_live_session_prints(chunk, today=today, client=http)
     except httpx.HTTPError as exc:
         logger.warning("live session quote chunk failed: %s", exc)
         return []
+
+
+def _http_client(timeout: float) -> httpx.Client:
+    """Short-lived client. Keepalive is off so a finished fetch does not retain sockets."""
+
+    return httpx.Client(
+        timeout=httpx.Timeout(timeout, connect=min(3.0, timeout)),
+        headers={"User-Agent": _UA, "Accept": "application/json"},
+        limits=httpx.Limits(max_connections=_FETCH_WORKERS, max_keepalive_connections=0),
+    )
 
 
 def load_official_session(path: Path | None = None) -> dict[str, dict[str, Any]]:
@@ -389,10 +405,7 @@ def overlay_session_closes(
 
 def _download_chart(symbol: str, timeout: float) -> dict[str, Any] | None:
     try:
-        with httpx.Client(
-            timeout=httpx.Timeout(timeout, connect=min(3.0, timeout)),
-            headers={"User-Agent": _UA, "Accept": "application/json"},
-        ) as http:
+        with _http_client(timeout) as http:
             return _chart_with_client(http, symbol)
     except httpx.HTTPError as exc:
         logger.warning("daily close fetch failed for %s: %s", symbol, exc)
@@ -452,11 +465,15 @@ def fetch_main_market_closes(
             take(_chart_with_client(client, symbol))
         return bars, quotes
 
-    workers = min(_CHART_WORKERS, len(tickers))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_download_chart, symbol, per_call) for symbol in tickers]
-        for future in as_completed(futures):
-            take(future.result())
+    with _FETCH_LOCK:
+        workers = min(_CHART_WORKERS, len(tickers))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_download_chart, symbol, per_call) for symbol in tickers]
+                for future in as_completed(futures):
+                    take(future.result())
+        finally:
+            gc.collect()
     if len(quotes) < len(tickers):
         logger.warning(
             "daily close fetch returned %s/%s symbols within the worker pool",

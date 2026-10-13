@@ -307,6 +307,6 @@ class Settings(BaseSettings):
         return self.environment.lower() in {"prod", "production"}
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()

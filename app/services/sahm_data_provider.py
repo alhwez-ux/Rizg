@@ -646,7 +646,11 @@ class SahmDataProvider:
         return dict(payload)
 
     def _cache_put(self, path: str, params: Mapping[str, Any], payload: dict[str, Any]) -> None:
-        self._http_cache[self._cache_key(path, params)] = (time.monotonic(), dict(payload))
+        key = self._cache_key(path, params)
+        if key not in self._http_cache and len(self._http_cache) >= 32:
+            oldest = min(self._http_cache, key=lambda item: self._http_cache[item][0])
+            self._http_cache.pop(oldest, None)
+        self._http_cache[key] = (time.monotonic(), dict(payload))
 
 
 def candles_to_radar_frame(

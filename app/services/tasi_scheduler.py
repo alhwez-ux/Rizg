@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,6 +19,19 @@ from app.services.tasi_clock import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_after(method: Callable) -> Callable:
+    """Drop the quote payload a scheduler job just built before the next run."""
+
+    async def wrapped(self: TasiMarketScheduler, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return await method(self, *args, **kwargs)
+        finally:
+            gc.collect()
+
+    return wrapped
+
 
 DEFAULT_SCAN_SYMBOLS = [
     "2222",
@@ -59,7 +74,10 @@ class TasiMarketScheduler:
         self._ranking_sync = ranking_sync
         self._watchlist = watchlist
         self._tickchart = tickchart
-        self.scheduler = scheduler or AsyncIOScheduler(timezone=TASI_TZ)
+        self.scheduler = scheduler or AsyncIOScheduler(
+            timezone=TASI_TZ,
+            job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 60},
+        )
         self._enabled = enable_scheduler and self._settings.tasi_scheduler_enabled
         self._last: dict[str, Any] = {"open": None, "scan": None, "close": None}
         self._guard: Any = None
@@ -148,6 +166,7 @@ class TasiMarketScheduler:
             "last": dict(self._last),
         }
 
+    @_collect_after
     async def prepare_open(self) -> dict[str, Any]:
         """09:30 — load opening quotes and previous closes."""
 
@@ -174,6 +193,7 @@ class TasiMarketScheduler:
         logger.info("TASI open prep scanned %s symbols", len(quotes))
         return payload
 
+    @_collect_after
     async def scan_session(self, *, force: bool = False) -> dict[str, Any]:
         """Every 2 minutes during 10:00-15:00 — liquidity, volume, traps, alerts."""
 
@@ -292,6 +312,7 @@ class TasiMarketScheduler:
         logger.info("TASI session scan: %s symbols, %s alerts", scanned, len(alerts))
         return payload
 
+    @_collect_after
     async def close_market(self) -> dict[str, Any]:
         """15:30 — recompute ranking matrix and refresh recommendations from last close."""
 

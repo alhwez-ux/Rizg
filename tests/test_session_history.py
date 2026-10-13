@@ -281,6 +281,53 @@ def test_history_fetch_falls_back_when_provider_is_slow(tmp_path: Path, monkeypa
     assert payload["fallback"] is True
 
 
+def test_live_fetch_requests_the_daily_meta_only() -> None:
+    from app.services.session_history import fetch_live_session_prints
+
+    today = datetime(2026, 10, 13, 11, 0, tzinfo=_RIYADH)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "spark": {
+                    "result": [
+                        {
+                            "symbol": "1120.SR",
+                            "response": [
+                                {
+                                    "meta": {
+                                        "regularMarketPrice": 62.05,
+                                        "regularMarketTime": int(today.timestamp()),
+                                        "regularMarketVolume": 1_000_000,
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+
+    class _Client:
+        def __init__(self) -> None:
+            self.params: dict | None = None
+
+        def get(self, url: str, params: dict | None = None) -> _Response:
+            del url
+            self.params = params
+            return _Response()
+
+    client = _Client()
+    rows = fetch_live_session_prints(["1120"], today=today.date(), client=client)
+    assert client.params is not None
+    assert client.params["interval"] == "1d"
+    assert client.params["range"] == "1d"
+    assert rows[0]["symbol"] == "1120"
+    assert rows[0]["last_price"] == 62.05
+
+
 def test_live_print_uses_today_market_price_and_drops_an_older_one() -> None:
     today = datetime(2026, 10, 11, 12, 12, tzinfo=_RIYADH)
     older = datetime(2026, 10, 8, 15, 0, tzinfo=_RIYADH)
