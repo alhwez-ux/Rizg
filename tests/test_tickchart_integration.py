@@ -183,3 +183,62 @@ def test_pull_delayed_closes_skips_when_sahm_quota_exhausted(tmp_path) -> None:
     assert feed.status()["sahm_quota"]["exhausted"] is True
 
 
+def test_sync_screener_copies_last_close_prices(tmp_path) -> None:
+    from decimal import Decimal
+
+    from app.services.last_quotes import LastQuoteBook
+    from app.services.screener import ScreenerService
+    from app.services.tasi_clock import now_riyadh, session_phase
+    from app.services.watchlist import WatchlistService
+
+    settings = Settings(
+        _env_file=None,
+        tickchart_api_key="test-key",
+        sahmk_api_key="test-key",
+        enable_mock_feed=False,
+    )
+    quotes = LastQuoteBook(path=tmp_path / "quotes.json")
+    quotes.apply_closes(
+        [
+            {
+                "symbol": "4030",
+                "last_price": 42.5,
+                "volume": 1500,
+                "change_percent": 1.25,
+                "net_flow": 250_000,
+                "value_traded": 63_750,
+            }
+        ]
+    )
+    watchlist = WatchlistService(path=tmp_path / "watchlist.json", initial=["4030"])
+    screener = ScreenerService(settings, watchlist)
+    feed = TickChartFeed(
+        LiquidityRadarEngine(),
+        _Broadcaster(),
+        settings,
+        watchlist=watchlist,
+        screener=screener,
+        quotes=quotes,
+    )
+    feed._desktop_live = True
+    applied = feed.sync_screener(force=True)
+    snapshot = screener.snapshot()
+    row = next(item for item in snapshot.watchlist if item.symbol == "4030")
+    assert applied >= 1
+    assert row.price == Decimal("42.5")
+    assert row.volume == Decimal("1500")
+    assert row.net_flow == Decimal("250000")
+    assert snapshot.updated_at is not None
+    assert snapshot.pulse.advancing == 1
+    assert snapshot.scanned >= 1
+    mode = feed.status()["quote_mode"]
+    if session_phase(now_riyadh()) in {"preopen", "open", "auction"}:
+        assert mode == "live"
+    else:
+        assert mode == "last_close"
+    quote = feed.book_quote("4030")
+    assert quote is not None
+    assert quote.last_price == 42.5
+    assert feed.book_quote("9999") is None
+
+

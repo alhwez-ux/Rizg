@@ -94,6 +94,30 @@ class ScreenerService:
             updated_at=updated,
         )
 
+    def note_market_pulse(
+        self,
+        *,
+        index_value: Any = None,
+        index_change_percent: Any = None,
+        advancing: int | None = None,
+        declining: int | None = None,
+        delayed: bool = True,
+    ) -> None:
+        """Publish index and breadth from the tape the screener is actually showing."""
+
+        pulse = MarketPulse(
+            index="TASI",
+            index_value=_optional_decimal(index_value),
+            index_change_percent=_optional_decimal(index_change_percent),
+            advancing=advancing,
+            declining=declining,
+            delayed=delayed,
+        )
+        with self._guard:
+            self._pulse = pulse
+            if self._updated_at is None:
+                self._updated_at = datetime.now(timezone.utc)
+
     def priority_symbols(self, limit: int = 8) -> list[str]:
         tracked = {symbol for symbol in self._watchlist.symbols() if not is_prohibited(symbol)}
         with self._guard:

@@ -164,6 +164,7 @@ class TickChartFeed:
         self._delayed_pull_at: float = 0.0
         self._public_quotes_at: float = 0.0
         self._public_quotes_running = False
+        self._screener_sync_at: float = 0.0
         self._session_lock = threading.Lock()
         self._symbol_quote_at: dict[str, float] = {}
         self._ichimoku_at: dict[str, float] = {}
@@ -222,7 +223,8 @@ class TickChartFeed:
         session_print = phase in {"preopen", "open", "auction"} and any(
             self._quotes.is_session_print(str(row.get("symbol") or "")) for row in last_quotes[:80]
         )
-        if self._trades_live or self._depth_live or self._desktop_live or session_print:
+        session_open = phase in {"preopen", "open", "auction"}
+        if session_open and (self._trades_live or self._depth_live or self._desktop_live or session_print):
             quote_mode = "live"
         elif last_quotes:
             quote_mode = "last_close"
@@ -282,6 +284,7 @@ class TickChartFeed:
             _redact_url(self._depth_ws),
         )
         self.seed_last_closes()
+        self.sync_screener(force=True)
         self._tasks = [
             asyncio.create_task(self._supervise_network(), name="tickchart-supervisor"),
             asyncio.create_task(self._hydrate_close_history(), name="tickchart-close-history"),
@@ -863,6 +866,137 @@ class TickChartFeed:
             "hidden_accumulation": False,
         }
 
+    def book_symbols(self) -> list[str]:
+        return [str(row.get("symbol") or "") for row in self._quotes.snapshot() if row.get("symbol")]
+
+    def book_quote(self, symbol: str) -> Any:
+        """Last print as a top-of-book quote when the live ingest store has not seen the symbol."""
+
+        row = self._stored_market_row(symbol)
+        if row is None:
+            return None
+        try:
+            price = float(row.get("last_price") or 0)
+        except (TypeError, ValueError):
+            return None
+        if price <= 0:
+            return None
+        try:
+            bid = float(row.get("bid") or 0)
+            ask = float(row.get("ask") or 0)
+        except (TypeError, ValueError):
+            bid = ask = 0.0
+        if bid <= 0:
+            bid = price
+        if ask < bid:
+            ask = bid
+        stamp = row.get("at")
+        try:
+            timestamp = datetime.fromisoformat(str(stamp)) if stamp else datetime.now(timezone.utc)
+        except ValueError:
+            timestamp = datetime.now(timezone.utc)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        from app.models.quote import Quote
+
+        return Quote(
+            symbol=str(row.get("symbol") or symbol).strip().upper(),
+            bid=bid,
+            ask=ask,
+            bid_size=0,
+            ask_size=0,
+            last_price=price,
+            volume=max(float(row.get("volume") or 0), 0.0),
+            timestamp=timestamp,
+        )
+
+    def sync_screener(self, *, force: bool = False) -> int:
+        """Copy the quote book into the screener so the dashboard is not stuck at zero."""
+
+        screener = self._screener
+        if screener is None:
+            return 0
+        now = time.monotonic()
+        if not force and self._screener_sync_at and now - self._screener_sync_at < 5.0:
+            return 0
+        rows = self.market_rows()
+        if not rows:
+            self.ensure_close_book()
+            rows = self.market_rows()
+        if not rows:
+            return 0
+        self._screener_sync_at = now
+        tracked: set[str] = set()
+        watchlist = self._watchlist
+        if watchlist is not None and hasattr(watchlist, "symbols"):
+            tracked = {str(symbol).strip().upper() for symbol in watchlist.symbols()}
+        applied = 0
+        advancing = 0
+        declining = 0
+        live = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip().upper()
+            price = row.get("price") or row.get("last_price")
+            if not symbol or not price:
+                continue
+            try:
+                change = float(
+                    row.get("price_change_pct")
+                    if row.get("price_change_pct") is not None
+                    else row.get("change_percent") or 0
+                )
+            except (TypeError, ValueError):
+                change = 0.0
+            if change > 0:
+                advancing += 1
+            elif change < 0:
+                declining += 1
+            if row.get("quote_mode") == "live":
+                live = True
+            payload = {
+                "symbol": symbol,
+                "name": row.get("name") or symbol,
+                "price": price,
+                "last_price": price,
+                "change_percent": change,
+                "volume": row.get("volume") or 0,
+                "value": row.get("value_traded") or row.get("value") or 0,
+                "liquidity": {
+                    "inflow": row.get("inflow") or 0,
+                    "outflow": row.get("outflow") or 0,
+                    "net_flow": row.get("net_flow") or 0,
+                },
+            }
+            try:
+                screener.observe_quote(payload, tracked=symbol in tracked)
+            except Exception:
+                logger.warning("screener sync failed for %s", symbol, exc_info=True)
+                continue
+            applied += 1
+        index_value = None
+        index_change = None
+        try:
+            from app.services.tasi_index import current_tasi_index
+
+            index = current_tasi_index() or {}
+            index_value = index.get("value")
+            index_change = index.get("change_percent")
+        except Exception:
+            logger.warning("screener index pulse skipped", exc_info=True)
+        try:
+            screener.note_market_pulse(
+                index_value=index_value,
+                index_change_percent=index_change,
+                advancing=advancing,
+                declining=declining,
+                delayed=not live,
+            )
+        except Exception:
+            logger.warning("screener pulse update failed", exc_info=True)
+        return applied
+
     def market_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for symbol in self._universe_symbols():
@@ -1353,6 +1487,10 @@ class TickChartFeed:
                 raise
             except Exception:
                 logger.warning("session quote poll failed", exc_info=True)
+            try:
+                self.sync_screener()
+            except Exception:
+                logger.warning("screener sync failed", exc_info=True)
             await asyncio.sleep(wait)
 
     def schedule_public_quotes(self) -> bool:
