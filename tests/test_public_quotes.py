@@ -172,6 +172,36 @@ def test_stale_tape_cannot_replace_todays_print_or_invent_the_daily_change(tmp_p
     assert report["entry"] is False
 
 
+def test_closed_session_does_not_keep_another_sessions_vwap_or_flow(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    after_close = datetime(2026, 10, 15, 16, 5, tzinfo=ZoneInfo("Asia/Riyadh"))
+    monkeypatch.setattr("app.services.last_quotes.now_riyadh", lambda moment=None: after_close)
+    monkeypatch.setattr("app.services.tasi_clock.now_riyadh", lambda moment=None: after_close)
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    feed = _feed(tmp_path)
+    feed._quotes.merge_history(
+        [
+            {"symbol": "4263", "date": "2026-10-14", "close": 154.90, "volume": 100},
+            {"symbol": "4263", "date": "2026-10-15", "close": 159.90, "volume": 302_195},
+        ],
+        keep_today=False,
+    )
+    feed._quotes.apply_closes(
+        [{"symbol": "4263", "last_price": 159.90, "session_date": date(2026, 10, 15), "volume": 302_195, "net_flow": 4_204_892}]
+    )
+    feed._engine.process_trade("4263", Decimal("169.30"), Decimal("10"))
+    report = feed.radar_report("4263")
+    assert report["last_price"] == 159.90
+    assert report["change_percent"] == round(((159.90 - 154.90) / 154.90) * 100, 4)
+    assert report["vwap"] is None
+    assert report["atr"] is None
+    assert report["session_high"] is None
+    assert report["net_flow"] == 0
+    assert report["entry"] is False
+
+
 def test_daily_change_uses_the_adjacent_session_not_an_older_equal_price(tmp_path: Path) -> None:
     book = LastQuoteBook(tmp_path / "quotes.json")
     book.merge_history(

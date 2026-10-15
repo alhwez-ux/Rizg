@@ -674,7 +674,11 @@ class TickChartFeed:
                 or self._ranking_price(ticker)
             )
             live_tick = False
-        stale_tape = in_session and tape_price is not None and not _same_price(tape_price, last_price)
+        stale_tape = (in_session and tape_price is not None and not _same_price(tape_price, last_price)) or _levels_exclude_price(
+            last_price,
+            _json_number(levels.session_high) or _json_number(stored.get("high")),
+            _json_number(levels.session_low) or _json_number(stored.get("low")),
+        )
         change = self._quotes.session_change(ticker, last_price)
         if stale_tape:
             session_volume = stored.get("volume") or ranking.get("volume")
@@ -2651,6 +2655,20 @@ def _json_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _levels_exclude_price(price: Any, high: Any, low: Any) -> bool:
+    """A session range that does not contain the shown price belongs to another session."""
+
+    try:
+        current = float(price)
+        top = float(high)
+        bottom = float(low)
+    except (TypeError, ValueError):
+        return False
+    if current <= 0 or top <= 0 or bottom <= 0 or top < bottom:
+        return False
+    return current < bottom or current > top
 
 
 def _same_price(left: Any, right: Any) -> bool:
