@@ -141,6 +141,92 @@ def test_open_session_uses_todays_price_not_the_prior_close(tmp_path: Path, monk
     assert feed._quotes.display_price("1140") == 23.42
 
 
+def test_stale_tape_cannot_replace_todays_print_or_invent_the_daily_change(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    thursday = datetime(2026, 10, 15, 13, 40, tzinfo=ZoneInfo("Asia/Riyadh"))
+    monkeypatch.setattr("app.services.last_quotes.now_riyadh", lambda moment=None: thursday)
+    monkeypatch.setattr("app.services.tasi_clock.now_riyadh", lambda moment=None: thursday)
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _feed(tmp_path)
+    feed._quotes.merge_history(
+        [
+            {"symbol": "4263", "date": "2026-10-13", "close": 165.90, "volume": 100},
+            {"symbol": "4263", "date": "2026-10-14", "close": 154.90, "volume": 100},
+        ],
+        keep_today=False,
+    )
+    feed._quotes.apply_closes(
+        [{"symbol": "4263", "last_price": 157.6, "session_date": date(2026, 10, 15), "volume": 1_000}]
+    )
+    feed._engine.process_trade("4263", Decimal("165.90"), Decimal("10"))
+    report = feed.radar_report("4263")
+    assert report["last_price"] == 157.6
+    assert report["quote_mode"] == "live"
+    assert report["change_percent"] == round(((157.6 - 154.90) / 154.90) * 100, 4)
+    assert abs(report["change_percent"]) < 3
+    assert report["vwap"] is None
+    assert report["atr"] is None
+    assert report["net_flow"] == 0
+    assert report["entry"] is False
+
+
+def test_daily_change_uses_the_adjacent_session_not_an_older_equal_price(tmp_path: Path) -> None:
+    book = LastQuoteBook(tmp_path / "quotes.json")
+    book.merge_history(
+        [
+            {"symbol": "4263", "date": "2026-10-13", "close": 157.6, "volume": 100},
+            {"symbol": "4263", "date": "2026-10-14", "close": 154.90, "volume": 100},
+        ],
+        keep_today=False,
+    )
+    book.apply_closes(
+        [
+            {
+                "symbol": "4263",
+                "last_price": 157.6,
+                "session_date": date(2026, 10, 15),
+                "change_percent": 7.1,
+                "prev_close": 170.5,
+                "volume": 1_000,
+            }
+        ]
+    )
+    assert book.previous_session_close("4263", 157.6) == 154.90
+    assert book.session_change("4263", 157.6) == round(((157.6 - 154.90) / 154.90) * 100, 4)
+
+
+def test_a_missing_prior_session_does_not_invent_the_daily_change(tmp_path: Path, monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    thursday = datetime(2026, 10, 15, 13, 40, tzinfo=ZoneInfo("Asia/Riyadh"))
+    monkeypatch.setattr("app.services.last_quotes.now_riyadh", lambda moment=None: thursday)
+    monkeypatch.setattr("app.services.tasi_clock.now_riyadh", lambda moment=None: thursday)
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "open")
+    feed = _feed(tmp_path)
+    feed._quotes.merge_history(
+        [{"symbol": "4263", "date": "2026-10-13", "close": 165.90, "volume": 100}],
+        keep_today=False,
+    )
+    feed._quotes.apply_closes(
+        [
+            {
+                "symbol": "4263",
+                "last_price": 157.6,
+                "session_date": date(2026, 10, 15),
+                "change_percent": 7.1,
+                "prev_close": 170.5,
+                "volume": 1_000,
+            }
+        ]
+    )
+    report = feed.radar_report("4263")
+    assert report["last_price"] == 157.6
+    assert report["change_percent"] is None
+
+
 def test_open_session_refresh_replaces_the_book_and_stamps_the_sync(tmp_path: Path, monkeypatch) -> None:
     from app.services.tasi_clock import now_riyadh
 

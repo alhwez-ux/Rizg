@@ -172,7 +172,7 @@ export function LiquidityRadarCard({
               dir="ltr"
               className={`font-mono text-xs tabular-nums ${(report.change_percent ?? 0) > 0 ? "text-emerald-300" : "text-rose-300"}`}
             >
-              {formatPercent(report.change_percent)}
+              {formatPercent(report.change_percent, 2)}
             </p>
           ) : null}
           <RetryButton onRetry={retry} className="mt-1" />
@@ -291,10 +291,12 @@ function regimeCopy(regime: TapeRegime): { label: string; hint: string; tone: "u
 }
 
 function sessionPriceLabel(report: { quote_mode?: string | null; session_phase?: string | null }): string {
+  if (report.quote_mode === "live") return ar.lastPrice;
+  if (report.quote_mode === "last_close" || report.quote_mode === "waiting") return ar.liveRadarLastClosePrice;
   if (report.session_phase === "preopen" || report.session_phase === "open" || report.session_phase === "auction") {
     return ar.lastPrice;
   }
-  return report.quote_mode === "last_close" ? ar.liveRadarLastClosePrice : ar.lastPrice;
+  return ar.liveRadarLastClosePrice;
 }
 
 function ReportBody({

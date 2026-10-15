@@ -653,29 +653,40 @@ class TickChartFeed:
         phase = session_phase(now_riyadh())
         today_price = self._quotes.session_last(ticker)
         tape_price = live.get("last_price") or _json_number(session.last_price) or _json_number(levels.last_price)
+        history = self._quotes.close_history(ticker)
         in_session = phase in {"preopen", "open", "auction"}
-        if in_session and tape_price:
+        today_iso = now_riyadh().date().isoformat()
+        tape_is_old = _matches_prior_close(tape_price, history, today_iso) and not _same_price(tape_price, today_price)
+        # An in-memory print can keep an older close all week. Today's measured
+        # price wins over that close. A tape print that is not an older close
+        # can still be the newer tick. After the close, the completed close wins.
+        if in_session and today_price and (tape_price is None or tape_is_old):
+            last_price = today_price
+            live_tick = phase == "open"
+        elif in_session and tape_price and not tape_is_old:
             last_price = tape_price
             live_tick = phase == "open"
-        elif in_session and today_price:
-            last_price = today_price
-            live_tick = False
         else:
-            last_price = self._quotes.display_price(ticker) or tape_price or ranking.get("last_price") or self._ranking_price(ticker)
+            last_price = (
+                self._quotes.display_price(ticker)
+                or (None if tape_is_old else tape_price)
+                or ranking.get("last_price")
+                or self._ranking_price(ticker)
+            )
             live_tick = False
+        stale_tape = in_session and tape_price is not None and not _same_price(tape_price, last_price)
         change = self._quotes.session_change(ticker, last_price)
-        if change is None:
-            change = stored.get("change_percent")
-        if change is None:
-            change = live.get("change_percent")
-        session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
-        if not session_volume:
+        if stale_tape:
             session_volume = stored.get("volume") or ranking.get("volume")
-        session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
+            session_value = stored.get("value_traded") or ranking.get("value_traded")
+        else:
+            session_volume = live.get("session_volume") or _json_number(session.buy_volume + session.sell_volume)
+            if not session_volume:
+                session_volume = stored.get("volume") or ranking.get("volume")
+            session_value = live.get("session_value") or stored.get("value_traded") or ranking.get("value_traded")
         engine_flow = _json_number(session.net_flow) or 0
         stored_flow = _json_number(stored.get("net_flow")) or 0
-        net_flow = engine_flow or stored_flow or 0
-        history = self._quotes.close_history(ticker)
+        net_flow = 0 if stale_tape else (engine_flow or stored_flow or 0)
         prior_volumes = [bar.get("volume") for bar in history[:-1]][-10:] if history else []
         avg_volume = None
         if prior_volumes:
@@ -692,21 +703,23 @@ class TickChartFeed:
             ticker,
             extra={
                 "net_flow": net_flow,
-                "inflow": stored.get("inflow"),
-                "outflow": stored.get("outflow"),
+                "inflow": None if stale_tape else stored.get("inflow"),
+                "outflow": None if stale_tape else stored.get("outflow"),
                 "change_percent": change,
+                "price": last_price,
+                "stale_tape": stale_tape,
                 "volume": session_volume,
                 "session_value": session_value,
                 "avg_volume": avg_volume,
-                "swing_low": swing_low,
+                "swing_low": None if stale_tape else swing_low,
                 "peer_nets": self._peer_nets(),
-                "block_trades": live.get("block_trades") or 0,
-                "block_volume": live.get("block_volume") or live.get("last_block_value"),
-                "block_side": live.get("block_side") or live.get("large_block_side"),
-                "vwap_15m": live.get("vwap_15m"),
+                "block_trades": 0 if stale_tape else (live.get("block_trades") or 0),
+                "block_volume": None if stale_tape else (live.get("block_volume") or live.get("last_block_value")),
+                "block_side": None if stale_tape else (live.get("block_side") or live.get("large_block_side")),
+                "vwap_15m": None if stale_tape else live.get("vwap_15m"),
             },
         )
-        trap = live.get("trap") or report.get("trap")
+        trap = None if stale_tape else (live.get("trap") or report.get("trap"))
         if trap:
             report["trap"] = trap
             if trap.get("kind") in {"bull_trap", "bear_trap", "silent_distribution"} and not report.get("entry"):
@@ -740,8 +753,6 @@ class TickChartFeed:
             note = "في انتظار بيانات الجلسة"
             if note not in reasons:
                 reasons.insert(0, note)
-        if change is None:
-            change = report.get("change_percent")
         report.update(
             {
                 "symbol": ticker,
@@ -755,11 +766,11 @@ class TickChartFeed:
                 "book_pressure": _json_number(levels.book_pressure),
                 "last_price": last_price,
                 "change_percent": change,
-                "mfi": live.get("mfi"),
-                "institutional_mfi": live.get("institutional_mfi"),
-                "retail_mfi": live.get("retail_mfi"),
-                "volume_ratio": live.get("volume_ratio"),
-                "block_trades": live.get("block_trades"),
+                "mfi": None if stale_tape else live.get("mfi"),
+                "institutional_mfi": None if stale_tape else live.get("institutional_mfi"),
+                "retail_mfi": None if stale_tape else live.get("retail_mfi"),
+                "volume_ratio": None if stale_tape else live.get("volume_ratio"),
+                "block_trades": None if stale_tape else live.get("block_trades"),
                 "last_block_value": live.get("last_block_value"),
                 "bid_wall": live.get("bid_wall"),
                 "ask_wall": live.get("ask_wall"),
@@ -799,15 +810,18 @@ class TickChartFeed:
             report["watch_flag"] = None
             report["explosive"] = False
             report["hidden_accumulation"] = False
-        session_vwap = _json_number(levels.vwap)
-        if session_vwap is None:
+        session_vwap = None if stale_tape else _json_number(levels.vwap)
+        if session_vwap is None and not stale_tape:
             session_vwap = _session_vwap(live.get("session_value"), live.get("session_volume"))
         report["session_vwap"] = session_vwap
-        if report.get("vwap") is None and session_vwap is not None:
+        if stale_tape:
+            report["vwap"] = None
+            report["atr"] = None
+        elif report.get("vwap") is None and session_vwap is not None:
             report["vwap"] = session_vwap
-        report["session_open"] = _json_number(stored.get("open"))
-        report["session_high"] = _json_number(stored.get("high")) or _json_number(levels.session_high)
-        report["session_low"] = _json_number(stored.get("low")) or _json_number(levels.session_low)
+        report["session_open"] = None if stale_tape else _json_number(stored.get("open"))
+        report["session_high"] = None if stale_tape else (_json_number(stored.get("high")) or _json_number(levels.session_high))
+        report["session_low"] = None if stale_tape else (_json_number(stored.get("low")) or _json_number(levels.session_low))
         report.update(self._ichimoku_fields(ticker, stored))
         return report
 
@@ -1645,8 +1659,8 @@ class TickChartFeed:
         phase = session_phase(now_riyadh())
         if phase not in {"preopen", "open", "auction"}:
             return
-        tape = self._tape(ticker).snapshot()
-        if tape.get("last_price") or self._engine.session_snapshot(ticker).last_price is not None:
+        today = self._quotes.session_last(ticker)
+        if today is not None and self._quotes.previous_session_close(ticker, today) is not None:
             return
         now = time.monotonic()
         gap = 4 if phase in {"preopen", "open", "auction"} else 45
@@ -2637,6 +2651,33 @@ def _json_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _same_price(left: Any, right: Any) -> bool:
+    try:
+        first = float(left)
+        second = float(right)
+    except (TypeError, ValueError):
+        return False
+    if first <= 0 or second <= 0:
+        return False
+    return abs(first - second) <= max(abs(second) * 0.0001, 0.0001)
+
+
+def _matches_prior_close(price: Any, history: list[dict[str, Any]], today: str) -> bool:
+    """True when this print equals a daily close from before today's session."""
+
+    if price is None:
+        return False
+    for bar in history:
+        if not isinstance(bar, dict):
+            continue
+        day = str(bar.get("date") or "")[:10]
+        if len(day) < 10 or day >= today:
+            continue
+        if _same_price(bar.get("close"), price):
+            return True
+    return False
 
 
 def _session_vwap(value: Any, volume: Any) -> float | None:

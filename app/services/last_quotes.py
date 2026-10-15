@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -87,15 +87,16 @@ class LastQuoteBook:
                     "open",
                     "liquidity_flow",
                 )
+                new_session = bool(dated and str(previous.get("session_date") or "")[:10] not in {"", day})
                 for key in extra_keys:
                     value = extras.get(key)
                     if value is not None:
                         row[key] = value
-                    elif previous.get(key) is not None:
+                    elif not new_session and previous.get(key) is not None:
                         row[key] = previous[key]
                 if extras.get("net_flow") is not None:
                     row["net_flow"] = extras.get("net_flow")
-                elif previous.get("net_flow") is not None:
+                elif not new_session and previous.get("net_flow") is not None:
                     row["net_flow"] = previous["net_flow"]
                 if dated:
                     row["close_source"] = "session"
@@ -172,24 +173,36 @@ class LastQuoteBook:
         """Percent move from the previous measured session close to this price."""
 
         current = _positive(price)
-        if current is None:
+        previous = self.previous_session_close(symbol, current)
+        if current is None or previous is None or previous <= 0:
             return None
+        return round(((current - previous) / previous) * 100, 4)
+
+    def previous_session_close(self, symbol: str, price: Any = None) -> float | None:
+        """Close of the trading session immediately before the price being shown.
+
+        An older bar is never used as yesterday, and a repeated price is not matched
+        back to the last time that same print appeared.
+        """
+
+        current = _positive(price)
         row = self.get(symbol) or {}
-        day = str(row.get("session_date") or "")[:10]
-        prior = None
-        for bar in self.close_history(symbol):
-            bar_day = str(bar.get("date") or "")[:10]
-            close = _positive(bar.get("close"))
-            if close is None or len(bar_day) < 10:
-                continue
-            if day and bar_day >= day:
-                continue
-            prior = close
-        if prior is None:
-            prior = _positive(row.get("prev_close"))
-        if prior is None or prior <= 0:
+        ordered = _dated_closes(self.close_history(symbol))
+        shown_day = ""
+        if ordered and current is not None and _same_price(ordered[-1][1], current):
+            shown_day = ordered[-1][0]
+        if len(shown_day) < 10:
+            shown_day = str(row.get("session_date") or "")[:10]
+        if len(shown_day) < 10 or not ordered:
+            return None if ordered else _positive(row.get("prev_close"))
+        earlier = [(day, close) for day, close in ordered if day < shown_day]
+        if not earlier:
             return None
-        return round(((current - prior) / prior) * 100, 4)
+        prev_day, prev_close = earlier[-1]
+        expected = _previous_trading_day(date.fromisoformat(shown_day)).isoformat()
+        if prev_day != expected:
+            return None
+        return prev_close
 
     def display_price(self, symbol: str) -> float | None:
         """Price shown across the platform: today's print while the session is on, otherwise the completed close."""
@@ -372,6 +385,29 @@ def _close_row(item: dict[str, Any]) -> tuple[str, float | None, dict[str, Any]]
         "session_date": item.get("session_date"),
     }
     return ticker, price, extras
+
+
+def _previous_trading_day(day: date) -> date:
+    cursor = day - timedelta(days=1)
+    while cursor.weekday() in {4, 5}:
+        cursor -= timedelta(days=1)
+    return cursor
+
+
+def _dated_closes(history: list[dict[str, Any]]) -> list[tuple[str, float]]:
+    ordered: list[tuple[str, float]] = []
+    for bar in history:
+        day = str(bar.get("date") or "")[:10]
+        close = _positive(bar.get("close"))
+        if close is None or len(day) < 10:
+            continue
+        ordered.append((day, close))
+    ordered.sort(key=lambda item: item[0])
+    return ordered
+
+
+def _same_price(left: float, right: float) -> bool:
+    return abs(left - right) <= max(abs(right) * 0.0001, 0.0001)
 
 
 def _positive(value: Any) -> float | None:

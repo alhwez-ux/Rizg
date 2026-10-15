@@ -23,6 +23,9 @@ export function useHeldReport(symbol: string, report: LiveRadarReport | null): L
     const now = Date.now();
     setSlot((current) => {
       if (!current || current.symbol !== symbol) return { symbol, report, shownAt: now };
+      if (current.report.last_price !== report.last_price || current.report.change_percent !== report.change_percent) {
+        return { symbol, report, shownAt: now };
+      }
       if (now - current.shownAt >= holdMs()) return { symbol, report, shownAt: now };
       return current;
     });

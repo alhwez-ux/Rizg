@@ -787,14 +787,21 @@ class LiquidityRadarEngine(LiquidityEngine):
         change_percent, volume, prev_volume = _candle_context(self._candles, ticker)
         trap = _detect_liquidity_trap(self._candles, ticker)
         extra = extra or {}
+        stale_tape = bool(extra.get("stale_tape"))
         overlay_net = _optional_decimal(extra.get("net_flow")) if "net_flow" in extra else None
         overlay_inflow = _optional_decimal(extra.get("inflow"))
         overlay_outflow = _optional_decimal(extra.get("outflow"))
-        session_net = overlay_net if overlay_net is not None else session.net_flow
-        if session.net_flow and overlay_net is not None and abs(session.net_flow) > abs(overlay_net):
-            session_net = session.net_flow
-        session_inflow = session.inflow if session.inflow else overlay_inflow
-        session_outflow = session.outflow if session.outflow else overlay_outflow
+        extra_price = _optional_decimal(extra.get("price"))
+        if stale_tape:
+            session_net = overlay_net if overlay_net is not None else ZERO
+            session_inflow = overlay_inflow
+            session_outflow = overlay_outflow
+        else:
+            session_net = overlay_net if overlay_net is not None else session.net_flow
+            if session.net_flow and overlay_net is not None and abs(session.net_flow) > abs(overlay_net):
+                session_net = session.net_flow
+            session_inflow = session.inflow if session.inflow else overlay_inflow
+            session_outflow = session.outflow if session.outflow else overlay_outflow
         extra_change = _optional_decimal(extra.get("change_percent"))
         extra_volume = _optional_decimal(extra.get("volume"))
         extra_value = _optional_decimal(extra.get("session_value"))
@@ -816,46 +823,50 @@ class LiquidityRadarEngine(LiquidityEngine):
                 buy_volume=session.buy_volume,
                 sell_volume=session.sell_volume,
                 change_percent=extra_change if extra_change is not None else change_percent,
-                price=session.last_price or levels.last_price,
+                price=extra_price or session.last_price or levels.last_price,
                 session_value=extra_value,
                 avg_volume=extra_avg if extra_avg is not None else avg_volume,
-                swing_low=extra_swing if extra_swing is not None else swing_low or levels.session_low,
+                swing_low=extra_swing if extra_swing is not None else (None if stale_tape else swing_low or levels.session_low),
                 block_trades=int(extra.get("block_trades") or 0),
                 block_volume=_optional_decimal(extra.get("block_volume")),
                 block_side=str(extra.get("block_side") or "") or None,
-                vwap_15m=_optional_decimal(extra.get("vwap_15m")) or levels.vwap_15m,
+                vwap_15m=None if stale_tape else (_optional_decimal(extra.get("vwap_15m")) or levels.vwap_15m),
                 tracked=True,
                 symbol=ticker,
             ),
-            levels,
+            None if stale_tape else levels,
         )
         decision = _live_signal_engine().evaluate(inputs, peer_nets=peer_nets)
-        signal = "entry" if decision.entry else "exit" if decision.exit else "trap" if trap else "neutral"
-        reasons = list(decision.reasons)
-        if trap and trap["label"] not in reasons:
-            reasons.insert(0, trap["label"])
+        if stale_tape:
+            signal = "neutral"
+            reasons = []
+        else:
+            signal = "entry" if decision.entry else "exit" if decision.exit else "trap" if trap else "neutral"
+            reasons = list(decision.reasons)
+            if trap and trap["label"] not in reasons:
+                reasons.insert(0, trap["label"])
         return {
             "symbol": ticker,
             "signal": signal,
-            "entry": decision.entry,
-            "exit": decision.exit,
-            "trap": trap,
-            "flow_verified": decision.flow_verified,
-            "score": _json_number(decision.score),
+            "entry": False if stale_tape else decision.entry,
+            "exit": False if stale_tape else decision.exit,
+            "trap": None if stale_tape else trap,
+            "flow_verified": False if stale_tape else decision.flow_verified,
+            "score": None if stale_tape else _json_number(decision.score),
             "net_flow": _json_number(session_net if session_net is not None else session.net_flow),
             "inflow": _json_number(session_inflow if session_inflow is not None else session.inflow),
             "outflow": _json_number(session_outflow if session_outflow is not None else session.outflow),
-            "buy_volume": _json_number(session.buy_volume),
-            "sell_volume": _json_number(session.sell_volume),
-            "buy_ratio": _json_number(decision.buy_ratio),
-            "sell_ratio": _json_number(decision.sell_ratio),
-            "last_price": _json_number(session.last_price or levels.last_price),
-            "vwap": _json_number(decision.vwap or levels.vwap),
-            "atr": _json_number(decision.atr or levels.atr),
-            "suggested_entry": _json_number(decision.suggested_entry),
-            "suggested_exit": _json_number(decision.suggested_exit),
-            "target_price": _json_number(decision.target_price),
-            "stop_loss": _json_number(decision.stop_loss),
+            "buy_volume": None if stale_tape else _json_number(session.buy_volume),
+            "sell_volume": None if stale_tape else _json_number(session.sell_volume),
+            "buy_ratio": None if stale_tape else _json_number(decision.buy_ratio),
+            "sell_ratio": None if stale_tape else _json_number(decision.sell_ratio),
+            "last_price": _json_number(extra_price or session.last_price or levels.last_price),
+            "vwap": None if stale_tape else _json_number(decision.vwap or levels.vwap),
+            "atr": None if stale_tape else _json_number(decision.atr or levels.atr),
+            "suggested_entry": None if stale_tape else _json_number(decision.suggested_entry),
+            "suggested_exit": None if stale_tape else _json_number(decision.suggested_exit),
+            "target_price": None if stale_tape else _json_number(decision.target_price),
+            "stop_loss": None if stale_tape else _json_number(decision.stop_loss),
             "change_percent": _json_number(extra_change if extra_change is not None else change_percent),
             "trade_count": session.trade_count,
             "reasons": reasons,
