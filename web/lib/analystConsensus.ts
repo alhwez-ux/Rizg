@@ -8,6 +8,7 @@ export interface AnalystPickRow {
   houses: string[];
   analyst_count: number;
   consensus_strength: number;
+  direction: "buy" | "exit";
   published_on: string;
   window_days: number;
   last_price: number | null;
@@ -35,10 +36,19 @@ export interface AnalystConsensusResponse {
   as_of: string;
   window_days: number;
   hint: string;
+  exit_count: number;
   data: AnalystPickRow[];
+  exits: AnalystPickRow[];
 }
 
-function parseRow(raw: unknown): AnalystPickRow | null {
+function isExitPlan(entry: string, target: string, stop: string): boolean {
+  const price = Number(entry);
+  const targetPrice = Number(target);
+  const stopPrice = Number(stop);
+  return Number.isFinite(price) && Number.isFinite(targetPrice) && Number.isFinite(stopPrice) && targetPrice > 0 && targetPrice < price && price < stopPrice;
+}
+
+function parseRow(raw: unknown, direction: "buy" | "exit"): AnalystPickRow | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
   const symbol = String(row.symbol ?? "").trim().toUpperCase();
@@ -46,7 +56,12 @@ function parseRow(raw: unknown): AnalystPickRow | null {
   const target = String(row.target_price ?? "");
   const stop = String(row.stop_loss ?? "");
   const houses = Array.isArray(row.houses) ? row.houses.map((item) => String(item).trim()).filter(Boolean) : [];
-  if (!/^\d{4}$/.test(symbol) || houses.length === 0 || !isValidLongPlan(entry, target, stop)) return null;
+  const note = String(row.note ?? "");
+  const priced = entry !== "" || target !== "" || stop !== "";
+  if (!/^\d{4}$/.test(symbol) || houses.length === 0) return null;
+  if (direction === "buy" && !isValidLongPlan(entry, target, stop)) return null;
+  if (direction === "exit" && priced && !isExitPlan(entry, target, stop)) return null;
+  if (direction === "exit" && !priced && !note.trim()) return null;
   const entryLow = String(row.entry_low ?? entry);
   const entryHigh = String(row.entry_high ?? entry);
   const targetLow = String(row.target_low ?? target);
@@ -60,18 +75,19 @@ function parseRow(raw: unknown): AnalystPickRow | null {
     houses,
     analyst_count: toFiniteNumber(row.analyst_count) ?? houses.length,
     consensus_strength: toFiniteNumber(row.consensus_strength) ?? houses.length,
+    direction,
     published_on: String(row.published_on ?? ""),
     window_days: toFiniteNumber(row.window_days) ?? 0,
     last_price: toFiniteNumber(row.last_price),
-    entry_price: Number(entry).toFixed(2),
-    entry_low: Number(entryLow).toFixed(2),
-    entry_high: Number(entryHigh).toFixed(2),
-    target_price: Number(target).toFixed(2),
-    target_low: Number(targetLow).toFixed(2),
-    target_high: Number(targetHigh).toFixed(2),
-    stop_loss: Number(stop).toFixed(2),
-    stop_low: Number(stopLow).toFixed(2),
-    stop_high: Number(stopHigh).toFixed(2),
+    entry_price: moneyText(entry),
+    entry_low: moneyText(entryLow),
+    entry_high: moneyText(entryHigh),
+    target_price: moneyText(target),
+    target_low: moneyText(targetLow),
+    target_high: moneyText(targetHigh),
+    stop_loss: moneyText(stop),
+    stop_low: moneyText(stopLow),
+    stop_high: moneyText(stopHigh),
     reward_ratio: toFiniteNumber(row.reward_ratio) ?? 0,
     timeframe: String(row.timeframe ?? ""),
     valid_until: String(row.valid_until ?? ""),
@@ -81,9 +97,16 @@ function parseRow(raw: unknown): AnalystPickRow | null {
   };
 }
 
+function moneyText(value: string): string {
+  if (!value.trim()) return "";
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number.toFixed(2) : "";
+}
+
 export function parseAnalystConsensus(payload: unknown): AnalystConsensusResponse {
   const body = (payload && typeof payload === "object" ? payload : {}) as Record<string, unknown>;
-  const data = Array.isArray(body.data) ? body.data.map(parseRow).filter((row): row is AnalystPickRow => row != null) : [];
+  const data = Array.isArray(body.data) ? body.data.map((row) => parseRow(row, "buy")).filter((row): row is AnalystPickRow => row != null) : [];
+  const exits = Array.isArray(body.exits) ? body.exits.map((row) => parseRow(row, "exit")).filter((row): row is AnalystPickRow => row != null) : [];
   return {
     success: body.success !== false,
     source: String(body.source ?? "curated"),
@@ -91,7 +114,9 @@ export function parseAnalystConsensus(payload: unknown): AnalystConsensusRespons
     as_of: String(body.as_of ?? ""),
     window_days: toFiniteNumber(body.window_days) ?? 0,
     hint: String(body.hint ?? ""),
+    exit_count: exits.length,
     data,
+    exits,
   };
 }
 

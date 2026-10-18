@@ -228,6 +228,73 @@ def test_five_day_consensus_ranks_recorded_houses_and_keeps_report_levels() -> N
     assert "2010" not in {row["symbol"] for row in rows}
 
 
+def test_five_day_exit_list_keeps_only_dated_caution_plans() -> None:
+    from app.services.analyst_consensus import rolling_consensus, rolling_exits
+
+    today = date(2026, 10, 19)
+    book = [
+        {
+            "symbol": "4190",
+            "houses": ["الراجحي المالية", "الأهلي كابيتال"],
+            "stance": "exit",
+            "published_on": "2026-10-17",
+            "entry_price": 40,
+            "target_price": 36,
+            "stop_loss": 42,
+            "note": "تصريف ملحوظ مع ضعف في النمو",
+            "weight": 1,
+        },
+        {
+            "symbol": "1211",
+            "houses": ["الرياض المالية"],
+            "stance": "caution",
+            "published_on": "2026-10-18",
+            "note": "ضعف في الأساسيات دون مستويات سعرية",
+        },
+        {
+            "symbol": "2010",
+            "houses": ["الراجحي المالية"],
+            "published_on": "2026-10-18",
+            "entry_price": 64,
+            "target_price": 61,
+            "stop_loss": 66.5,
+        },
+        {
+            "symbol": "1120",
+            "houses": ["الجزيرة كابيتال"],
+            "stance": "sell",
+            "published_on": "2026-10-10",
+            "entry_price": 90,
+            "target_price": 80,
+            "stop_loss": 94,
+        },
+        {
+            "symbol": "1010",
+            "houses": ["دراية المالية"],
+            "stance": "avoid",
+            "published_on": "2026-10-18",
+            "note": "محرم",
+        },
+    ]
+    exits = rolling_exits(today=today, window_days=5, book=book, last_prices={"4190": 39.2})
+    assert [row["symbol"] for row in exits] == ["4190", "1211"]
+    agreed = exits[0]
+    assert agreed["direction"] == "exit"
+    assert agreed["analyst_count"] == 2
+    assert agreed["entry_price"] == "40.00"
+    assert agreed["target_price"] == "36.00"
+    assert agreed["stop_loss"] == "42.00"
+    assert agreed["note"] == "تصريف ملحوظ مع ضعف في النمو"
+    assert agreed["last_price"] == 39.2
+    assert agreed["symbol"] == "4190"
+    plain = exits[1]
+    assert plain["entry_price"] == ""
+    assert plain["target_price"] == ""
+    assert plain["stop_loss"] == ""
+    assert plain["note"] == "ضعف في الأساسيات دون مستويات سعرية"
+    assert rolling_consensus(today=today, window_days=5, book=book) == []
+
+
 def test_analyst_entry_locks_live_print_and_ignores_book_price(tmp_path: Path) -> None:
     store = EntrySnapshotStore(tmp_path / "analyst-lock.json")
     first = active_consensus(today=date(2026, 9, 24), last_prices=_LIVE, store=store)

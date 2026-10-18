@@ -574,6 +574,7 @@ class AnalystPickRow(BaseModel):
     houses: list[str] = Field(default_factory=list)
     analyst_count: int = 0
     consensus_strength: float = 0
+    direction: str = "buy"
     published_on: str = ""
     window_days: int = 0
     last_price: float | None = None
@@ -602,7 +603,9 @@ class AnalystConsensusResponse(BaseModel):
     as_of: str
     window_days: int = 0
     hint: str = ""
+    exit_count: int = 0
     data: list[AnalystPickRow] = Field(default_factory=list)
+    exits: list[AnalystPickRow] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):

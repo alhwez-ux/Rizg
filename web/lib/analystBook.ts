@@ -18,6 +18,8 @@ export interface AnalystBookPick {
   stance?: string;
 }
 
+const EXIT_STANCES = new Set(["sell", "exit", "caution", "avoid"]);
+
 const STATUS_AR: Record<string, string> = {
   PURE: "نقي",
   MIXED: "مختلط",
@@ -143,10 +145,38 @@ export function buildRollingConsensus(
   windowDays = 5,
 ) {
   const span = Math.max(1, Math.min(windowDays, 30));
+  const data = buildRollingSide(pureOnly, today, lastPrices, span, "buy").data;
+  const exits = buildRollingSide(pureOnly, today, lastPrices, span, "exit").data;
+  return {
+    success: true,
+    source: "curated",
+    count: data.length,
+    exit_count: exits.length,
+    as_of: today,
+    window_days: span,
+    hint: `توصيات مؤرخة خلال آخر ${span} أيام: دخول عندما يغلب الشراء، وتخارج عندما تُسجَّل توصية حذر أو خروج. بلا تاريخ نشر لا تظهر التوصية. المستويات تبقى أرقام التقارير، والسعر الحالي من التسعير الحي إن وُجد.`,
+    data,
+    exits,
+  };
+}
+
+function byConsensus(left: { consensus_strength: number; analyst_count: number; symbol: string }, right: { consensus_strength: number; analyst_count: number; symbol: string }) {
+  if (right.consensus_strength !== left.consensus_strength) return right.consensus_strength - left.consensus_strength;
+  if (right.analyst_count !== left.analyst_count) return right.analyst_count - left.analyst_count;
+  return left.symbol.localeCompare(right.symbol);
+}
+
+function buildRollingSide(
+  pureOnly: boolean,
+  today: string,
+  lastPrices: Record<string, number>,
+  span: number,
+  side: "buy" | "exit",
+) {
   const start = shiftIsoDate(today, -(span - 1));
   const grouped = new Map<string, Map<string, ReportPlan>>();
   for (const item of ANALYST_BOOK) {
-    const plans = reportPlans(item, today, start, pureOnly);
+    const plans = reportPlans(item, today, start, pureOnly, side);
     if (!plans) continue;
     const houses = grouped.get(plans.symbol) ?? new Map<string, ReportPlan>();
     for (const plan of plans.plans) {
@@ -155,21 +185,9 @@ export function buildRollingConsensus(
     }
     grouped.set(plans.symbol, houses);
   }
-  const data = [...grouped.entries()].map(([symbol, houses]) => consensusRow(symbol, [...houses.values()], lastPrices[symbol], span));
-  data.sort((left, right) => {
-    if (right.consensus_strength !== left.consensus_strength) return right.consensus_strength - left.consensus_strength;
-    if (right.analyst_count !== left.analyst_count) return right.analyst_count - left.analyst_count;
-    return left.symbol.localeCompare(right.symbol);
-  });
-  return {
-    success: true,
-    source: "curated",
-    count: data.length,
-    as_of: today,
-    window_days: span,
-    hint: `توصيات شراء مؤرخة خلال آخر ${span} أيام. الترتيب بعدد بيوت الخبرة وثقل التوصية المسجّل. الدخول والهدف والوقف أرقام التقارير، والسعر الحالي من التسعير الحي إن وُجد.`,
-    data,
-  };
+  const data = [...grouped.entries()].map(([symbol, houses]) => consensusRow(symbol, [...houses.values()], lastPrices[symbol], span, side));
+  data.sort(byConsensus);
+  return { data };
 }
 
 function shiftIsoDate(iso: string, days: number): string {
@@ -183,23 +201,46 @@ interface ReportPlan {
   house: string;
   published_on: string;
   weight: number;
-  entry: number;
-  target: number;
-  stop: number;
+  entry: number | null;
+  target: number | null;
+  stop: number | null;
   note: string;
 }
 
-function reportPlans(item: AnalystBookPick, today: string, start: string, pureOnly: boolean) {
+function isValidExitPlan(entry: number, target: number, stop: number): boolean {
+  return Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target > 0 && target < entry && entry < stop;
+}
+
+function reportPlans(item: AnalystBookPick, today: string, start: string, pureOnly: boolean, side: "buy" | "exit" = "buy") {
   const symbol = item.symbol.trim().toUpperCase();
   if (!/^[1-8]\d{3}$/.test(symbol) || isProhibitedStock(symbol)) return null;
   if (pureOnly && !isPureStock(symbol)) return null;
-  const stance = (item.stance || "buy").trim().toLowerCase();
-  if (stance !== "buy" && stance !== "entry") return null;
+  const stance = (item.stance || (side === "buy" ? "buy" : "")).trim().toLowerCase();
+  if (side === "exit" ? !EXIT_STANCES.has(stance) : stance !== "buy" && stance !== "entry") return null;
   const published = (item.published_on || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(published) || published < start || published > today) return null;
-  if (!isValidLongPlan(item.entry_price, item.target_price, item.stop_loss)) return null;
   const houses = item.houses.map((name) => name.trim()).filter(Boolean);
   if (!houses.length) return null;
+  const note = (item.note || "").trim();
+  const supplied = [item.entry_price, item.target_price, item.stop_loss].map((value) => value != null && String(value).trim() !== "");
+  let entry: number | null = null;
+  let target: number | null = null;
+  let stop: number | null = null;
+  if (side === "buy") {
+    if (!isValidLongPlan(item.entry_price, item.target_price, item.stop_loss)) return null;
+    entry = item.entry_price;
+    target = item.target_price;
+    stop = item.stop_loss;
+  } else if (supplied.some(Boolean) && !supplied.every(Boolean)) {
+    return null;
+  } else if (supplied.every(Boolean)) {
+    if (!isValidExitPlan(item.entry_price, item.target_price, item.stop_loss)) return null;
+    entry = item.entry_price;
+    target = item.target_price;
+    stop = item.stop_loss;
+  } else if (!note) {
+    return null;
+  }
   const weight = item.weight != null && item.weight > 0 ? item.weight : 1;
   return {
     symbol,
@@ -207,12 +248,19 @@ function reportPlans(item: AnalystBookPick, today: string, start: string, pureOn
       house,
       published_on: published,
       weight,
-      entry: item.entry_price,
-      target: item.target_price,
-      stop: item.stop_loss,
-      note: (item.note || "").trim(),
+      entry,
+      target,
+      stop,
+      note,
     })),
   };
+}
+
+function reportExitReward(entryLow: number, entryHigh: number, targetHigh: number, stopLow: number): number {
+  const risk = stopLow - entryHigh;
+  const reward = entryLow - targetHigh;
+  if (!(risk > 0) || !(reward > 0)) return 0;
+  return Number((reward / risk).toFixed(2));
 }
 
 function reportReward(entry: number, target: number, stop: number): number {
@@ -221,19 +269,42 @@ function reportReward(entry: number, target: number, stop: number): number {
   return Number(((target - entry) / risk).toFixed(2));
 }
 
-function consensusRow(symbol: string, plans: ReportPlan[], live: number | undefined, windowDays: number) {
-  const entries = plans.map((plan) => plan.entry);
-  const targets = plans.map((plan) => plan.target);
-  const stops = plans.map((plan) => plan.stop);
-  const entryLow = Math.min(...entries);
-  const entryHigh = Math.max(...entries);
-  const targetLow = Math.min(...targets);
-  const targetHigh = Math.max(...targets);
-  const stopLow = Math.min(...stops);
-  const stopHigh = Math.max(...stops);
+function consensusRow(symbol: string, plans: ReportPlan[], live: number | undefined, windowDays: number, direction: "buy" | "exit" = "buy") {
+  const priced = plans.filter((plan) => plan.entry != null && plan.target != null && plan.stop != null);
+  const entries = priced.map((plan) => plan.entry as number);
+  const targets = priced.map((plan) => plan.target as number);
+  const stops = priced.map((plan) => plan.stop as number);
   const status = shariahStatus(symbol);
   const stock = BY_SYMBOL.get(symbol);
   const money = (value: number) => value.toFixed(2);
+  const pricedRow = entries.length
+    ? {
+        entry_price: money(Math.min(...entries)),
+        entry_low: money(Math.min(...entries)),
+        entry_high: money(Math.max(...entries)),
+        target_price: money(direction === "buy" ? Math.max(...targets) : Math.min(...targets)),
+        target_low: money(Math.min(...targets)),
+        target_high: money(Math.max(...targets)),
+        stop_loss: money(direction === "buy" ? Math.min(...stops) : Math.max(...stops)),
+        stop_low: money(Math.min(...stops)),
+        stop_high: money(Math.max(...stops)),
+        reward_ratio:
+          direction === "buy"
+            ? reportReward(Math.min(...entries), Math.max(...targets), Math.min(...stops))
+            : reportExitReward(Math.min(...entries), Math.max(...entries), Math.max(...targets), Math.min(...stops)),
+      }
+    : {
+        entry_price: "",
+        entry_low: "",
+        entry_high: "",
+        target_price: "",
+        target_low: "",
+        target_high: "",
+        stop_loss: "",
+        stop_low: "",
+        stop_high: "",
+        reward_ratio: 0,
+      };
   return {
     symbol,
     name: listedNameFor(symbol) || stock?.companyNameAr || symbol,
@@ -241,19 +312,11 @@ function consensusRow(symbol: string, plans: ReportPlan[], live: number | undefi
     houses: plans.map((plan) => plan.house),
     analyst_count: plans.length,
     consensus_strength: Number(plans.reduce((sum, plan) => sum + plan.weight, 0).toFixed(2)),
+    direction,
     published_on: plans.map((plan) => plan.published_on).sort().at(-1) || "",
     window_days: windowDays,
     last_price: live != null && live > 0 ? Number(live.toFixed(2)) : null,
-    entry_price: money(entryLow),
-    entry_low: money(entryLow),
-    entry_high: money(entryHigh),
-    target_price: money(targetHigh),
-    target_low: money(targetLow),
-    target_high: money(targetHigh),
-    stop_loss: money(stopLow),
-    stop_low: money(stopLow),
-    stop_high: money(stopHigh),
-    reward_ratio: reportReward(entryLow, targetHigh, stopLow),
+    ...pricedRow,
     timeframe: `${windowDays} أيام`,
     valid_until: plans.map((plan) => plan.published_on).sort().at(-1) || "",
     note: plans.find((plan) => plan.note)?.note || "",
