@@ -28,6 +28,7 @@ def test_flat_cloud_uses_the_nine_and_twenty_six_session_midpoint():
     assert reading["span_a"] == 10.5
     assert reading["span_b"] == 10.5
     assert reading["trend"] == "range"
+    assert reading["position"] == "inside"
     assert reading["signal"] == "watch"
     assert reading["chikou"] == 10.5
 
@@ -40,6 +41,7 @@ def test_rising_sessions_are_an_uptrend_without_a_fresh_entry():
     reading = ichimoku_reading(_bars(rows))
     assert reading is not None
     assert reading["trend"] == "up"
+    assert reading["position"] == "above"
     assert reading["signal"] == "watch"
     assert reading["future_span_a"] > reading["future_span_b"]
 
@@ -73,6 +75,7 @@ def test_exit_needs_a_bearish_cross_and_a_shooting_star():
     assert reading["pattern"] == "shooting_star"
     assert reading["signal"] == "exit"
     assert reading["trend"] == "down"
+    assert reading["position"] == "below"
     assert reading["future_span_a"] < reading["future_span_b"]
 
 

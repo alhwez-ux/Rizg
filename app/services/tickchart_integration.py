@@ -775,6 +775,7 @@ class TickChartFeed:
                 "retail_mfi": None if stale_tape else live.get("retail_mfi"),
                 "volume_ratio": None if stale_tape else live.get("volume_ratio"),
                 "block_trades": None if stale_tape else live.get("block_trades"),
+                "block_side": None if stale_tape else (live.get("block_side") or live.get("large_block_side")),
                 "last_block_value": live.get("last_block_value"),
                 "bid_wall": live.get("bid_wall"),
                 "ask_wall": live.get("ask_wall"),
@@ -882,6 +883,11 @@ class TickChartFeed:
             "under_watch": False,
             "explosive": False,
             "hidden_accumulation": False,
+            "block_trades": None,
+            "block_side": None,
+            "institutional_mfi": None,
+            "signal": None,
+            **self._ichimoku_fields(ticker, stored),
         }
 
     def book_symbols(self) -> list[str]:
@@ -1058,6 +1064,9 @@ class TickChartFeed:
                     "signal": report.get("signal"),
                     "block_trades": report.get("block_trades"),
                     "ichimoku_trend": report.get("ichimoku_trend"),
+                    "ichimoku_signal": report.get("ichimoku_signal"),
+                    "ichimoku_position": report.get("ichimoku_position"),
+                    "block_side": report.get("block_side"),
                     "live": report.get("quote_mode") == "live",
                     "quote_mode": report.get("quote_mode"),
                     "under_watch": bool(report.get("under_watch")),
@@ -1653,8 +1662,12 @@ class TickChartFeed:
             }
         reading = ichimoku_reading(self._quotes.close_history(ticker), today)
         if not reading:
-            return {"ichimoku_trend": None, "ichimoku_signal": None}
-        return {"ichimoku_trend": reading["trend"], "ichimoku_signal": reading["signal"]}
+            return {"ichimoku_trend": None, "ichimoku_signal": None, "ichimoku_position": None}
+        return {
+            "ichimoku_trend": reading["trend"],
+            "ichimoku_signal": reading["signal"],
+            "ichimoku_position": reading["position"],
+        }
 
     def _ensure_session_price(self, symbol: str) -> None:
         """Refresh one open-session quote so a watched card is not stuck on yesterday's close."""

@@ -10,7 +10,7 @@ import { useDigitalTape } from "@/hooks/useDigitalTape";
 import { formatCompact, formatMoney, formatPercent, formatPrice } from "@/lib/liquidity";
 import type { LiquidityGrade } from "@/lib/dailyLiquidity";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
-import { passesShariahFilter, type ShariahFilter } from "@/lib/shariah";
+import { passesShariahFilter, shariahStatus, type ShariahFilter } from "@/lib/shariah";
 
 type FilterId = "all" | "pure" | "opportunities" | "consensus";
 type SortKey =
@@ -18,12 +18,10 @@ type SortKey =
   | "price"
   | "change"
   | "path"
-  | "vwap"
-  | "fair"
+  | "cloud"
   | "grade"
-  | "blocks"
-  | "flow"
-  | "correction"
+  | "funds"
+  | "shariah"
   | "health"
   | "analysts";
 
@@ -70,6 +68,48 @@ function pathLabel(path: DigitalTapeRow["path"]): string {
   if (path === "down") return `${ar.ichimokuDown} 🔴`;
   if (path === "range") return `${ar.ichimokuRange} 🟡`;
   return "—";
+}
+
+function cloudLabel(row: DigitalTapeRow): string {
+  const place =
+    row.cloud === "above" ? ar.cloudAbove : row.cloud === "inside" ? ar.cloudInside : row.cloud === "below" ? ar.cloudBelow : "";
+  const cross =
+    row.cloudSignal === "entry"
+      ? ar.ichimokuEntry
+      : row.cloudSignal === "exit"
+        ? ar.ichimokuExit
+        : row.cloudSignal === "watch"
+          ? ar.ichimokuWatch
+          : "";
+  if (place && cross) return `${place} · ${cross}`;
+  return place || cross || "—";
+}
+
+function shariahLabel(symbol: string): string {
+  const status = shariahStatus(symbol);
+  if (status === "PURE") return ar.dossierPure;
+  if (status === "MIXED") return ar.dossierMixed;
+  if (status === "PROHIBITED") return ar.dossierProhibited;
+  return "—";
+}
+
+function fundsLabel(row: DigitalTapeRow): string {
+  const parts: string[] = [];
+  if (row.blocks != null && row.blocks > 0) {
+    const title = row.blockSide === "buy" ? ar.fundsEntry : row.blockSide === "sell" ? ar.fundsExit : ar.fundsBlock;
+    parts.push(`${title} ${formatCompact(row.blocks, 0)}`);
+  }
+  if (row.institutionalMfi != null) parts.push(`MFI ${Math.round(row.institutionalMfi)}%`);
+  if (row.hiddenAccumulation) parts.push(ar.fundsHidden);
+  if (row.signal === "entry") parts.push(ar.radarStatusEntry);
+  else if (row.signal === "exit") parts.push(ar.radarStatusExit);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+function healthLabel(category: string | undefined, vwap: number | null): string {
+  const fair = vwap != null && vwap > 0 ? formatPrice(vwap) : "";
+  if (category && fair) return `${category} · ${fair}`;
+  return category || fair || "—";
 }
 
 function analystLabel(pick: AnalystPickRow | undefined): string {
@@ -158,15 +198,17 @@ export function DigitalDesk({
       if (sortKey === "price") return row.price;
       if (sortKey === "change") return row.change;
       if (sortKey === "path") return row.path ? PATH_RANK[row.path] : null;
-      if (sortKey === "vwap" || sortKey === "fair") return row.vwap;
-      if (sortKey === "grade") return grades.get(row.symbol) ? GRADE_RANK[grades.get(row.symbol)!] : null;
-      if (sortKey === "blocks") return row.blocks;
-      if (sortKey === "flow") return row.netFlow;
-      if (sortKey === "correction") {
-        const lamp = lamps.get(row.symbol);
-        return lamp === "approach" ? 2 : lamp === "rebound" ? 1 : null;
+      if (sortKey === "cloud") return row.cloud === "above" ? 3 : row.cloud === "inside" ? 2 : row.cloud === "below" ? 1 : null;
+      if (sortKey === "grade") {
+        const grade = grades.get(row.symbol);
+        return grade ? GRADE_RANK[grade] : null;
       }
-      if (sortKey === "health") return health.has(row.symbol) ? 1 : null;
+      if (sortKey === "funds") return row.blocks ?? row.institutionalMfi;
+      if (sortKey === "shariah") {
+        const status = shariahStatus(row.symbol);
+        return status === "PURE" ? 3 : status === "MIXED" ? 2 : status === "PROHIBITED" ? 1 : null;
+      }
+      if (sortKey === "health") return row.vwap;
       if (sortKey === "analysts") return analysts.get(row.symbol)?.consensus_strength ?? null;
       return null;
     };
@@ -223,12 +265,13 @@ export function DigitalDesk({
           <button
             key={item.id}
             type="button"
+            aria-pressed={filter === item.id}
             onClick={() => setFilter(item.id)}
             className={`rounded-full px-3 py-1.5 text-xs font-bold ${
               filter === item.id ? "bg-white text-zinc-950" : "border border-white/10 text-zinc-300"
             }`}
           >
-            {item.label}
+            {item.label} {filterCount(item.id, tape.rows, shariah, query, opportunitySet, analysts)}
           </button>
         ))}
       </div>
@@ -239,19 +282,17 @@ export function DigitalDesk({
         <p className="py-10 text-center text-sm text-zinc-500">{ar.digitalEmpty}</p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="min-w-[68rem] w-full border-collapse text-right text-sm">
+          <table className="min-w-[76rem] w-full border-collapse text-right text-sm">
             <thead className="sticky top-0 bg-zinc-950/95 text-xs text-zinc-400">
               <tr>
                 <SortHead label={ar.colCompany} active={sortKey === "name"} desc={sortDesc} onClick={() => chooseSort("name")} />
                 <SortHead label={ar.colPrice} active={sortKey === "price"} desc={sortDesc} onClick={() => chooseSort("price")} />
                 <SortHead label={ar.colChange} active={sortKey === "change"} desc={sortDesc} onClick={() => chooseSort("change")} />
                 <SortHead label={ar.colPath} active={sortKey === "path"} desc={sortDesc} onClick={() => chooseSort("path")} />
-                <SortHead label={ar.colVwap} active={sortKey === "vwap"} desc={sortDesc} onClick={() => chooseSort("vwap")} />
-                <SortHead label={ar.colFair} active={sortKey === "fair"} desc={sortDesc} onClick={() => chooseSort("fair")} />
+                <SortHead label={ar.colCloud} active={sortKey === "cloud"} desc={sortDesc} onClick={() => chooseSort("cloud")} />
                 <SortHead label={ar.colLiquidity} active={sortKey === "grade"} desc={sortDesc} onClick={() => chooseSort("grade")} />
-                <SortHead label={ar.colBlocks} active={sortKey === "blocks"} desc={sortDesc} onClick={() => chooseSort("blocks")} />
-                <SortHead label={ar.colFlow} active={sortKey === "flow"} desc={sortDesc} onClick={() => chooseSort("flow")} />
-                <SortHead label={ar.colCorrection} active={sortKey === "correction"} desc={sortDesc} onClick={() => chooseSort("correction")} />
+                <SortHead label={ar.colFunds} active={sortKey === "funds"} desc={sortDesc} onClick={() => chooseSort("funds")} />
+                <SortHead label={ar.colShariah} active={sortKey === "shariah"} desc={sortDesc} onClick={() => chooseSort("shariah")} />
                 <SortHead label={ar.colHealth} active={sortKey === "health"} desc={sortDesc} onClick={() => chooseSort("health")} />
                 <SortHead label={ar.colAnalysts} active={sortKey === "analysts"} desc={sortDesc} onClick={() => chooseSort("analysts")} />
               </tr>
@@ -267,8 +308,13 @@ export function DigitalDesk({
                     onClick={() => onOpen({ symbol: row.symbol, name: row.name })}
                   >
                     <td className="px-3 py-2">
-                      <div className="font-bold text-zinc-100">{row.name}</div>
-                      <div className="text-xs text-zinc-500">{row.symbol}</div>
+                      <div className="flex items-center gap-2">
+                        <CorrectionLamp kind={lamp} />
+                        <div>
+                          <div className="font-bold text-zinc-100">{row.name}</div>
+                          <div className="text-xs text-zinc-500">{row.symbol}</div>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-3 py-2 tabular-nums">{formatPrice(row.price)}</td>
                     <td
@@ -279,17 +325,26 @@ export function DigitalDesk({
                       {formatPercent(change, 2)}
                     </td>
                     <td className="px-3 py-2">{pathLabel(row.path)}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatPrice(row.vwap)}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatPrice(row.vwap)}</td>
-                    <td className="px-3 py-2">{gradeLabel(grades.get(row.symbol))}</td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {row.blocks == null ? "—" : formatCompact(row.blocks, 0)}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">{row.netFlow == null ? "—" : formatMoney(row.netFlow)}</td>
+                    <td className="px-3 py-2">{cloudLabel(row)}</td>
                     <td className="px-3 py-2">
-                      <CorrectionLamp kind={lamp} />
+                      <div>{gradeLabel(grades.get(row.symbol))}</div>
+                      <div className="text-xs tabular-nums text-zinc-400">{row.netFlow == null ? "—" : formatMoney(row.netFlow)}</div>
                     </td>
-                    <td className="px-3 py-2">{health.get(row.symbol) || "—"}</td>
+                    <td className="px-3 py-2">
+                      <FundsBadge row={row} />
+                    </td>
+                    <td
+                      className={`px-3 py-2 ${
+                        shariahStatus(row.symbol) === "PURE"
+                          ? "text-emerald-300"
+                          : shariahStatus(row.symbol) === "MIXED"
+                            ? "text-amber-200"
+                            : "text-zinc-400"
+                      }`}
+                    >
+                      {shariahLabel(row.symbol)}
+                    </td>
+                    <td className="px-3 py-2">{healthLabel(health.get(row.symbol), row.vwap)}</td>
                     <td className="px-3 py-2">{analystLabel(analysts.get(row.symbol))}</td>
                   </tr>
                 );
@@ -323,6 +378,40 @@ function SortHead({
   );
 }
 
+function filterCount(
+  id: FilterId,
+  rows: DigitalTapeRow[],
+  shariah: ShariahFilter,
+  query: string,
+  opportunities: Set<string>,
+  analysts: Map<string, AnalystPickRow>,
+): number {
+  const needle = query.trim().toLowerCase();
+  return rows.filter((row) => {
+    if (!passesShariahFilter(row.symbol, shariah)) return false;
+    if (needle && !row.symbol.includes(needle) && !row.name.toLowerCase().includes(needle)) return false;
+    if (id === "pure") return passesShariahFilter(row.symbol, "pure");
+    if (id === "opportunities") return opportunities.has(row.symbol);
+    if (id === "consensus") return analysts.has(row.symbol);
+    return true;
+  }).length;
+}
+
+function FundsBadge({ row }: { row: DigitalTapeRow }) {
+  const text = fundsLabel(row);
+  if (text === "—") return <>—</>;
+  const hot = row.blockSide === "buy" || row.signal === "entry" || (row.blocks ?? 0) > 0;
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+        hot ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-100" : "border-white/10 text-zinc-200"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
 function CorrectionLamp({ kind }: { kind: "approach" | "rebound" | undefined }) {
   if (kind === "approach") {
     return (
@@ -335,5 +424,5 @@ function CorrectionLamp({ kind }: { kind: "approach" | "rebound" | undefined }) 
   if (kind === "rebound") {
     return <span className="inline-flex h-3.5 w-3.5 rounded-full bg-emerald-400" aria-hidden="true" />;
   }
-  return <span className="text-zinc-600">—</span>;
+  return null;
 }

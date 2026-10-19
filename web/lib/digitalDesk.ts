@@ -1,6 +1,9 @@
 import { apiFetch } from "@/lib/api";
 import { toFiniteNumber } from "@/lib/screener";
 
+export type CloudPosition = "above" | "inside" | "below";
+export type IchimokuSignal = "entry" | "exit" | "watch";
+
 export interface DigitalTapeRow {
   symbol: string;
   name: string;
@@ -8,12 +11,33 @@ export interface DigitalTapeRow {
   change: number | null;
   vwap: number | null;
   blocks: number | null;
+  blockSide: "buy" | "sell" | null;
   netFlow: number | null;
+  institutionalMfi: number | null;
+  signal: string | null;
+  hiddenAccumulation: boolean;
   path: "up" | "down" | "range" | null;
+  cloud: CloudPosition | null;
+  cloudSignal: IchimokuSignal | null;
 }
 
 function parsePath(value: unknown): DigitalTapeRow["path"] {
   if (value === "up" || value === "down" || value === "range") return value;
+  return null;
+}
+
+function parseCloud(value: unknown): CloudPosition | null {
+  if (value === "above" || value === "inside" || value === "below") return value;
+  return null;
+}
+
+function parseCloudSignal(value: unknown): IchimokuSignal | null {
+  if (value === "entry" || value === "exit" || value === "watch") return value;
+  return null;
+}
+
+function parseSide(value: unknown): "buy" | "sell" | null {
+  if (value === "buy" || value === "sell") return value;
   return null;
 }
 
@@ -31,8 +55,14 @@ export function parseDigitalRow(raw: unknown): DigitalTapeRow | null {
     change,
     vwap: toFiniteNumber(row.session_vwap ?? row.vwap),
     blocks: toFiniteNumber(row.block_trades),
+    blockSide: parseSide(row.block_side),
     netFlow: toFiniteNumber(row.net_flow),
+    institutionalMfi: toFiniteNumber(row.institutional_mfi ?? row.mfi),
+    signal: typeof row.signal === "string" ? row.signal : null,
+    hiddenAccumulation: row.hidden_accumulation === true,
     path: parsePath(row.ichimoku_trend),
+    cloud: parseCloud(row.ichimoku_position),
+    cloudSignal: parseCloudSignal(row.ichimoku_signal),
   };
 }
 

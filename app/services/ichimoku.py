@@ -66,6 +66,7 @@ def ichimoku_reading(bars: list[dict[str, Any]], today: dict[str, Any] | None = 
     trend = _trend(close, cloud_top, cloud_bottom, future_a, future_b)
     return {
         "trend": trend,
+        "position": _position(close, cloud_top, cloud_bottom),
         "signal": signal,
         "pattern": pattern,
         "tenkan": round(float(tenkan[last]), 4),
@@ -76,6 +77,14 @@ def ichimoku_reading(bars: list[dict[str, Any]], today: dict[str, Any] | None = 
         "future_span_b": round(float(future_b), 4),
         "chikou": round(close, 4),
     }
+
+
+def _position(close: float, top: float, bottom: float) -> str:
+    if bottom <= close <= top:
+        return "inside"
+    if close > top:
+        return "above"
+    return "below"
 
 
 def _trend(close: float, top: float, bottom: float, future_a: float, future_b: float) -> str | None:
