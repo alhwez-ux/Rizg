@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from app.services.signals import is_valid_long_plan, keep_long_recommendations, long_trade_levels
-from app.services.tasi_clock import now_riyadh
+from app.services.tasi_clock import now_riyadh, session_phase
 
 _DEFAULT_PATH = Path("data/entry_snapshots.json")
 _SCHEMA_VERSION = 1
@@ -221,15 +221,25 @@ def apply_locked_entries(
 def live_last_index(quotes: Any, tapes: Mapping[str, Any] | None = None) -> dict[str, float]:
     """Best live last print from the quote book and in-memory tapes."""
 
+    in_session = session_phase() in {"preopen", "open", "auction"}
     index: dict[str, float] = {}
     snapshot = quotes.snapshot() if quotes is not None and hasattr(quotes, "snapshot") else []
     for row in snapshot or []:
         if not isinstance(row, dict):
             continue
         symbol = str(row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        if not in_session and hasattr(quotes, "display_price"):
+            shown = _positive(quotes.display_price(symbol))
+            if shown is not None:
+                index[symbol] = shown
+                continue
         last = _positive(row.get("last_price") or row.get("close") or row.get("price"))
-        if symbol and last is not None:
+        if last is not None:
             index[symbol] = last
+    if not in_session:
+        return index
     for symbol, tape in (tapes or {}).items():
         ticker = str(symbol or "").strip().upper()
         snap = tape.snapshot() if tape is not None and hasattr(tape, "snapshot") else None

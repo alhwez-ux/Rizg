@@ -284,7 +284,9 @@ def test_open_session_refresh_replaces_the_book_and_stamps_the_sync(tmp_path: Pa
     assert feed.status()["last_sync_at"]
 
 
-def test_closed_refresh_keeps_todays_session_print(tmp_path: Path, monkeypatch) -> None:
+def test_closed_refresh_replaces_the_intraday_print_with_the_official_close(tmp_path: Path, monkeypatch) -> None:
+    from datetime import timedelta
+
     from app.services.tasi_clock import now_riyadh
 
     monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
@@ -293,15 +295,43 @@ def test_closed_refresh_keeps_todays_session_print(tmp_path: Path, monkeypatch) 
     feed._quotes.apply_closes(
         [{"symbol": "1120", "last_price": 62.3, "session_date": today, "volume": 10}]
     )
-    stamped = feed._quotes.get("1120")["at"]
 
     def fetcher(symbols, sessions=10):
         del symbols, sessions
-        return [], [{"symbol": "1120", "last_price": 60.0, "volume": 5, "session_date": today}]
+        return [], [{"symbol": "1120", "last_price": 60.0, "volume": 5, "session_date": today, "change_percent": -1.1}]
 
-    assert feed.ensure_public_quotes(force=True, fetcher=fetcher) == 0
-    assert feed._quotes.price("1120") == 62.3
-    assert feed._quotes.get("1120")["at"] == stamped
+    assert feed.ensure_public_quotes(force=True, fetcher=fetcher) == 1
+    assert feed._quotes.price("1120") == 60.0
+    assert feed._quotes.display_price("1120") == 60.0
+
+    def older(symbols, sessions=10):
+        del symbols, sessions
+        return [], [{"symbol": "1120", "last_price": 55.0, "volume": 5, "session_date": today - timedelta(days=1)}]
+
+    assert feed.ensure_public_quotes(force=True, fetcher=older) == 0
+    assert feed._quotes.price("1120") == 60.0
+
+
+def test_closed_scan_keeps_the_official_close_when_the_tape_is_still_intraday(tmp_path: Path, monkeypatch) -> None:
+    from app.services.entry_snapshot_store import live_last_index
+    from app.services.tasi_clock import now_riyadh
+
+    monkeypatch.setattr("app.services.tickchart_integration.session_phase", lambda moment=None: "closed")
+    monkeypatch.setattr("app.services.entry_snapshot_store.session_phase", lambda moment=None: "closed")
+    feed = _feed(tmp_path)
+    today = now_riyadh().date()
+    feed._quotes.apply_closes(
+        [{"symbol": "1120", "last_price": 78.62, "session_date": today, "volume": 1000, "change_percent": -3.2}]
+    )
+
+    class _Tape:
+        def snapshot(self) -> dict:
+            return {"last_price": 81.28}
+
+    feed._tapes["1120"] = _Tape()
+    row = next(item for item in feed._close_snapshots() if item["symbol"] == "1120")
+    assert row["last_price"] == 78.62
+    assert live_last_index(feed._quotes, feed._tapes)["1120"] == 78.62
 
 
 def test_closed_session_does_not_fetch_live_prints(tmp_path: Path, monkeypatch) -> None:

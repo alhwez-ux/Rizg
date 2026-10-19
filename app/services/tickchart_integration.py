@@ -1361,7 +1361,7 @@ class TickChartFeed:
         if not rows:
             from app.services.close_board import close_session_board
 
-            rows = close_session_board(self._quotes.snapshot())
+            rows = close_session_board(self._official_close_rows())
         rows = apply_locked_entries(
             rows,
             store=self._entry_store,
@@ -1606,17 +1606,42 @@ class TickChartFeed:
                 row["value_traded"] = price * volume
             shaped.append(row)
         if not open_session:
-            shaped = [
-                row
-                for row in shaped
-                if not self._quotes.is_session_print(str(row.get("symbol") or ""))
-            ]
+            shaped = [row for row in shaped if self._completed_close_replaces(row)]
         applied = self._quotes.apply_closes(shaped) if shaped else 0
         if fetcher is None:
             self._public_quotes_at = time.monotonic()
         if applied == 0 and not self._quotes.snapshot():
             self.ensure_close_book()
         return applied
+
+    def _completed_close_replaces(self, row: dict[str, Any]) -> bool:
+        """After the bell, today's official bar replaces the intraday print. An older bar does not."""
+
+        symbol = str(row.get("symbol") or "")
+        incoming = row.get("session_date")
+        incoming_day = incoming.isoformat()[:10] if hasattr(incoming, "isoformat") else str(incoming or "")[:10]
+        stored = self._quotes.get(symbol) or {}
+        if stored.get("close_source") != "session":
+            return True
+        stored_day = str(stored.get("session_date") or "")[:10]
+        if len(incoming_day) < 10 or len(stored_day) < 10:
+            return not self._quotes.is_session_print(symbol)
+        return incoming_day >= stored_day
+
+    def _official_close_rows(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for item in self._quotes.snapshot():
+            symbol = str(item.get("symbol") or "").strip().upper()
+            price = self._quotes.display_price(symbol)
+            if not symbol or price is None:
+                continue
+            copied = dict(item)
+            copied["last_price"] = price
+            change = self._quotes.session_change(symbol, price)
+            if change is not None:
+                copied["change_percent"] = change
+            rows.append(copied)
+        return rows
 
     def _ensure_ichimoku_history(self, symbol: str) -> None:
         """Fetch one symbol's daily OHLC when the card opens. Cached for hours."""
@@ -1916,7 +1941,11 @@ class TickChartFeed:
             ranked = ranking.get(symbol) or {}
             tape = self._tapes.get(symbol)
             live = tape.snapshot() if tape is not None else {}
-            last = live.get("last_price") or self._quotes.display_price(symbol) or ranked.get("last_price")
+            in_session = session_phase(now_riyadh()) in {"preopen", "open", "auction"}
+            if in_session:
+                last = live.get("last_price") or self._quotes.display_price(symbol) or ranked.get("last_price")
+            else:
+                last = self._quotes.display_price(symbol) or ranked.get("last_price")
             if not last:
                 continue
             bars = history.get(symbol) or []
