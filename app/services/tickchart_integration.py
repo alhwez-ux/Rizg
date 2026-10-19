@@ -1056,6 +1056,8 @@ class TickChartFeed:
                     "retail_mfi": report.get("retail_mfi"),
                     "trap": report.get("trap"),
                     "signal": report.get("signal"),
+                    "block_trades": report.get("block_trades"),
+                    "ichimoku_trend": report.get("ichimoku_trend"),
                     "live": report.get("quote_mode") == "live",
                     "quote_mode": report.get("quote_mode"),
                     "under_watch": bool(report.get("under_watch")),

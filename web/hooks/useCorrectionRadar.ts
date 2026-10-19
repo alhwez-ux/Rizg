@@ -9,7 +9,7 @@ import { SESSION_REFRESHED_EVENT } from "@/lib/tickchartStatus";
 
 const POLL_MS = 20_000;
 
-export function useCorrectionRadar() {
+export function useCorrectionRadar(enabled = true) {
   const [payload, setPayload] = useState<CorrectionRadarResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,7 @@ export function useCorrectionRadar() {
   }, []);
 
   useEffect(() => {
-    if (!isConnected) {
+    if (!enabled || !isConnected) {
       setLoading(false);
       return;
     }
@@ -71,7 +71,7 @@ export function useCorrectionRadar() {
       window.clearTimeout(slowTimer.current);
       window.removeEventListener(SESSION_REFRESHED_EVENT, onRefresh);
     };
-  }, [isConnected, refresh]);
+  }, [enabled, isConnected, refresh]);
 
   return { payload, rows: payload?.data ?? [], loading, error, late, refresh };
 }

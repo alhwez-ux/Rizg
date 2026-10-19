@@ -29,6 +29,7 @@ import { PreOpenCard } from "@/components/PreOpenCard";
 import { SmartMoneyCard } from "@/components/SmartMoneyCard";
 import { RecoveryCard } from "@/components/RecoveryCard";
 import { CorrectionRadarCard } from "@/components/CorrectionRadarCard";
+import { DigitalDesk } from "@/components/DigitalDesk";
 import NotificationCenter from "./NotificationCenter";
 import { useAnalystConsensus } from "@/hooks/useAnalystConsensus";
 import { useDailyOpportunities } from "@/hooks/useDailyOpportunities";
@@ -135,6 +136,7 @@ function DashboardShell() {
     return next.map((item) => item.row);
   }, [shariahFilter, underWatchRows, watchHoldTick]);
   const [watchOpen, setWatchOpen] = useState(false);
+  const [digital, setDigital] = useState(false);
   const [watchSnapshot, setWatchSnapshot] = useState<UnderWatchRow[]>([]);
   const watchSymbols = useMemo(() => (watchOpen ? watchSnapshot.map((row) => row.symbol) : []), [watchOpen, watchSnapshot]);
   const watchPrices = useTapeLastPrices(watchSymbols);
@@ -289,6 +291,18 @@ function DashboardShell() {
           <div className="flex items-center gap-3">
             <RizgLogo iconClassName="h-12 w-12 sm:h-14 sm:w-14" withWordmark={false} title={ar.brand} tone={tone} />
             <h1 className="text-3xl font-black tracking-wide text-zinc-50">{ar.brand}</h1>
+            <button
+              type="button"
+              onClick={() => setDigital(true)}
+              aria-pressed={digital}
+              className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
+                digital
+                  ? "border-emerald-300/50 bg-emerald-400/20 text-emerald-50"
+                  : "border-white/15 bg-white/5 text-zinc-100 hover:bg-white/10"
+              }`}
+            >
+              {ar.digitalDesk}
+            </button>
           </div>
           <DashboardControlPanel
             map={visible}
@@ -328,6 +342,7 @@ function DashboardShell() {
         </div>
       </div>
 
+      <div className={digital ? "hidden" : "contents"}>
       {visible.tabs ? (
       <div
         role="tablist"
@@ -579,6 +594,21 @@ function DashboardShell() {
             ) : null}
           </div>
         ) : null}
+      </div>
+      </div>
+      <div className={digital ? "w-full text-right" : "hidden"}>
+        <DigitalDesk
+          live={digital}
+          shariah={shariahFilter}
+          buys={consensusPayload?.data ?? []}
+          exits={consensusPayload?.exits ?? []}
+          opportunities={dailyPayload?.data ?? []}
+          onBack={() => setDigital(false)}
+          onOpen={(company) => {
+            openWatchedCompany(company);
+            setDigital(false);
+          }}
+        />
       </div>
       <TrustBar />
     </section>
