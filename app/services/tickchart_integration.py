@@ -858,10 +858,11 @@ class TickChartFeed:
             change = 0.0
         if value <= 0 and volume > 0:
             value = price * volume
+        raw_flow = stored.get("net_flow")
         try:
-            net_flow = float(stored.get("net_flow") or 0)
+            net_flow = float(raw_flow) if raw_flow not in (None, "") else None
         except (TypeError, ValueError):
-            net_flow = 0.0
+            net_flow = None
         return {
             "symbol": ticker,
             "name": company_name_for(ticker) or stored.get("name") or ticker,
@@ -876,8 +877,8 @@ class TickChartFeed:
             "high": stored.get("high"),
             "session_low": stored.get("low"),
             "session_high": stored.get("high"),
-            "inflow": max(net_flow, 0.0),
-            "outflow": max(-net_flow, 0.0),
+            "inflow": None if net_flow is None else max(net_flow, 0.0),
+            "outflow": None if net_flow is None else max(-net_flow, 0.0),
             "live": _session_book_mode(self._quotes, ticker) == "live",
             "quote_mode": _session_book_mode(self._quotes, ticker),
             "under_watch": False,

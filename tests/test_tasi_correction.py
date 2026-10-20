@@ -103,6 +103,15 @@ def test_strong_candle_and_buy_blocks_at_support_end_the_correction() -> None:
     assert row["label"] == "ارتداد ونهاية تصحيح ✅"
 
 
+def test_a_two_week_decline_is_a_warning_not_a_green_lamp() -> None:
+    closes = [120 - index * 0.5 for index in range(25)]
+    row = classify_tasi_index({"history": _history(closes)})
+    assert row is not None
+    assert row["state"] == STATE_APPROACH
+    assert row["state"] != STATE_SAFE
+    assert "إغلاق أدنى من إغلاق قبل عشرة جلسات تداول" in row["reasons"]
+
+
 def test_quiet_history_stays_safe_and_the_lamp_is_off() -> None:
     row = classify_tasi_index({"history": _history([100.0] * 30)})
     assert row is not None

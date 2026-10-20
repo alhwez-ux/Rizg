@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { ar } from "@/lib/ar";
 import type { AnalystPickRow } from "@/lib/analystConsensus";
 import type { DailyOpportunityRow } from "@/lib/dailyOpportunities";
 import type { DigitalTapeRow } from "@/lib/digitalDesk";
 import { useCorrectionRadar } from "@/hooks/useCorrectionRadar";
 import { useDigitalTape } from "@/hooks/useDigitalTape";
+import { useTasiIndex } from "@/hooks/useTasiIndex";
 import { formatCompact, formatMoney, formatPercent, formatPrice } from "@/lib/liquidity";
 import type { LiquidityGrade } from "@/lib/dailyLiquidity";
 import { fetchRankingMatrix, type RankingRow } from "@/lib/rankingMatrix";
@@ -31,6 +33,14 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: "opportunities", label: ar.digitalOpportunities },
   { id: "consensus", label: ar.digitalConsensus },
 ];
+
+type NewsItem = {
+  title: string;
+  url: string;
+  source?: string;
+  published_at?: string;
+  companies?: { symbol: string; name: string }[];
+};
 
 const PATH_RANK = { up: 3, range: 2, down: 1 } as const;
 const GRADE_RANK: Record<LiquidityGrade, number> = { A: 4, B: 3, C: 2, D: 1 };
@@ -136,6 +146,7 @@ export function DigitalDesk({
   onOpen: (company: { symbol: string; name: string }) => void;
 }) {
   const tape = useDigitalTape(live);
+  const index = useTasiIndex();
   const correction = useCorrectionRadar(live);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterId>("all");
@@ -165,7 +176,9 @@ export function DigitalDesk({
   const health = useMemo(() => {
     const map = new Map<string, string>();
     for (const row of ranks) {
-      if (row.category) map.set(row.symbol, row.category);
+      const category = row.category || "";
+      if (!category || category.includes("تكرتشارت")) continue;
+      map.set(row.symbol, category);
     }
     return map;
   }, [ranks]);
@@ -253,6 +266,8 @@ export function DigitalDesk({
         </button>
         {tape.stale ? <span className="text-xs text-amber-300">{ar.digitalStale}</span> : null}
       </div>
+      <InfluentialNews live={live} onOpen={onOpen} />
+      <ResilientNames rows={tape.rows} indexChange={index.quote.changePercent ?? index.quote.change} onOpen={onOpen} />
 
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -375,6 +390,139 @@ function SortHead({
         {active ? (desc ? " ↓" : " ↑") : ""}
       </button>
     </th>
+  );
+}
+
+function InfluentialNews({
+  live,
+  onOpen,
+}: {
+  live: boolean;
+  onOpen: (company: { symbol: string; name: string }) => void;
+}) {
+  const [positive, setPositive] = useState<NewsItem[]>([]);
+  const [negative, setNegative] = useState<NewsItem[]>([]);
+  useEffect(() => {
+    if (!live) return;
+    let active = true;
+    const pull = () => {
+      apiFetch("/api/v1/market/news", { timeoutMs: 12_000 })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          return (await response.json()) as { positive?: NewsItem[]; negative?: NewsItem[] };
+        })
+        .then((payload) => {
+          if (!active || !payload) return;
+          setPositive(Array.isArray(payload.positive) ? payload.positive : []);
+          setNegative(Array.isArray(payload.negative) ? payload.negative : []);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = window.setInterval(pull, 10 * 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [live]);
+  return (
+    <section className="space-y-3 rounded-2xl border border-white/10 bg-zinc-950/40 p-4 text-right">
+      <h2 className="text-base font-black text-zinc-50">{ar.newsTitle}</h2>
+      {positive.length + negative.length === 0 ? (
+        <p className="text-sm text-zinc-500">{ar.newsEmpty}</p>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <NewsList title={ar.newsPositive} rows={positive} tone="text-emerald-200" onOpen={onOpen} />
+          <NewsList title={ar.newsNegative} rows={negative} tone="text-rose-200" onOpen={onOpen} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NewsList({
+  title,
+  rows,
+  tone,
+  onOpen,
+}: {
+  title: string;
+  rows: NewsItem[];
+  tone: string;
+  onOpen: (company: { symbol: string; name: string }) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <h3 className={`text-sm font-bold ${tone}`}>{title}</h3>
+      {rows.length === 0 ? <p className="text-xs text-zinc-500">{ar.newsEmpty}</p> : null}
+      {rows.map((row) => (
+        <article key={`${row.url}-${row.title}`} className="rounded-xl border border-white/10 px-3 py-2">
+          <a href={row.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-zinc-100 hover:text-white">
+            {row.title}
+          </a>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            {row.source}
+            {row.published_at ? ` · ${row.published_at.slice(0, 16).replace("T", " ")}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {(row.companies || []).map((company) => (
+              <button
+                key={company.symbol}
+                type="button"
+                onClick={() => onOpen(company)}
+                className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] font-bold text-zinc-200"
+              >
+                {company.name} {company.symbol}
+              </button>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ResilientNames({
+  rows,
+  indexChange,
+  onOpen,
+}: {
+  rows: DigitalTapeRow[];
+  indexChange: number | null;
+  onOpen: (company: { symbol: string; name: string }) => void;
+}) {
+  const measured = rows.filter((row) => row.change != null);
+  const falling = measured.filter((row) => (row.change ?? 0) < 0).length;
+  const broadDecline = measured.length >= 8 && falling > measured.length / 2;
+  const indexDown = indexChange != null && indexChange < 0;
+  const weak = indexDown || broadDecline;
+  const steady = weak
+    ? measured.filter((row) => (row.change ?? 0) >= 0).sort((left, right) => (right.change ?? 0) - (left.change ?? 0)).slice(0, 12)
+    : [];
+  return (
+    <section className="space-y-2 rounded-2xl border border-white/10 bg-zinc-950/40 p-4 text-right">
+      <h2 className="text-base font-black text-zinc-50">{ar.resilientTitle}</h2>
+      {!weak ? <p className="text-sm text-zinc-500">{ar.resilientEmpty}</p> : null}
+      {weak && steady.length === 0 ? <p className="text-sm text-zinc-500">{ar.resilientNone}</p> : null}
+      {steady.length ? (
+        <div className="flex flex-wrap gap-2">
+          {steady.map((row) => (
+            <button
+              key={row.symbol}
+              type="button"
+              onClick={() => onOpen({ symbol: row.symbol, name: row.name })}
+              className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-right"
+            >
+              <span className="block text-sm font-bold text-zinc-50">{row.name}</span>
+              <span className="text-[11px] text-zinc-400">{row.symbol}</span>
+              <span className="ms-2 font-mono text-xs text-emerald-200" dir="ltr">
+                {formatPrice(row.price)} {formatPercent(row.change, 2)}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

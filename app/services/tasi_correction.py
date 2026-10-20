@@ -40,6 +40,7 @@ REASON_DRY = "جفاف في حجوم البيع"
 REASON_CANDLE = "شمعة ارتداد إيجابية بحجم أعلى من المتوسط"
 REASON_FLOW_IN = "سيولة مؤسسية داخلة في القياديات"
 REASON_BLOCKS = "كتل شرائية عند القاع"
+REASON_FORTNIGHT = "إغلاق أدنى من إغلاق قبل عشرة جلسات تداول"
 
 LEADERS = ("2222", "1120", "1180", "7010", "2010", "1150")
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/%5ETASI.SR"
@@ -186,9 +187,10 @@ def classify_tasi_index(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     leaders = _leader_stats(snapshot.get("leaders"), near_support)
     heavy_out = leaders["measured"] >= 2 and leaders["negative"] >= 2 and leaders["negative"] * 2 >= leaders["measured"]
     heavy_in = leaders["measured"] >= 2 and leaders["positive"] >= 2 and leaders["positive"] * 2 >= leaders["measured"]
+    fortnight_down = len(closes) >= 11 and last < closes[-11]
 
     state: str | None = None
-    if strong and near_support and (heavy_in or leaders["blocks"] >= 1):
+    if strong and near_support and (heavy_in or leaders["blocks"] >= 1) and not fortnight_down:
         state = STATE_REBOUND
         reasons.append(REASON_CANDLE)
         if heavy_in:
@@ -201,7 +203,7 @@ def classify_tasi_index(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     elif near_support and drying and below_fast:
         state = STATE_ENDING
         reasons.extend([REASON_NEAR, REASON_DRY])
-    elif peaks or ema_break or vwap_break:
+    elif peaks or ema_break or vwap_break or fortnight_down:
         state = STATE_APPROACH
         if peaks:
             reasons.append(REASON_PEAKS)
@@ -209,6 +211,8 @@ def classify_tasi_index(snapshot: dict[str, Any]) -> dict[str, Any] | None:
             reasons.append(REASON_EMA)
         if vwap_break:
             reasons.append(REASON_VWAP)
+        if fortnight_down:
+            reasons.append(REASON_FORTNIGHT)
     elif len(closes) >= 20:
         state = STATE_SAFE
     else:

@@ -38,6 +38,13 @@ async def get_market_ranking_matrix(request: Request) -> RankingMatrixResponse:
     return await _live_rankings_response(request)
 
 
+@router.get("/news")
+async def get_influential_news() -> dict:
+    from app.services.market_news import influential_news
+
+    return await asyncio.to_thread(influential_news)
+
+
 @router.get("/dividends", response_model=DividendsResponse)
 async def get_active_dividends(
     request: Request,
