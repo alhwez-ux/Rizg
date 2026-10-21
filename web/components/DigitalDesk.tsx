@@ -150,7 +150,7 @@ export function DigitalDesk({
   const correction = useCorrectionRadar(live);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterId>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("flow");
+  const [sortKey, setSortKey] = useState<SortKey>("grade");
   const [sortDesc, setSortDesc] = useState(true);
   const [ranks, setRanks] = useState<RankingRow[]>([]);
 
