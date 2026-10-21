@@ -54,7 +54,7 @@ function PlanCell({ row }: { row: SmartMoneyRow }) {
   return (
     <div className="font-mono text-xs leading-6" dir="ltr">
       <p className="text-zinc-200">
-        {ar.fundsEntry} {formatPrice(row.entry)}
+        {ar.fundsPlanEntry} {formatPrice(row.entry)}
       </p>
       <p className="text-emerald-300">
         {ar.fundsTarget} {formatPrice(row.target)}

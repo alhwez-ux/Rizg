@@ -409,7 +409,7 @@ export const ar = {
   fundsInstitutions: "صناديق",
   fundsRetail: "تجزئة",
   fundsNearBidWall: "قرب جدار الطلب",
-  fundsEntry: "دخول",
+  fundsPlanEntry: "دخول",
   fundsTarget: "هدف",
   fundsStop: "وقف",
   fundsNoLongPlan: "ليس ركوب صناديق — لا خطة شراء",
