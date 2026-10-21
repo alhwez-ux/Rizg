@@ -6,6 +6,10 @@ from buy vs sell book volume, expected opening variation, and large block prints
 
 from __future__ import annotations
 
+import threading
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.models.screener import is_tasi_main_symbol
@@ -31,9 +35,14 @@ TIMEZONE = "Asia/Riyadh"
 _IMBALANCE_THRESHOLD = 0.12
 _VARIATION_BOOST = 0.35
 _BLOCK_BOOST = 0.18
+_STABLE_READINGS = 3
+_VOLUME_BAND = 0.20
+_MIN_GAP = timedelta(seconds=2)
 
-HINT_LIVE = "مزاد افتتاح تاسي مباشر (09:30–10:00) — حجم الطلبات مقابل العروض وصفقات الكتل يحدد التجميع أو التصريف المبكر"
-HINT_IDLE = "نافذة القراءة 09:30–10:00 بتوقيت الرياض — تُعرض آخر لقطة لدفاتر الأوامر حتى يبدأ المزاد"
+HINT_LIVE = "مزاد افتتاح تاسي مباشر (09:30–10:00). لا يُعتمد التجميع أو الضغط البيعي إلا إذا ثبتت الطلبات والكتلة لثلاث قراءات متتالية"
+HINT_CLOSED = "المزاد مغلق خارج 09:30–10:00 بتوقيت الرياض. لا تُحدَّث قراءة ما قبل الافتتاح خارج هذه النافذة"
+HINT_FROZEN = "المزاد مغلق. هذه آخر قراءة مستقرة من نافذة اليوم 09:30–10:00 ولن تُحدَّث حتى مزاد الجلسة التالية"
+HINT_IDLE = HINT_CLOSED
 
 
 def _number(value: Any) -> float | None:
@@ -217,6 +226,138 @@ def snapshots_from_feed(feed: Any) -> list[dict[str, Any]]:
     return reports
 
 
+@dataclass
+class _Sample:
+    at: datetime
+    streak: int
+    buy: float
+    sell: float
+    kind: str
+    block_side: str | None
+    block_trades: int
+
+
+_LOCK = threading.Lock()
+_tracks: dict[str, _Sample] = {}
+_frozen: dict[str, Any] | None = None
+_frozen_day: date | None = None
+
+
+def reset_preopen_memory() -> None:
+    """Drop auction streaks and the frozen reading. Tests start from a clean book."""
+
+    global _frozen, _frozen_day
+    with _LOCK:
+        _tracks.clear()
+        _frozen = None
+        _frozen_day = None
+
+
+def _same_level(left: float, right: float) -> bool:
+    peak = max(abs(left), abs(right))
+    if peak <= 0:
+        return True
+    return abs(left - right) / peak <= _VOLUME_BAND
+
+
+def _matches(sample: _Sample, row: dict[str, Any]) -> bool:
+    return (
+        sample.kind == row["signal_kind"]
+        and sample.block_side == row["large_block_side"]
+        and sample.block_trades == int(row["block_trades"])
+        and _same_level(sample.buy, float(row["buy_volume"]))
+        and _same_level(sample.sell, float(row["sell_volume"]))
+    )
+
+
+def _remember(row: dict[str, Any], moment: datetime) -> int:
+    symbol = str(row["symbol"])
+    previous = _tracks.get(symbol)
+    same = previous is not None and _matches(previous, row)
+    if previous is not None and moment - previous.at < _MIN_GAP:
+        streak = previous.streak if same else 1
+    elif same and previous is not None:
+        streak = previous.streak + 1
+    else:
+        streak = 1
+    _tracks[symbol] = _Sample(
+        at=moment,
+        streak=streak,
+        buy=float(row["buy_volume"]),
+        sell=float(row["sell_volume"]),
+        kind=str(row["signal_kind"]),
+        block_side=row.get("large_block_side"),
+        block_trades=int(row["block_trades"]),
+    )
+    return streak
+
+
+def _withhold(row: dict[str, Any]) -> dict[str, Any]:
+    quiet = dict(row)
+    quiet["signal"] = SIGNAL_BALANCED
+    quiet["signal_kind"] = KIND_BALANCED
+    quiet["liquidity_state"] = LIQUIDITY_BALANCED
+    quiet["large_block_side"] = None
+    quiet["score"] = 0.0
+    return quiet
+
+
+def _publish(row: dict[str, Any], moment: datetime) -> dict[str, Any]:
+    streak = _remember(row, moment)
+    directional = row["signal_kind"] in {KIND_ACCUMULATION, KIND_DISTRIBUTION}
+    if directional and streak < _STABLE_READINGS:
+        return _withhold(row)
+    return row
+
+
+def _roll_day(day: date) -> None:
+    global _frozen, _frozen_day
+    if _frozen_day is not None and _frozen_day != day:
+        _tracks.clear()
+        _frozen = None
+        _frozen_day = None
+
+
+def _pack(
+    current: datetime,
+    phase: str,
+    rows: list[dict[str, Any]],
+    *,
+    in_window: bool,
+    hint: str,
+    source: str,
+    scanned_at: str | None = None,
+) -> dict[str, Any]:
+    ordered = sorted(rows, key=lambda row: abs(float(row.get("score") or 0)), reverse=True)
+    return {
+        "success": True,
+        "session_phase": phase,
+        "session_label": phase_label(phase),
+        "in_window": in_window,
+        "window_start": WINDOW_START,
+        "window_end": WINDOW_END,
+        "timezone": TIMEZONE,
+        "source": source,
+        "count": len(ordered),
+        "accumulation_count": sum(1 for row in ordered if row["signal_kind"] == KIND_ACCUMULATION),
+        "distribution_count": sum(1 for row in ordered if row["signal_kind"] == KIND_DISTRIBUTION),
+        "hint": hint,
+        "scanned_at": scanned_at or current.isoformat(),
+        "data": ordered,
+    }
+
+
+def _outside_payload(current: datetime, phase: str, source: str) -> dict[str, Any]:
+    if _frozen is not None and _frozen_day == current.date():
+        held = deepcopy(_frozen)
+        held["session_phase"] = phase
+        held["session_label"] = phase_label(phase)
+        held["in_window"] = False
+        held["hint"] = HINT_FROZEN
+        return held
+    return _pack(current, phase, [], in_window=False, hint=HINT_CLOSED, source=source)
+
+
 def scan_preopen(
     feed: Any = None,
     *,
@@ -227,33 +368,30 @@ def scan_preopen(
     current = now_riyadh(moment)
     phase = session_phase(current)
     in_window = is_preopen_window(current)
+    with _LOCK:
+        _roll_day(current.date())
+        if not in_window:
+            return _outside_payload(current, phase, source)
+
     raw = snapshots if snapshots is not None else snapshots_from_feed(feed)
-    rows: list[dict[str, Any]] = []
+    classified_rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw or []:
         classified = classify_preopen(item if isinstance(item, dict) else {})
-        if classified is None:
-            continue
-        if classified["symbol"] in seen:
+        if classified is None or classified["symbol"] in seen:
             continue
         seen.add(classified["symbol"])
-        rows.append(classified)
-    rows.sort(key=lambda row: abs(float(row.get("score") or 0)), reverse=True)
-    accumulation = sum(1 for row in rows if row["signal_kind"] == KIND_ACCUMULATION)
-    distribution = sum(1 for row in rows if row["signal_kind"] == KIND_DISTRIBUTION)
-    return {
-        "success": True,
-        "session_phase": phase,
-        "session_label": phase_label(phase),
-        "in_window": in_window,
-        "window_start": WINDOW_START,
-        "window_end": WINDOW_END,
-        "timezone": TIMEZONE,
-        "source": source,
-        "count": len(rows),
-        "accumulation_count": accumulation,
-        "distribution_count": distribution,
-        "hint": HINT_LIVE if in_window else HINT_IDLE,
-        "scanned_at": current.isoformat(),
-        "data": rows,
-    }
+        classified_rows.append(classified)
+
+    with _LOCK:
+        _roll_day(current.date())
+        if not is_preopen_window(current):
+            return _outside_payload(current, phase, source)
+        for symbol in [key for key in _tracks if key not in seen]:
+            del _tracks[symbol]
+        published = [_publish(row, current) for row in classified_rows]
+        payload = _pack(current, phase, published, in_window=True, hint=HINT_LIVE, source=source)
+        global _frozen, _frozen_day
+        _frozen = deepcopy(payload)
+        _frozen_day = current.date()
+        return payload

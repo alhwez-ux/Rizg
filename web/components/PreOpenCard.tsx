@@ -215,7 +215,9 @@ export function PreOpenCard({
       ) : loading && rows.length === 0 ? (
         <DataSkeleton kind="table" rows={4} />
       ) : rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">{ar.preopenEmpty}</p>
+        <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-10 text-sm text-zinc-500">
+          {!payload?.in_window && payload?.hint ? payload.hint : ar.preopenEmpty}
+        </p>
       ) : (
         <>
           {error ? <p className="mb-3 text-center text-xs text-zinc-500">{ar.liveTicksUpdating}</p> : null}
