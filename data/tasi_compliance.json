@@ -1781,8 +1781,8 @@
   },
   {
     "symbol": "6014",
-    "companyNameAr": "أمريكانا",
-    "companyNameEn": "Americana",
+    "companyNameAr": "الآمار",
+    "companyNameEn": "Alamar",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
     "purificationRate": 0.014,
@@ -1791,8 +1791,8 @@
   },
   {
     "symbol": "6015",
-    "companyNameAr": "أنعام القابضة",
-    "companyNameEn": "Anaam Holding",
+    "companyNameAr": "أمريكانا",
+    "companyNameEn": "Americana",
     "currentStatus": "MIXED",
     "sector": "الأغذية",
     "purificationRate": 0.02,
@@ -1898,6 +1898,16 @@
     "purificationRate": 0.011,
     "debtRatio": 0.18,
     "impureIncomeRatio": 0.02
+  },
+  {
+    "symbol": "4061",
+    "companyNameAr": "أنعام القابضة",
+    "companyNameEn": "Anaam Holding",
+    "currentStatus": "MIXED",
+    "sector": "الأغذية",
+    "purificationRate": 0.02,
+    "debtRatio": 0.31,
+    "impureIncomeRatio": 0.032
   },
   {
     "symbol": "2283",
