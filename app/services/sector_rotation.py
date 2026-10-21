@@ -152,11 +152,11 @@ def companies_for_sector(
     companies: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    from app.services.shariah import company_name_for, compliance_universe, is_prohibited, sector_for
+    from app.services.shariah import company_name_for, compliance_universe, current_status, is_prohibited, sector_for
 
     for item in compliance_universe():
         symbol = str(item.get("symbol") or "").strip().upper()
-        if not symbol or symbol in seen or is_prohibited(symbol):
+        if not symbol or symbol in seen or current_status(symbol) == "PROHIBITED":
             continue
         sector = str(item.get("sector") or sector_for(symbol) or "أخرى").strip() or "أخرى"
         if not _sectors_match(sector, wanted):

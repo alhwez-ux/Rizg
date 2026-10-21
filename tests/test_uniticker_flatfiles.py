@@ -119,7 +119,13 @@ def test_quote_snapshot_writes_last_quotes_once(tmp_path: Path) -> None:
     assert ingested == 3
     assert saves["n"] == 1
     assert feed.radar_report("1120")["last_price"] == 66.0
-    assert feed.status()["quote_mode"] == "live"
+    from app.services.tasi_clock import now_riyadh, session_phase
+
+    mode = feed.status()["quote_mode"]
+    if session_phase(now_riyadh()) in {"preopen", "open", "auction"}:
+        assert mode == "live"
+    else:
+        assert mode == "last_close"
     again = asyncio.run(
         feed.ingest_quote_snapshot(
             [

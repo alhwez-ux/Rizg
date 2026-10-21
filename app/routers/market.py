@@ -229,7 +229,7 @@ async def _live_rankings_response(request: Request) -> RankingMatrixResponse:
         return RankingMatrixResponse(
             success=True,
             message=_LIVE_MESSAGE if tape else _CACHED_MESSAGE,
-            source="TickChart",
+            source="TickChart" if tape else "cached",
             total_companies=len(rows),
             synced_at=store.synced_at() or synced_at,
             data=rows,

@@ -14,7 +14,7 @@ from typing import Any, Iterable
 import httpx
 
 from app.models.screener import is_tasi_main_symbol
-from app.services.tasi_clock import TASI_TZ, now_riyadh
+from app.services.tasi_clock import TASI_TZ, latest_completed_session, now_riyadh
 
 logger = logging.getLogger(__name__)
 
@@ -417,8 +417,14 @@ def overlay_session_closes(
         volume = _number(row.get("volume"))
         implausible = volume is None or volume < _VOLUME_FLOOR
         if closed and known is not None:
-            row["last_price"] = known["last_price"]
-            if known.get("volume"):
+            official_price = known["last_price"]
+            known_day = str(known.get("session_date") or "")[:10]
+            row_price = _positive(row.get("last_price"))
+            stale = bool(known_day) and known_day < latest_completed_session().isoformat()
+            same_price = row_price is not None and abs(row_price - official_price) <= 0.02
+            if not stale or row_price is None or same_price:
+                row["last_price"] = official_price
+            if known.get("volume") and (not stale or same_price or implausible):
                 row["volume"] = known["volume"]
             elif implausible:
                 row["volume"] = None

@@ -680,6 +680,10 @@ class TickChartFeed:
             _json_number(levels.session_low) or _json_number(stored.get("low")),
         )
         change = self._quotes.session_change(ticker, last_price)
+        if change is None and not stale_tape:
+            earlier = [bar for bar in history if str(bar.get("date") or "")[:10] < today_iso]
+            if not earlier:
+                change = _json_number(stored.get("change_percent"))
         if stale_tape:
             session_volume = stored.get("volume") or ranking.get("volume")
             session_value = stored.get("value_traded") or ranking.get("value_traded")
@@ -1935,6 +1939,9 @@ class TickChartFeed:
         ranking = self._ranking_index()
         names = self._company_name_index()
         ordered = self.main_market_symbols() or list(quotes)
+        from app.services.tasi_clock import latest_completed_session
+
+        completed_day = latest_completed_session().isoformat()
         for symbol in ordered:
             if not is_tasi_main_symbol(symbol):
                 continue
@@ -1943,10 +1950,20 @@ class TickChartFeed:
             tape = self._tapes.get(symbol)
             live = tape.snapshot() if tape is not None else {}
             in_session = session_phase(now_riyadh()) in {"preopen", "open", "auction"}
+            ranked_price = _json_number(ranked.get("last_price"))
             if in_session:
-                last = live.get("last_price") or self._quotes.display_price(symbol) or ranked.get("last_price")
+                last = live.get("last_price") or self._quotes.display_price(symbol) or ranked_price
             else:
-                last = self._quotes.display_price(symbol) or ranked.get("last_price")
+                last = self._quotes.display_price(symbol)
+                bars_for_day = history.get(symbol) or []
+                close_day = str(stored.get("session_date") or "")[:10]
+                if len(close_day) < 10 and bars_for_day:
+                    close_day = str(bars_for_day[-1].get("date") or "")[:10]
+                stale_close = len(close_day) >= 10 and close_day < completed_day
+                if ranked_price and (last is None or stale_close):
+                    last = ranked_price
+                elif not last:
+                    last = ranked_price
             if not last:
                 continue
             bars = history.get(symbol) or []
