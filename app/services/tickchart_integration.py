@@ -400,6 +400,9 @@ class TickChartFeed:
                 "open": payload.get("open"),
                 "liquidity_flow": payload.get("liquidity_flow"),
             }
+            stamp = _live_session_day()
+            if stamp is not None:
+                extras["session_date"] = stamp
             accepted.append(extras)
         if not accepted:
             return 0
@@ -1028,12 +1031,17 @@ class TickChartFeed:
 
     def market_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
+        in_session = session_phase(now_riyadh()) in {"preopen", "open", "auction"}
         for symbol in self._universe_symbols():
+            shown = self._shown_price(symbol) if in_session else None
             tape = self._tapes.get(str(symbol).strip().upper())
             live_print = bool(tape is not None and (tape.snapshot() or {}).get("last_price"))
             if not live_print:
                 stored_row = self._stored_market_row(str(symbol))
                 if stored_row is not None:
+                    if shown is not None:
+                        stored_row["last_price"] = shown
+                        stored_row["price"] = shown
                     rows.append(stored_row)
                 continue
             report = self.radar_report(symbol)
@@ -1045,14 +1053,16 @@ class TickChartFeed:
             price = float(report.get("last_price") or 0)
             if value <= 0 and price > 0 and volume > 0:
                 value = price * volume
+            if shown is not None:
+                price = shown
             net_flow = float(report.get("net_flow") or 0)
             rows.append(
                 {
                     "symbol": symbol,
                     "name": report.get("name") or symbol,
                     "sector": report.get("sector") or sector_for(symbol),
-                    "last_price": report.get("last_price"),
-                    "price": report.get("last_price"),
+                    "last_price": price,
+                    "price": price,
                     "price_change_pct": change,
                     "volume": volume,
                     "value_traded": value,
@@ -1266,6 +1276,28 @@ class TickChartFeed:
             "trap": live.get("trap"),
         }
 
+    def _shown_price(self, symbol: str) -> float | None:
+        """Price to display now: today's TickChart print while the session is on, otherwise the completed close."""
+
+        ticker = str(symbol or "").strip().upper()
+        if not ticker:
+            return None
+        in_session = session_phase(now_riyadh()) in {"preopen", "open", "auction"}
+        tape = self._tapes.get(ticker)
+        live = tape.snapshot() if tape is not None else {}
+        today_price = self._quotes.session_last(ticker)
+        fallback = None
+        if not in_session:
+            fallback = self._quotes.display_price(ticker) or self._quotes.price(ticker)
+        return _select_shown_price(
+            in_session=in_session,
+            tape_price=live.get("last_price"),
+            today_price=today_price,
+            history=self._quotes.close_history(ticker),
+            today=now_riyadh().date().isoformat(),
+            fallback=fallback,
+        )
+
     def quote_tape(self) -> list[dict[str, Any]]:
         """Lightweight last-quote strip for the top price ticker."""
 
@@ -1274,10 +1306,12 @@ class TickChartFeed:
             symbol = str(item.get("symbol") or "").strip().upper()
             if not is_tasi_main_symbol(symbol) or is_prohibited(symbol):
                 continue
-            try:
-                price = float(self._quotes.display_price(symbol) or 0)
-            except (TypeError, ValueError):
-                continue
+            price = self._shown_price(symbol)
+            if price is None:
+                try:
+                    price = float(self._quotes.display_price(symbol) or 0)
+                except (TypeError, ValueError):
+                    price = 0.0
             if price <= 0:
                 continue
             measured = self._quotes.session_change(symbol, price)
@@ -2526,10 +2560,13 @@ class TickChartFeed:
                 "open": payload.get("open"),
                 "liquidity_flow": payload.get("liquidity_flow"),
             }
+            stamp = _live_session_day()
+            if stamp is not None:
+                extras["session_date"] = stamp
             if session_volume not in (None, ""):
                 self._quotes.apply_closes([extras], accumulate_volume=False)
             else:
-                self._quotes.remember(symbol, price, volume=volume)
+                self._quotes.remember(symbol, price, volume=volume, session_date=stamp)
             self.mark_desktop_live()
             self.observe_explosive(symbol)
             return True
@@ -2742,6 +2779,36 @@ def _same_price(left: Any, right: Any) -> bool:
     if first <= 0 or second <= 0:
         return False
     return abs(first - second) <= max(abs(second) * 0.0001, 0.0001)
+
+
+def _live_session_day():
+    """Today's session date while TASI is in pre-open, open, or auction. Otherwise unset."""
+
+    moment = now_riyadh()
+    if session_phase(moment) not in {"preopen", "open", "auction"}:
+        return None
+    return moment.date()
+
+
+def _select_shown_price(
+    *,
+    in_session: bool,
+    tape_price: Any,
+    today_price: Any,
+    history: list[dict[str, Any]],
+    today: str,
+    fallback: Any = None,
+) -> float | None:
+    """Live tape print, unless that print is an older close. Never a cached close during the session."""
+
+    tape_is_old = _matches_prior_close(tape_price, history, today) and not _same_price(tape_price, today_price)
+    if in_session and _json_number(today_price) and (tape_price is None or tape_is_old):
+        return _json_number(today_price)
+    if in_session and _json_number(tape_price) and not tape_is_old:
+        return _json_number(tape_price)
+    if in_session:
+        return None
+    return _json_number(fallback)
 
 
 def _matches_prior_close(price: Any, history: list[dict[str, Any]], today: str) -> bool:

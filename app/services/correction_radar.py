@@ -336,7 +336,11 @@ def snapshots_from_feed(feed: Any) -> list[dict[str, Any]]:
         stored = stored if isinstance(stored, dict) else {}
         live = _tape_snapshot(feed, ticker)
         levels = _levels(feed, ticker)
-        price = _positive(live.get("last_price")) or _positive(price_fn(ticker)) or _positive(stored.get("last_price"))
+        shown = getattr(feed, "_shown_price", None)
+        if callable(shown):
+            price = _positive(shown(ticker))
+        else:
+            price = _positive(live.get("last_price")) or _positive(price_fn(ticker)) or _positive(stored.get("last_price"))
         if price is None:
             continue
         vwap = _positive(getattr(levels, "vwap", None)) if levels is not None else None

@@ -360,3 +360,52 @@ def test_public_quote_refresh_reaches_later_symbols(tmp_path: Path) -> None:
         feed.ensure_public_quotes(fetcher=fetcher)
     assert any("4263" in batch for batch in seen)
     assert seen[0] != seen[1]
+
+
+def test_open_session_shows_the_tickchart_print_not_the_cached_close(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.services.correction_radar import snapshots_from_feed
+
+    thursday = datetime(2026, 10, 22, 10, 40, tzinfo=ZoneInfo("Asia/Riyadh"))
+    for module in (
+        "app.services.tickchart_integration",
+        "app.services.last_quotes",
+        "app.services.correction_radar",
+        "app.services.tasi_clock",
+    ):
+        monkeypatch.setattr(f"{module}.now_riyadh", lambda moment=None, stamp=thursday: stamp)
+        monkeypatch.setattr(f"{module}.session_phase", lambda moment=None: "open")
+    feed = _feed(tmp_path)
+    feed._quotes.apply_closes(
+        [{"symbol": "2286", "last_price": 3.40, "session_date": date(2026, 10, 21), "volume": 100_000}]
+    )
+    feed._quotes.merge_history(
+        [{"symbol": "2286", "date": "2026-10-21", "close": 3.40, "volume": 100_000}],
+        keep_today=False,
+    )
+    before = {row["symbol"]: row["last_price"] for row in feed.market_rows()}
+    assert before.get("2286") == 3.40
+    assert snapshots_from_feed(feed) == []
+
+    ingested = asyncio.run(
+        feed.ingest_quote_snapshot(
+            [{"type": "quote", "symbol": "2286", "price": 3.66, "time": "2026-10-22T10:40:00"}]
+        )
+    )
+    assert ingested == 1
+    assert feed._quotes.session_last("2286") == 3.66
+    assert feed.radar_report("2286")["last_price"] == 3.66
+    table = {row["symbol"]: row["last_price"] for row in feed.market_rows()}
+    assert table["2286"] == 3.66
+    alerts = {row["symbol"]: row["last_price"] for row in snapshots_from_feed(feed)}
+    assert alerts["2286"] == 3.66
+
+    tape = feed._tape("2286")
+    tape.prices.clear()
+    tape.prices.append(Decimal("3.40"))
+    assert feed._shown_price("2286") == 3.66
+    assert {row["symbol"]: row["last_price"] for row in feed.market_rows()}["2286"] == 3.66
+    assert {row["symbol"]: row["last_price"] for row in snapshots_from_feed(feed)}["2286"] == 3.66
