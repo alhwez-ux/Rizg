@@ -18,7 +18,7 @@ export {
   SESSION_DAYS,
 };
 
-export const DEFAULT_PIN = "123456";
+export const DEFAULT_PIN = "84458445";
 export const SESSION_COOKIE = `rizg_session_v${AUTH_VERSION}`;
 export const PIN_SETUP_COOKIE = `rizg_pin_cfg_v${AUTH_VERSION}`;
 
@@ -33,7 +33,10 @@ export function authSecret(): string {
 }
 
 export function defaultAccessPin(): string {
-  return process.env.ACCESS_PIN?.trim() || DEFAULT_PIN;
+  const fromEnv = process.env.ACCESS_PIN?.trim();
+  // Ignore the retired default so a stale host env cannot keep the old PIN alive.
+  if (fromEnv && fromEnv !== "123456") return fromEnv;
+  return DEFAULT_PIN;
 }
 
 export function normalizePin(value: string): string {

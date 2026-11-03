@@ -10,6 +10,7 @@ import {
   releaseConnection,
   type ConnectionSnapshot,
 } from "@/lib/connectionGuard";
+import { streamsArmed, streamsHalted, subscribeStreams } from "@/lib/streamGuard";
 
 const POLL_MS = 15_000;
 
@@ -42,6 +43,7 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<ConnectionSnapshot | null>(null);
   const [checking, setChecking] = useState(true);
   const [visible, setVisible] = useState(true);
+  const [streamEpoch, setStreamEpoch] = useState(0);
 
   useEffect(() => {
     const sync = () => setVisible(document.visibilityState === "visible");
@@ -50,8 +52,11 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", sync);
   }, []);
 
+  useEffect(() => subscribeStreams(() => setStreamEpoch((value) => value + 1)), []);
+
   useEffect(() => {
-    if (!allowsSession(pathname) || !visible) {
+    const live = streamsArmed() && !streamsHalted() && allowsSession(pathname) && visible;
+    if (!live) {
       setChecking(false);
       setSnapshot((current) =>
         current
@@ -64,7 +69,7 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
               is_connected: false,
             },
       );
-      if (!visible) releaseConnection(connectionClientId());
+      if (!visible && streamsArmed() && !streamsHalted()) releaseConnection(connectionClientId());
       return;
     }
 
@@ -106,10 +111,10 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pagehide", release);
       release();
     };
-  }, [pathname, visible]);
+  }, [pathname, streamEpoch, visible]);
 
   const value = useMemo<ConnectionGuardValue>(() => {
-    if (!allowsSession(pathname) || !visible) {
+    if (!streamsArmed() || streamsHalted() || !allowsSession(pathname) || !visible) {
       return {
         isConnected: false,
         healthy: snapshot?.healthy ?? true,
@@ -129,7 +134,7 @@ export function ConnectionGuardProvider({ children }: { children: ReactNode }) {
       checking,
       apiUp: checking && !snapshot ? null : snapshot?.healthy !== false,
     };
-  }, [checking, pathname, snapshot, visible]);
+  }, [checking, pathname, snapshot, streamEpoch, visible]);
 
   return createElement(ConnectionGuardContext.Provider, { value }, children);
 }

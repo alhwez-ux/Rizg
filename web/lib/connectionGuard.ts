@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { streamsHalted } from "@/lib/streamGuard";
 
 export interface ConnectionSnapshot {
   healthy: boolean;
@@ -25,6 +26,7 @@ export function connectionClientId(): string {
 }
 
 export async function fetchConnectionStatus(): Promise<ConnectionSnapshot> {
+  if (streamsHalted()) return DISCONNECTED;
   try {
     const response = await fetch(apiUrl("/api/v1/connection"), { cache: "no-store" });
     if (response.status === 404) {
@@ -54,6 +56,7 @@ export async function fetchConnectionStatus(): Promise<ConnectionSnapshot> {
 }
 
 export async function beatConnection(clientId: string): Promise<ConnectionSnapshot | null> {
+  if (streamsHalted()) return null;
   try {
     const response = await fetch(apiUrl("/api/v1/connection/heartbeat"), {
       method: "POST",
@@ -77,6 +80,7 @@ export async function beatConnection(clientId: string): Promise<ConnectionSnapsh
 }
 
 export function releaseConnection(clientId: string): void {
+  if (streamsHalted()) return;
   const url = apiUrl("/api/v1/connection/release");
   const body = JSON.stringify({ client_id: clientId });
   try {

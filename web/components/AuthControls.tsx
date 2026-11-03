@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 
 import { ar } from "@/lib/ar";
 import { PIN_MAX_LENGTH } from "@/lib/auth/public-constants";
+import { haltAllStreams } from "@/lib/streamGuard";
 
 export function AuthControls({ showPassword = true, showLogout = true }: { showPassword?: boolean; showLogout?: boolean } = {}) {
   const [open, setOpen] = useState(false);
@@ -15,8 +16,13 @@ export function AuthControls({ showPassword = true, showLogout = true }: { showP
   const [error, setError] = useState<string | null>(null);
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.assign("/");
+    haltAllStreams();
+    try {
+      await fetch("/api/auth/logout", { method: "POST", cache: "no-store", keepalive: true });
+    } catch {
+      /* The cookie is cleared when the request is accepted. Leave either way. */
+    }
+    window.location.replace("/login");
   };
 
   const onChangePin = async (event: FormEvent) => {

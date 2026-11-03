@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { ar } from "@/lib/ar";
 
@@ -16,12 +17,14 @@ function isStandalone(): boolean {
 }
 
 export function InstallAppButton() {
+  const pathname = usePathname();
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
   const [installed, setInstalled] = useState(false);
   const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
     setInstalled(isStandalone());
+    if (pathname === "/login") return;
     if ("serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
     }
@@ -40,7 +43,7 @@ export function InstallAppButton() {
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
-  }, []);
+  }, [pathname]);
 
   if (installed) return null;
 

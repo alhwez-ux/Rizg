@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 import { CLIENT_BUILD } from "@/lib/auth/public-constants";
+import { streamsArmed, streamsHalted } from "@/lib/streamGuard";
 
 const STORAGE_KEY = "rizg-build";
 
 export function AppUpdateGuard() {
+  const pathname = usePathname();
+
   useEffect(() => {
+    if (pathname === "/login" || !streamsArmed() || streamsHalted()) return;
     void (async () => {
       try {
         if ("caches" in window) {
@@ -43,7 +48,7 @@ export function AppUpdateGuard() {
         window.location.replace(url.pathname + url.search);
       }
     })();
-  }, []);
+  }, [pathname]);
 
   return null;
 }

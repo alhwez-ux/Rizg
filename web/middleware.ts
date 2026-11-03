@@ -10,11 +10,19 @@ const STALE_COOKIES = [
   "rizg_session_v4",
   "rizg_session_v5",
   "rizg_session_v6",
+  "rizg_session_v7",
+  "rizg_session_v8",
+  "rizg_session_v9",
+  "rizg_session_v10",
   "rizg_pin_cfg",
   "rizg_pin_cfg_v3",
   "rizg_pin_cfg_v4",
   "rizg_pin_cfg_v5",
   "rizg_pin_cfg_v6",
+  "rizg_pin_cfg_v7",
+  "rizg_pin_cfg_v8",
+  "rizg_pin_cfg_v9",
+  "rizg_pin_cfg_v10",
 ];
 
 function withNoStore(response: NextResponse, auth: string): NextResponse {
@@ -61,7 +69,12 @@ export async function middleware(request: NextRequest) {
     return withNoStore(NextResponse.json({ message: "unauthorized" }, { status: 401 }), token ? "invalid" : "missing");
   }
 
-  const page = withNoStore(NextResponse.next(), token ? "invalid" : "missing");
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/login";
+  loginUrl.search = "";
+  const next = `${pathname}${request.nextUrl.search}`;
+  if (next !== "/") loginUrl.searchParams.set("next", next);
+  const page = withNoStore(NextResponse.redirect(loginUrl), token ? "invalid" : "missing");
   clearStale(request, page);
   return page;
 }

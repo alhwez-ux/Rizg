@@ -1,10 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
 import { Cairo } from "next/font/google";
 
 import { AppUpdateGuard } from "@/components/AppUpdateGuard";
+import { StreamBootstrap } from "@/components/StreamBootstrap";
 import { ConnectionGuardProvider } from "@/hooks/useConnectionGuard";
+import { SESSION_COOKIE } from "@/lib/auth/config";
 import { CLIENT_BUILD } from "@/lib/auth/public-constants";
+import { readSessionToken } from "@/lib/auth/token";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 import "./globals.css";
 
@@ -47,7 +51,9 @@ export const viewport: Viewport = {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const authenticated = await readSessionToken(token);
   return (
     <html lang="ar" dir="rtl" data-theme="dark" suppressHydrationWarning>
       <body className={`${cairo.className} min-h-screen antialiased`}>
@@ -61,6 +67,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             __html: `(() => {var b=${JSON.stringify(CLIENT_BUILD)};var k="rizg-build";try{var u=new URL(location.href);var q=u.searchParams.get("v");var p=localStorage.getItem(k);if(p===b&&q===b)return;var go=function(){try{localStorage.setItem(k,b);}catch(e){}u.searchParams.set("v",b);location.replace(u.pathname+u.search);};var jobs=[];if(window.caches){jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(x){return caches.delete(x);}));}));}Promise.all(jobs).then(go).catch(go);}catch(e){}})();`,
           }}
         />
+        <StreamBootstrap enabled={authenticated} />
         <ConnectionGuardProvider>
           <AppUpdateGuard />
           {children}
